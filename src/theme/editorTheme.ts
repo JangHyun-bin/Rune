@@ -20,5 +20,6 @@ export function editorTheme() {
     ".cm-md-code": { fontFamily: "var(--mono)", fontSize: "0.9em", background: "var(--faint)", border: "1px solid var(--border)", borderRadius: "4px", padding: "0.05em 0.35em" },
     ".cm-md-quote": { color: "var(--muted)", borderLeft: "3px solid var(--border)", paddingLeft: "0.8em" },
     ".cm-md-link": { color: "var(--accent)", textDecoration: "underline" },
+    ".cm-md-codeblock": { fontFamily: "var(--mono)", fontSize: "0.92em", background: "var(--faint)" },
   });
 }

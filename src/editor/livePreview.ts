@@ -44,6 +44,14 @@ function build(view: EditorView): { deco: DecorationSet; atomic: DecorationSet }
           decoR.push(Decoration.line({ class: `cm-md-h${h[1]}` }).range(line.from));
           return;
         }
+        if (name === "FencedCode") {
+          const first = doc.lineAt(node.from).number;
+          const last = doc.lineAt(node.to).number;
+          for (let ln = first; ln <= last; ln++) {
+            decoR.push(Decoration.line({ class: "cm-md-codeblock" }).range(doc.line(ln).from));
+          }
+          return;
+        }
         if (name === "Blockquote") {
           const line = doc.lineAt(node.from);
           decoR.push(Decoration.line({ class: "cm-md-quote" }).range(line.from));
