@@ -1,3 +1,4 @@
+import "./styles.css";
 import { createEditor, setEditorText } from "./editor/editor";
 import {
   newDoc, loadedDoc, withCurrentText, markSaved, isDirty, type DocState,

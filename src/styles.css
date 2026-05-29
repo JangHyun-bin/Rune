@@ -1,0 +1,28 @@
+/* M0: 최소한의 기능적 레이아웃만. 본격 디자인 시스템(Pretendard·라이트/다크 테마·타이포)은 M1. */
+html,
+body {
+  height: 100%;
+  margin: 0;
+}
+
+#app {
+  height: 100vh;
+}
+
+.cm-editor {
+  height: 100%;
+}
+
+.cm-editor.cm-focused {
+  outline: none;
+}
+
+.cm-scroller {
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  font-size: 15px;
+  line-height: 1.6;
+}
+
+.cm-content {
+  padding: 24px 32px;
+}
