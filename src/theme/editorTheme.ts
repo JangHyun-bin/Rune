@@ -24,5 +24,7 @@ export function editorTheme() {
     ".cm-block-widget": { margin: "0.5em 0" },
     ".cm-mermaid": { display: "flex", justifyContent: "center", padding: "10px", background: "var(--faint)", border: "1px solid var(--border)", borderRadius: "10px" },
     ".cm-mermaid-error": { color: "var(--accent)", fontFamily: "var(--mono)", fontSize: "0.85em", padding: "10px", whiteSpace: "pre-wrap" },
+    ".cm-math-block": { display: "block", textAlign: "center", margin: "0.6em 0" },
+    ".cm-math-inline": { padding: "0 0.1em" },
   });
 }

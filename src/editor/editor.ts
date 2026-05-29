@@ -10,6 +10,7 @@ import { livePreview } from "./livePreview";
 import { codeHighlightStyle } from "./highlightStyle";
 import { blockWidgets } from "./blockWidgets";
 import { mermaidSpec } from "./mermaid";
+import { mathField } from "./math";
 
 /** 마운트하고, 내용이 바뀔 때마다 onChange(text)를 호출한다. extraExtensions로 추가 확장 주입 가능. */
 export function createEditor(
@@ -29,6 +30,7 @@ export function createEditor(
       syntaxHighlighting(codeHighlightStyle),
       livePreview,
       blockWidgets([mermaidSpec]),
+      mathField(),
       EditorView.updateListener.of((u) => {
         if (u.docChanged) onChange(u.state.doc.toString());
       }),
