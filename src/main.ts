@@ -8,7 +8,7 @@ import { open, save } from "@tauri-apps/plugin-dialog";
 
 let docState: DocState = newDoc();
 
-const appEl = document.getElementById("app")!;
+const appEl = document.getElementById("editor")!;
 const view = createEditor(appEl, "", (text) => {
   docState = withCurrentText(docState, text);
   updateTitle();

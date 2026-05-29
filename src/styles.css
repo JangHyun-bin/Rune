@@ -1,28 +1,19 @@
-/* M0: 최소한의 기능적 레이아웃만. 본격 디자인 시스템(Pretendard·라이트/다크 테마·타이포)은 M1. */
-html,
-body {
-  height: 100%;
-  margin: 0;
+:root {
+  --bg: #ffffff; --faint: #f7f8fa; --border: #ecedf1;
+  --text: #181a1f; --muted: #8a909c; --accent: #5b5bd6; --accent-soft: #eef0fb;
+  --mono: "JetBrains Mono", ui-monospace, Menlo, Consolas, monospace;
+  --sans: "Pretendard Variable", Pretendard, -apple-system, system-ui, "Apple SD Gothic Neo", sans-serif;
 }
-
-#app {
-  height: 100vh;
+:root[data-theme="dark"] {
+  --bg: #16181d; --faint: #1c1f26; --border: #2a2d36;
+  --text: #e6e8ee; --muted: #8a909c; --accent: #7c7cf0; --accent-soft: #23263a;
 }
-
-.cm-editor {
-  height: 100%;
-}
-
-.cm-editor.cm-focused {
-  outline: none;
-}
-
-.cm-scroller {
-  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
-  font-size: 15px;
-  line-height: 1.6;
-}
-
-.cm-content {
-  padding: 24px 32px;
-}
+html, body { height: 100%; margin: 0; }
+body { background: var(--bg); color: var(--text); font-family: var(--sans); }
+#app { height: 100vh; display: flex; flex-direction: column; }
+#titlebar { height: 40px; flex-shrink: 0; display: flex; align-items: center; padding: 0 14px; gap: 10px; border-bottom: 1px solid var(--border); background: var(--faint); font-size: 12.5px; color: var(--muted); user-select: none; }
+#titlebar .doc-title { flex: 1; text-align: center; color: var(--text); font-weight: 500; }
+#titlebar .dirty { color: var(--accent); }
+#titlebar button { background: none; border: 1px solid var(--border); border-radius: 6px; color: var(--muted); font-size: 11px; padding: 3px 8px; cursor: pointer; }
+#editor { flex: 1; min-height: 0; overflow: hidden; }
+#statusbar { height: 26px; flex-shrink: 0; display: flex; align-items: center; justify-content: space-between; padding: 0 16px; border-top: 1px solid var(--border); background: var(--faint); font-size: 11px; color: var(--muted); user-select: none; }
