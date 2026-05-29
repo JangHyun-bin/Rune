@@ -75,4 +75,13 @@ mod tests {
         let tmp = dir.path().join("no_such_subdir").join(".note.md.tmp");
         assert!(!tmp.exists());
     }
+
+    #[test]
+    fn roundtrip_utf8_cjk() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("한글.md");
+        let content = "# 안녕하세요\n世界 🌍\n";
+        write_text_file_atomic(&file, content).unwrap();
+        assert_eq!(read_text_file(&file).unwrap(), content);
+    }
 }
