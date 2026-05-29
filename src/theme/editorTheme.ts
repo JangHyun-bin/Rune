@@ -21,5 +21,8 @@ export function editorTheme() {
     ".cm-md-quote": { color: "var(--muted)", borderLeft: "3px solid var(--border)", paddingLeft: "0.8em" },
     ".cm-md-link": { color: "var(--accent)", textDecoration: "underline" },
     ".cm-md-codeblock": { fontFamily: "var(--mono)", fontSize: "0.92em", background: "var(--faint)" },
+    ".cm-block-widget": { margin: "0.5em 0" },
+    ".cm-mermaid": { display: "flex", justifyContent: "center", padding: "10px", background: "var(--faint)", border: "1px solid var(--border)", borderRadius: "10px" },
+    ".cm-mermaid-error": { color: "var(--accent)", fontFamily: "var(--mono)", fontSize: "0.85em", padding: "10px", whiteSpace: "pre-wrap" },
   });
 }
