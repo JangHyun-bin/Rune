@@ -1,6 +1,6 @@
 import "../theme/fonts";
 import { EditorState, type Extension } from "@codemirror/state";
-import { EditorView, keymap } from "@codemirror/view";
+import { EditorView, keymap, drawSelection } from "@codemirror/view";
 import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
 import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
 import { editorTheme } from "../theme/editorTheme";
@@ -17,6 +17,7 @@ export function createEditor(
     doc,
     extensions: [
       history(),
+      drawSelection(),
       keymap.of([...defaultKeymap, ...historyKeymap]),
       markdown({ base: markdownLanguage }),
       editorTheme(),
