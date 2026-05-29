@@ -5,20 +5,45 @@ import {
 } from "./doc/document";
 import { commands } from "./ipc/bindings";
 import { open, save } from "@tauri-apps/plugin-dialog";
+import { EditorView } from "@codemirror/view";
+import { mountChrome } from "./chrome/chrome";
 
 let docState: DocState = newDoc();
 
-const appEl = document.getElementById("editor")!;
-const view = createEditor(appEl, "", (text) => {
-  docState = withCurrentText(docState, text);
-  updateTitle();
-});
+const chrome = mountChrome(
+  document.getElementById("titlebar")!,
+  document.getElementById("statusbar")!,
+);
+
+let view: EditorView;
 
 function updateTitle(): void {
   const name = docState.path ?? "Untitled";
   document.title = (isDirty(docState) ? "● " : "") + name + " — cp_markdown";
+  chrome.setTitle(name, isDirty(docState));
 }
+
+function refreshStatus(): void {
+  if (!view) return;
+  const text = view.state.doc.toString();
+  const head = view.state.selection.main.head;
+  const line = view.state.doc.lineAt(head);
+  chrome.setStatus(text, line.number, head - line.from + 1);
+}
+
+view = createEditor(
+  document.getElementById("editor")!,
+  "",
+  (text) => {
+    docState = withCurrentText(docState, text);
+    updateTitle();
+    refreshStatus();
+  },
+  [EditorView.updateListener.of((u) => { if (u.selectionSet) refreshStatus(); })],
+);
+
 updateTitle();
+refreshStatus();
 
 async function openFile(): Promise<void> {
   const selected = await open({
@@ -31,6 +56,7 @@ async function openFile(): Promise<void> {
   docState = loadedDoc(selected, res.data);
   setEditorText(view, res.data);
   updateTitle();
+  refreshStatus();
 }
 
 async function saveFile(): Promise<void> {
@@ -44,6 +70,7 @@ async function saveFile(): Promise<void> {
   if (res.status === "error") { console.error(res.error); return; }
   docState = markSaved({ ...docState, path });
   updateTitle();
+  refreshStatus();
 }
 
 window.addEventListener("keydown", (e) => {
