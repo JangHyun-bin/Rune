@@ -1,3 +1,4 @@
+/// <reference types="vitest" />
 import { defineConfig } from "vite";
 
 // @ts-expect-error process is a nodejs global
@@ -27,4 +28,5 @@ export default defineConfig(async () => ({
       ignored: ["**/src-tauri/**"],
     },
   },
+  test: { environment: "node", include: ["src/**/*.test.ts"] },
 }));
