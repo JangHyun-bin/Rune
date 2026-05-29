@@ -16,11 +16,13 @@ target/
 src-tauri/gen/
 
 # Logs
+logs
 *.log
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
+lerna-debug.log*
 
 # Env
 .env
@@ -33,6 +35,11 @@ Thumbs.db
 .idea/
 .vscode/*
 !.vscode/extensions.json
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
 
 # Brainstorming visual companion (local mockups, not source)
 .superpowers/
