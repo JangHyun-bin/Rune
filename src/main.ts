@@ -12,6 +12,7 @@ import { mountTabBar } from "./workspace/tabBar";
 import { autosave } from "./workspace/autosave";
 import { listen } from "@tauri-apps/api/event";
 import { mountConflictBanner } from "./workspace/conflictBanner";
+import { mountCommandPalette, type PaletteItem } from "./workspace/commandPalette";
 
 const chrome = mountChrome(document.getElementById("titlebar")!, document.getElementById("statusbar")!, {
   onThemeChange: () => scheduleSaveSettings(),
@@ -24,6 +25,7 @@ const states = new Map<string, EditorState>();
 let view: EditorView;
 const auto = autosave(800, () => void autoSave());
 let currentFolder: string | null = null;
+let workspaceFiles: { name: string; path: string }[] = [];
 
 function prefersDark(): boolean { return window.matchMedia("(prefers-color-scheme: dark)").matches; }
 function settingsSnapshot() {
@@ -89,10 +91,17 @@ async function openFile(): Promise<void> {
   const selected = await open({ multiple: false, filters: [{ name: "Markdown", extensions: ["md", "markdown"] }] });
   if (typeof selected === "string") await openPath(selected);
 }
+function flattenFiles(nodes: import("./ipc/bindings").FileNode[]): { name: string; path: string }[] {
+  const out: { name: string; path: string }[] = [];
+  const walk = (ns: import("./ipc/bindings").FileNode[]) => { for (const n of ns) { if (n.isDir) walk(n.children); else out.push({ name: n.name, path: n.path }); } };
+  walk(nodes);
+  return out;
+}
 async function loadFolder(dir: string): Promise<void> {
   const res = await commands.listDir(dir);
   if (res.status === "error") { console.error(res.error); throw new Error(res.error); }
   tree.render(res.data);
+  workspaceFiles = flattenFiles(res.data);
   currentFolder = dir;
   void commands.watchFolder(dir);
 }
@@ -136,6 +145,24 @@ async function autoSave(): Promise<void> {
   syncActiveUI();
 }
 
+function flipTheme(): void {
+  const next = document.documentElement.getAttribute("data-theme") === "dark" ? "light" : "dark";
+  document.documentElement.setAttribute("data-theme", next);
+  scheduleSaveSettings();
+}
+function paletteItems(): PaletteItem[] {
+  const cmds: PaletteItem[] = [
+    { label: "새 탭", run: () => newDoc() },
+    { label: "파일 열기…", run: () => void openFile() },
+    { label: "폴더 열기…", run: () => void openFolder() },
+    { label: "저장", run: () => void doSave() },
+    { label: "테마 전환", run: () => flipTheme() },
+    { label: "탭 닫기", run: () => { if (tabs.activeId) requestClose(tabs.activeId); } },
+  ];
+  const files: PaletteItem[] = workspaceFiles.map((f) => ({ label: f.name, hint: f.path, run: () => void openPath(f.path) }));
+  return [...cmds, ...files];
+}
+const palette = mountCommandPalette(paletteItems);
 async function restore(): Promise<void> {
   const res = await commands.loadSettings();
   const s = res.status === "ok" ? res.data : { theme: null, lastFolder: null, openTabs: [] };
@@ -186,6 +213,7 @@ void restore();
 window.addEventListener("blur", () => auto.flush());
 window.addEventListener("keydown", (e) => {
   const mod = e.ctrlKey || e.metaKey;
+  if (mod && e.key.toLowerCase() === "k") { e.preventDefault(); palette.toggle(); return; }
   if (mod && e.shiftKey && e.key.toLowerCase() === "o") { e.preventDefault(); void openFolder(); return; }
   if (mod && e.key.toLowerCase() === "o") { e.preventDefault(); void openFile(); return; }
   if (mod && e.key.toLowerCase() === "s") { e.preventDefault(); void doSave(); return; }
