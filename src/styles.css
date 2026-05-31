@@ -15,5 +15,14 @@ body { background: var(--bg); color: var(--text); font-family: var(--sans); }
 #titlebar .doc-title { flex: 1; text-align: center; color: var(--text); font-weight: 500; }
 #titlebar .dirty { color: var(--accent); }
 #titlebar button { background: none; border: 1px solid var(--border); border-radius: 6px; color: var(--muted); font-size: 11px; padding: 3px 8px; cursor: pointer; }
+#body { flex: 1; min-height: 0; display: flex; }
+#sidebar { width: 240px; flex-shrink: 0; overflow: auto; background: var(--faint); border-right: 1px solid var(--border); padding: 8px 6px; font-size: 13px; }
+#sidebar.hidden { display: none; }
 #editor { flex: 1; min-height: 0; overflow: hidden; }
+.ft-row { display: flex; align-items: center; gap: 5px; padding: 4px 8px; border-radius: 6px; cursor: pointer; color: #3b414d; white-space: nowrap; }
+:root[data-theme="dark"] .ft-row { color: #c5c9d3; }
+.ft-row:hover { background: var(--accent-soft); }
+.ft-row.active { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+.ft-twist { width: 12px; color: var(--muted); font-size: 10px; flex-shrink: 0; }
+.ft-ws { font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); padding: 4px 8px; }
 #statusbar { height: 26px; flex-shrink: 0; display: flex; align-items: center; justify-content: space-between; padding: 0 16px; border-top: 1px solid var(--border); background: var(--faint); font-size: 11px; color: var(--muted); user-select: none; }
