@@ -1,6 +1,7 @@
 use crate::fs_ops;
+use notify::{RecursiveMode, Watcher};
 use std::path::{Path, PathBuf};
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Emitter, Manager};
 
 #[tauri::command]
 pub fn read_file(path: String) -> Result<String, String> {
@@ -38,4 +39,24 @@ pub fn load_settings(app: AppHandle) -> Result<crate::settings::Settings, String
 #[tauri::command]
 pub fn save_settings(app: AppHandle, settings: crate::settings::Settings) -> Result<(), String> {
     crate::settings::save(&settings_path(&app)?, &settings)
+}
+
+#[tauri::command]
+pub fn watch_folder(app: AppHandle, state: tauri::State<crate::WatcherState>, path: String) -> Result<(), String> {
+    let app2 = app.clone();
+    let mut watcher = notify::recommended_watcher(move |res: notify::Result<notify::Event>| {
+        if let Ok(ev) = res {
+            // only signal real content/structure changes
+            if matches!(ev.kind, notify::EventKind::Modify(_) | notify::EventKind::Create(_) | notify::EventKind::Remove(_)) {
+                let paths: Vec<String> = ev.paths.iter().map(|p| p.to_string_lossy().to_string()).collect();
+                let _ = app2.emit("fs-change", paths);
+            }
+        }
+    })
+    .map_err(|e| e.to_string())?;
+    watcher
+        .watch(std::path::Path::new(&path), RecursiveMode::Recursive)
+        .map_err(|e| e.to_string())?;
+    *state.0.lock().map_err(|e| e.to_string())? = Some(watcher); // replacing drops & stops the old watcher
+    Ok(())
 }

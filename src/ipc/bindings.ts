@@ -24,4 +24,5 @@ export const commands = {
   listDir: (path: string) => call<FileNode[]>("list_dir", { path }),
   loadSettings: () => call<Settings>("load_settings", {}),
   saveSettings: (settings: Settings) => call<null>("save_settings", { settings }),
+  watchFolder: (path: string) => call<null>("watch_folder", { path }),
 };
