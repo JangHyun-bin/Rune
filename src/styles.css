@@ -35,3 +35,8 @@ body { background: var(--bg); color: var(--text); font-family: var(--sans); }
 .ft-twist { width: 12px; color: var(--muted); font-size: 10px; flex-shrink: 0; }
 .ft-ws { font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); padding: 4px 8px; }
 #statusbar { height: 26px; flex-shrink: 0; display: flex; align-items: center; justify-content: space-between; padding: 0 16px; border-top: 1px solid var(--border); background: var(--faint); font-size: 11px; color: var(--muted); user-select: none; }
+.conflict-banner { display: flex; align-items: center; gap: 10px; padding: 6px 12px; background: var(--accent-soft); border-bottom: 1px solid var(--border); font-size: 12.5px; color: var(--text); }
+.conflict-banner.hidden { display: none; }
+.conflict-banner .cb-msg { flex: 1; }
+.conflict-banner button { background: var(--bg); border: 1px solid var(--border); border-radius: 6px; color: var(--text); font-size: 11.5px; padding: 3px 9px; cursor: pointer; }
+.conflict-banner button:hover { border-color: var(--accent); }
