@@ -7,6 +7,13 @@ pub fn read_file(path: String) -> Result<String, String> {
 }
 
 #[tauri::command]
+pub fn list_dir(path: String) -> Result<Vec<crate::fs_ops::FileNode>, String> {
+    let p = std::path::PathBuf::from(&path);
+    if !p.is_dir() { return Err(format!("폴더가 아님: {path}")); }
+    Ok(crate::fs_ops::scan_dir(&p, 0))
+}
+
+#[tauri::command]
 pub fn write_file(path: String, contents: String) -> Result<(), String> {
     fs_ops::write_text_file_atomic(&PathBuf::from(path), &contents)
 }

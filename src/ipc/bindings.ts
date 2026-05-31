@@ -4,6 +4,8 @@ export type Result<T> =
   | { status: "ok"; data: T }
   | { status: "error"; error: string };
 
+export interface FileNode { name: string; path: string; isDir: boolean; children: FileNode[]; }
+
 async function call<T>(cmd: string, args: Record<string, unknown>): Promise<Result<T>> {
   try {
     return { status: "ok", data: (await invoke(cmd, args)) as T };
@@ -18,4 +20,5 @@ export const commands = {
     call<null>("write_file", { path, contents }),
   saveAsset: (docPath: string, bytes: number[], ext: string) =>
     call<string>("save_asset", { docPath, bytes, ext }),
+  listDir: (path: string) => call<FileNode[]>("list_dir", { path }),
 };

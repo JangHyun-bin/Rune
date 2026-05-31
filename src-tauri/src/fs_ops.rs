@@ -1,3 +1,4 @@
+use serde::Serialize;
 use sha2::{Digest, Sha256};
 use std::fs;
 use std::io::Write;
@@ -65,6 +66,39 @@ fn temp_sibling(path: &Path) -> Result<PathBuf, String> {
     Ok(p)
 }
 
+#[derive(Serialize, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct FileNode {
+    pub name: String,
+    pub path: String,
+    pub is_dir: bool,
+    pub children: Vec<FileNode>,
+}
+
+const IGNORE: &[&str] = &[".git", "node_modules", "target", ".superpowers"];
+
+/// 폴더 재귀 스캔. dir 먼저·이름 오름차순, .md/.markdown 파일만(+ 비무시 디렉토리). depth 제한.
+pub fn scan_dir(root: &Path, depth: usize) -> Vec<FileNode> {
+    if depth > 12 { return vec![]; }
+    let mut dirs: Vec<FileNode> = vec![];
+    let mut files: Vec<FileNode> = vec![];
+    let Ok(entries) = fs::read_dir(root) else { return vec![]; };
+    for e in entries.flatten() {
+        let name = e.file_name().to_string_lossy().to_string();
+        if name.starts_with('.') || IGNORE.contains(&name.as_str()) { continue; }
+        let path = e.path();
+        let p = path.to_string_lossy().to_string();
+        if path.is_dir() {
+            dirs.push(FileNode { name, path: p, is_dir: true, children: scan_dir(&path, depth + 1) });
+        } else if matches!(path.extension().and_then(|x| x.to_str()), Some("md") | Some("markdown")) {
+            files.push(FileNode { name, path: p, is_dir: false, children: vec![] });
+        }
+    }
+    dirs.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+    files.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+    dirs.into_iter().chain(files).collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -127,5 +161,19 @@ mod tests {
         let a1 = save_asset(dir.path(), b, "png").unwrap();
         let a2 = save_asset(dir.path(), b, "png").unwrap();
         assert_eq!(a1, a2);
+    }
+
+    #[test]
+    fn scan_dir_lists_md_and_subdirs_sorted() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir(dir.path().join("sub")).unwrap();
+        std::fs::write(dir.path().join("b.md"), "b").unwrap();
+        std::fs::write(dir.path().join("a.md"), "a").unwrap();
+        std::fs::write(dir.path().join("ignore.txt"), "x").unwrap();
+        std::fs::write(dir.path().join("sub").join("c.md"), "c").unwrap();
+        let nodes = scan_dir(dir.path(), 0);
+        assert_eq!(nodes.iter().map(|n| n.name.as_str()).collect::<Vec<_>>(), vec!["sub", "a.md", "b.md"]);
+        let sub = &nodes[0];
+        assert!(sub.is_dir && sub.children.len() == 1 && sub.children[0].name == "c.md");
     }
 }
