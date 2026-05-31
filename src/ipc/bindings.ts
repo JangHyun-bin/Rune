@@ -16,4 +16,6 @@ export const commands = {
   readFile: (path: string) => call<string>("read_file", { path }),
   writeFile: (path: string, contents: string) =>
     call<null>("write_file", { path, contents }),
+  saveAsset: (docPath: string, bytes: number[], ext: string) =>
+    call<string>("save_asset", { docPath, bytes, ext }),
 };
