@@ -13,6 +13,7 @@ import { autosave } from "./workspace/autosave";
 import { listen } from "@tauri-apps/api/event";
 import { mountConflictBanner } from "./workspace/conflictBanner";
 import { mountCommandPalette, type PaletteItem } from "./workspace/commandPalette";
+import { exportHtml, exportPdf } from "./export/exportDoc";
 
 const chrome = mountChrome(document.getElementById("titlebar")!, document.getElementById("statusbar")!, {
   onThemeChange: () => scheduleSaveSettings(),
@@ -39,6 +40,7 @@ function scheduleSaveSettings() {
 }
 
 function baseName(p: string): string { const i = Math.max(p.lastIndexOf("/"), p.lastIndexOf("\\")); return i >= 0 ? p.slice(i + 1) : p; }
+function exportTitle(): string { const t = activeTab(tabs); return t?.path ? baseName(t.path).replace(/\.(md|markdown)$/i, "") : "untitled"; }
 function extraExts() { return [EditorView.updateListener.of((u) => { if (u.selectionSet) refreshStatus(); }), auto.ext, Prec.highest(keymap.of([{ key: "Mod-k", run: () => { palette.toggle(); return true; }, preventDefault: true }]))]; }
 function onChange(text: string) { tabs = updateActiveText(tabs, text); syncActiveUI(); }
 
@@ -158,6 +160,8 @@ function paletteItems(): PaletteItem[] {
     { label: "저장", run: () => void doSave() },
     { label: "테마 전환", run: () => flipTheme() },
     { label: "탭 닫기", run: () => { if (tabs.activeId) requestClose(tabs.activeId); } },
+    { label: "HTML로 내보내기", run: () => void exportHtml(view.state.doc.toString(), exportTitle()) },
+    { label: "PDF로 내보내기", run: () => void exportPdf(view.state.doc.toString(), exportTitle()) },
   ];
   const files: PaletteItem[] = workspaceFiles.map((f) => ({ label: f.name, hint: f.path, run: () => void openPath(f.path) }));
   return [...cmds, ...files];
@@ -218,4 +222,5 @@ window.addEventListener("keydown", (e) => {
   if (mod && e.key.toLowerCase() === "s") { e.preventDefault(); void doSave(); return; }
   if (mod && e.key.toLowerCase() === "n") { e.preventDefault(); newDoc(); return; }
   if (mod && e.key.toLowerCase() === "w") { e.preventDefault(); if (tabs.activeId) requestClose(tabs.activeId); return; }
+  if (mod && e.key.toLowerCase() === "e") { e.preventDefault(); void exportHtml(view.state.doc.toString(), exportTitle()); return; }
 });
