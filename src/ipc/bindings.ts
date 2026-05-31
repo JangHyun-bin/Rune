@@ -5,6 +5,7 @@ export type Result<T> =
   | { status: "error"; error: string };
 
 export interface FileNode { name: string; path: string; isDir: boolean; children: FileNode[]; }
+export interface Settings { theme: string | null; lastFolder: string | null; openTabs: string[]; }
 
 async function call<T>(cmd: string, args: Record<string, unknown>): Promise<Result<T>> {
   try {
@@ -21,4 +22,6 @@ export const commands = {
   saveAsset: (docPath: string, bytes: number[], ext: string) =>
     call<string>("save_asset", { docPath, bytes, ext }),
   listDir: (path: string) => call<FileNode[]>("list_dir", { path }),
+  loadSettings: () => call<Settings>("load_settings", {}),
+  saveSettings: (settings: Settings) => call<null>("save_settings", { settings }),
 };

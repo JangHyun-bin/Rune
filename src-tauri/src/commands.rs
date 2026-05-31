@@ -1,5 +1,6 @@
 use crate::fs_ops;
 use std::path::{Path, PathBuf};
+use tauri::{AppHandle, Manager};
 
 #[tauri::command]
 pub fn read_file(path: String) -> Result<String, String> {
@@ -22,4 +23,19 @@ pub fn write_file(path: String, contents: String) -> Result<(), String> {
 pub fn save_asset(doc_path: String, bytes: Vec<u8>, ext: String) -> Result<String, String> {
     let dir = Path::new(&doc_path).parent().ok_or("문서 경로에 폴더가 없음")?;
     fs_ops::save_asset(dir, &bytes, &ext)
+}
+
+fn settings_path(app: &AppHandle) -> Result<std::path::PathBuf, String> {
+    let dir = app.path().app_config_dir().map_err(|e| e.to_string())?;
+    Ok(dir.join("settings.json"))
+}
+
+#[tauri::command]
+pub fn load_settings(app: AppHandle) -> Result<crate::settings::Settings, String> {
+    Ok(crate::settings::load(&settings_path(&app)?))
+}
+
+#[tauri::command]
+pub fn save_settings(app: AppHandle, settings: crate::settings::Settings) -> Result<(), String> {
+    crate::settings::save(&settings_path(&app)?, &settings)
 }
