@@ -13,6 +13,7 @@ import { mermaidSpec } from "./mermaid";
 import { tableSpec } from "./table";
 import { mathField } from "./math";
 import { imagePaste } from "./paste";
+import { imagePreview } from "./image";
 
 /** 마운트하고, 내용이 바뀔 때마다 onChange(text)를 호출한다. extraExtensions로 추가 확장 주입 가능. */
 export function createEditor(
@@ -34,6 +35,7 @@ export function createEditor(
       blockWidgets([mermaidSpec, tableSpec]),
       mathField(),
       imagePaste,
+      imagePreview(),
       EditorView.updateListener.of((u) => {
         if (u.docChanged) onChange(u.state.doc.toString());
       }),

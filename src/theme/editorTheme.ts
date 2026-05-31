@@ -29,5 +29,6 @@ export function editorTheme() {
     ".cm-md-table": { borderCollapse: "collapse", width: "100%", fontSize: "0.95em" },
     ".cm-md-table th, .cm-md-table td": { border: "1px solid var(--border)", padding: "6px 10px", textAlign: "left" },
     ".cm-md-table th": { background: "var(--faint)", fontWeight: "700" },
+    ".cm-md-image": { maxWidth: "100%", borderRadius: "8px", display: "block", margin: "0.4em 0" },
   });
 }

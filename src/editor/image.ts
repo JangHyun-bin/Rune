@@ -1,0 +1,63 @@
+import { syntaxTree } from "@codemirror/language";
+import { type EditorState, type Extension, RangeSetBuilder, StateField } from "@codemirror/state";
+import { Decoration, type DecorationSet, EditorView, WidgetType } from "@codemirror/view";
+import { convertFileSrc } from "@tauri-apps/api/core";
+import { getDocDir } from "./docContext";
+
+function urlFromImageNode(state: EditorState, from: number, to: number): string | null {
+  const text = state.doc.sliceString(from, to);
+  const m = /\]\(([^)]+)\)/.exec(text); // ![alt](url)
+  return m ? m[1].trim() : null;
+}
+
+function resolveSrc(url: string): string {
+  if (/^(https?:|data:|asset:)/.test(url)) return url;
+  const dir = getDocDir();
+  if (!dir) return url;
+  const sep = dir.includes("\\") ? "\\" : "/";
+  return convertFileSrc(dir + sep + url.replace(/\//g, sep));
+}
+
+class ImageWidget extends WidgetType {
+  constructor(readonly src: string, readonly alt: string) { super(); }
+  eq(o: ImageWidget) { return o.src === this.src && o.alt === this.alt; }
+  toDOM() {
+    const img = document.createElement("img");
+    img.className = "cm-md-image";
+    img.src = this.src;
+    img.alt = this.alt;
+    return img;
+  }
+  ignoreEvent() { return false; }
+}
+
+function cursorInside(state: EditorState, from: number, to: number): boolean {
+  for (const r of state.selection.ranges) if (r.to >= from && r.from <= to) return true;
+  return false;
+}
+
+function build(state: EditorState): DecorationSet {
+  const b = new RangeSetBuilder<Decoration>();
+  syntaxTree(state).iterate({
+    enter: (node) => {
+      if (node.name !== "Image") return;
+      if (cursorInside(state, node.from, node.to)) return;
+      const url = urlFromImageNode(state, node.from, node.to);
+      if (!url) return;
+      const altM = /!\[([^\]]*)\]/.exec(state.doc.sliceString(node.from, node.to));
+      b.add(node.from, node.to, Decoration.replace({ widget: new ImageWidget(resolveSrc(url), altM?.[1] ?? "") }));
+    },
+  });
+  return b.finish();
+}
+
+export function imagePreview(): Extension {
+  return StateField.define<DecorationSet>({
+    create: (s) => build(s),
+    update: (d, tr) => (tr.docChanged || tr.selection ? build(tr.state) : d),
+    provide: (f) => [
+      EditorView.decorations.from(f),
+      EditorView.atomicRanges.of((view) => view.state.field(f)),
+    ],
+  });
+}

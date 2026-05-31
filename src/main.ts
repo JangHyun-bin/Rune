@@ -56,6 +56,7 @@ async function openFile(): Promise<void> {
   const res = await commands.readFile(selected);
   if (res.status === "error") { console.error(res.error); return; }
   docState = loadedDoc(selected, res.data);
+  setDocPath(docState.path);
   setEditorText(view, res.data);
   updateTitle();
   refreshStatus();
