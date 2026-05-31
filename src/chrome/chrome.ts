@@ -5,13 +5,17 @@ export interface Chrome {
   setStatus(text: string, line: number, col: number): void;
 }
 
-/** 상단바/상태바 DOM을 채우고 갱신 함수 + 테마 토글을 배선한다. */
-export function mountChrome(titlebar: HTMLElement, statusbar: HTMLElement): Chrome {
+/** 상단바/상태바 DOM을 채우고 갱신 함수 + 테마 토글을 배선한다. 테마 영속화는 main이 소유한다. */
+export function mountChrome(
+  titlebar: HTMLElement,
+  statusbar: HTMLElement,
+  opts?: { onThemeChange?: (theme: "light" | "dark") => void },
+): Chrome {
   const title = document.createElement("span");
   title.className = "doc-title";
   const themeBtn = document.createElement("button");
   themeBtn.textContent = "테마";
-  themeBtn.addEventListener("click", toggleTheme);
+  themeBtn.addEventListener("click", () => toggleTheme(opts?.onThemeChange));
   const spacerL = document.createElement("span");
   spacerL.style.width = "40px"; // balance right button so title stays centered
   titlebar.replaceChildren(spacerL, title, themeBtn);
@@ -19,8 +23,6 @@ export function mountChrome(titlebar: HTMLElement, statusbar: HTMLElement): Chro
   const left = document.createElement("span");
   const right = document.createElement("span");
   statusbar.replaceChildren(left, right);
-
-  applyTheme(savedTheme());
 
   return {
     setTitle(name, dirty) {
@@ -40,16 +42,9 @@ export function mountChrome(titlebar: HTMLElement, statusbar: HTMLElement): Chro
   };
 }
 
-function savedTheme(): "light" | "dark" {
-  const saved = localStorage.getItem("cpmd-theme");
-  if (saved === "light" || saved === "dark") return saved;
-  return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
-}
-function applyTheme(t: "light" | "dark") {
-  document.documentElement.setAttribute("data-theme", t);
-  localStorage.setItem("cpmd-theme", t);
-}
-function toggleTheme() {
+function toggleTheme(onThemeChange?: (theme: "light" | "dark") => void) {
   const cur = document.documentElement.getAttribute("data-theme") === "dark" ? "dark" : "light";
-  applyTheme(cur === "dark" ? "light" : "dark");
+  const next = cur === "dark" ? "light" : "dark";
+  document.documentElement.setAttribute("data-theme", next);
+  onThemeChange?.(next);
 }

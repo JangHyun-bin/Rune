@@ -11,7 +11,9 @@ import { mountFileTree } from "./workspace/fileTree";
 import { mountTabBar } from "./workspace/tabBar";
 import { autosave } from "./workspace/autosave";
 
-const chrome = mountChrome(document.getElementById("titlebar")!, document.getElementById("statusbar")!);
+const chrome = mountChrome(document.getElementById("titlebar")!, document.getElementById("statusbar")!, {
+  onThemeChange: () => scheduleSaveSettings(),
+});
 const tree = mountFileTree(document.getElementById("sidebar")!, (p) => void openPath(p));
 const tabBar = mountTabBar(document.getElementById("tabbar")!, { onSelect: switchTo, onClose: requestClose });
 
@@ -19,6 +21,18 @@ let tabs: TabsState = emptyTabs();
 const states = new Map<string, EditorState>();
 let view: EditorView;
 const auto = autosave(800, () => void autoSave());
+let currentFolder: string | null = null;
+
+function prefersDark(): boolean { return window.matchMedia("(prefers-color-scheme: dark)").matches; }
+function settingsSnapshot() {
+  const theme = document.documentElement.getAttribute("data-theme") === "dark" ? "dark" : "light";
+  return { theme, lastFolder: currentFolder, openTabs: tabs.tabs.map((t) => t.path).filter((p): p is string => !!p) };
+}
+let saveTimer: number | undefined;
+function scheduleSaveSettings() {
+  if (saveTimer !== undefined) clearTimeout(saveTimer);
+  saveTimer = window.setTimeout(() => void commands.saveSettings(settingsSnapshot()), 500);
+}
 
 function baseName(p: string): string { const i = Math.max(p.lastIndexOf("/"), p.lastIndexOf("\\")); return i >= 0 ? p.slice(i + 1) : p; }
 function extraExts() { return [EditorView.updateListener.of((u) => { if (u.selectionSet) refreshStatus(); }), auto.ext]; }
@@ -51,6 +65,7 @@ function switchTo(id: string): void {
   if (tabs.activeId && view) states.set(tabs.activeId, view.state);
   tabs = setActive(tabs, id);
   showActive();
+  scheduleSaveSettings();
 }
 async function openPath(path: string): Promise<void> {
   const existing = tabs.tabs.find((t) => t.path === path);
@@ -60,22 +75,29 @@ async function openPath(path: string): Promise<void> {
   if (tabs.activeId && view) states.set(tabs.activeId, view.state);
   tabs = openOrFocus(tabs, path, res.data);
   showActive();
+  scheduleSaveSettings();
 }
 function newDoc(): void {
   if (tabs.activeId && view) states.set(tabs.activeId, view.state);
   tabs = newUntitled(tabs);
   showActive();
+  scheduleSaveSettings();
 }
 async function openFile(): Promise<void> {
   const selected = await open({ multiple: false, filters: [{ name: "Markdown", extensions: ["md", "markdown"] }] });
   if (typeof selected === "string") await openPath(selected);
 }
+async function loadFolder(dir: string): Promise<void> {
+  const res = await commands.listDir(dir);
+  if (res.status === "error") { console.error(res.error); throw new Error(res.error); }
+  tree.render(res.data);
+  currentFolder = dir;
+}
 async function openFolder(): Promise<void> {
   const dir = await open({ directory: true, multiple: false });
   if (typeof dir !== "string") return;
-  const res = await commands.listDir(dir);
-  if (res.status === "error") { console.error(res.error); return; }
-  tree.render(res.data);
+  try { await loadFolder(dir); } catch { return; }
+  scheduleSaveSettings();
 }
 function requestClose(id: string): void {
   const t = tabs.tabs.find((x) => x.id === id);
@@ -85,6 +107,7 @@ function requestClose(id: string): void {
   tabs = closeTab(tabs, id);
   if (!tabs.activeId) tabs = newUntitled(tabs);
   showActive();
+  scheduleSaveSettings();
 }
 async function doSave(): Promise<void> {
   const t = activeTab(tabs); if (!t) return;
@@ -110,12 +133,20 @@ async function autoSave(): Promise<void> {
   syncActiveUI();
 }
 
-// init: one empty tab + the editor view
-tabs = newUntitled(tabs);
-const firstState = editorState("", onChange, extraExts());
-states.set(tabs.activeId!, firstState);
-view = createEditorView(document.getElementById("editor")!, firstState);
-syncActiveUI();
+async function restore(): Promise<void> {
+  const res = await commands.loadSettings();
+  const s = res.status === "ok" ? res.data : { theme: null, lastFolder: null, openTabs: [] };
+  document.documentElement.setAttribute("data-theme", s.theme === "light" || s.theme === "dark" ? s.theme : (prefersDark() ? "dark" : "light"));
+  if (s.lastFolder) { await loadFolder(s.lastFolder).catch(() => {}); }
+  let opened = false;
+  for (const p of s.openTabs) { await openPath(p); opened = true; }
+  if (!opened) newDoc();
+  syncActiveUI();
+}
+
+// init: create the editor view with a bare empty state; restore() opens tabs.
+view = createEditorView(document.getElementById("editor")!, editorState("", onChange, extraExts()));
+void restore();
 
 window.addEventListener("blur", () => auto.flush());
 window.addEventListener("keydown", (e) => {
