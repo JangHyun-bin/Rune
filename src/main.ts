@@ -7,6 +7,7 @@ import { commands } from "./ipc/bindings";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { EditorView } from "@codemirror/view";
 import { mountChrome } from "./chrome/chrome";
+import { setDocPath } from "./editor/docContext";
 
 let docState: DocState = newDoc();
 
@@ -18,6 +19,7 @@ const chrome = mountChrome(
 let view: EditorView;
 
 function updateTitle(): void {
+  setDocPath(docState.path);
   const name = docState.path ?? "Untitled";
   document.title = (isDirty(docState) ? "● " : "") + name + " — cp_markdown";
   chrome.setTitle(name, isDirty(docState));
