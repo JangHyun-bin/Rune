@@ -1,7 +1,7 @@
 import "./styles.css";
 import { createEditor, setEditorText } from "./editor/editor";
 import {
-  newDoc, loadedDoc, withCurrentText, markSaved, isDirty, type DocState,
+  newDoc, loadedDoc, withCurrentText, markSavedAs, isDirty, type DocState,
 } from "./doc/document";
 import { commands } from "./ipc/bindings";
 import { open, save } from "@tauri-apps/plugin-dialog";
@@ -9,6 +9,7 @@ import { EditorView } from "@codemirror/view";
 import { mountChrome } from "./chrome/chrome";
 import { setDocPath } from "./editor/docContext";
 import { mountFileTree } from "./workspace/fileTree";
+import { autosave } from "./workspace/autosave";
 
 let docState: DocState = newDoc();
 
@@ -34,6 +35,8 @@ function refreshStatus(): void {
   chrome.setStatus(text, line.number, head - line.from + 1);
 }
 
+const auto = autosave(800, () => void autoSave());
+
 view = createEditor(
   document.getElementById("editor")!,
   "",
@@ -42,7 +45,7 @@ view = createEditor(
     updateTitle();
     refreshStatus();
   },
-  [EditorView.updateListener.of((u) => { if (u.selectionSet) refreshStatus(); })],
+  [EditorView.updateListener.of((u) => { if (u.selectionSet) refreshStatus(); }), auto.ext],
 );
 
 const tree = mountFileTree(document.getElementById("sidebar")!, (p) => void openPath(p));
@@ -71,18 +74,27 @@ async function openFile(): Promise<void> {
   await openPath(selected);
 }
 
-async function saveFile(): Promise<void> {
+async function doSave(): Promise<void> {
   let path = docState.path;
   if (!path) {
     const chosen = await save({ filters: [{ name: "Markdown", extensions: ["md"] }] });
     if (typeof chosen !== "string") return;
     path = chosen;
   }
-  const res = await commands.writeFile(path, docState.currentText);
+  const text = docState.currentText;                 // snapshot at save time
+  const res = await commands.writeFile(path, text);
   if (res.status === "error") { console.error(res.error); return; }
-  docState = markSaved({ ...docState, path });
-  updateTitle();
-  refreshStatus();
+  docState = markSavedAs(docState, path, text);
+  setDocPath(path); updateTitle(); refreshStatus();
+}
+
+async function autoSave(): Promise<void> {
+  if (!docState.path || !isDirty(docState)) return;
+  const text = docState.currentText;
+  const res = await commands.writeFile(docState.path, text);
+  if (res.status === "error") { console.error(res.error); return; }
+  docState = markSavedAs(docState, docState.path, text);
+  updateTitle(); refreshStatus();
 }
 
 async function openFolder(): Promise<void> {
@@ -97,5 +109,7 @@ window.addEventListener("keydown", (e) => {
   const mod = e.ctrlKey || e.metaKey;
   if (mod && e.shiftKey && e.key.toLowerCase() === "o") { e.preventDefault(); void openFolder(); }
   else if (mod && e.key.toLowerCase() === "o") { e.preventDefault(); void openFile(); }
-  if (mod && e.key.toLowerCase() === "s") { e.preventDefault(); void saveFile(); }
+  if (mod && e.key.toLowerCase() === "s") { e.preventDefault(); void doSave(); }
 });
+
+window.addEventListener("blur", () => auto.flush());

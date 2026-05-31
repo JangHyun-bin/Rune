@@ -20,6 +20,10 @@ export function markSaved(doc: DocState): DocState {
   return { ...doc, savedText: doc.currentText };
 }
 
+export function markSavedAs(doc: DocState, path: string, savedText: string): DocState {
+  return { ...doc, path, savedText };
+}
+
 export function isDirty(doc: DocState): boolean {
   return doc.currentText !== doc.savedText;
 }

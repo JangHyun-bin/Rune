@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { newDoc, loadedDoc, withCurrentText, markSaved, isDirty } from "./document";
+import { newDoc, loadedDoc, withCurrentText, markSaved, isDirty, markSavedAs } from "./document";
 
 describe("document model", () => {
   it("new doc is not dirty", () => {
@@ -18,5 +18,12 @@ describe("document model", () => {
     const d = loadedDoc("/a.md", "hello");
     expect(d.path).toBe("/a.md");
     expect(isDirty(d)).toBe(false);
+  });
+  it("markSavedAs records the snapshot text and path, clearing dirty", () => {
+    const d = withCurrentText(loadedDoc("/a.md", "x"), "edited");
+    const saved = markSavedAs(d, "/a.md", "edited");
+    expect(saved.path).toBe("/a.md");
+    expect(saved.savedText).toBe("edited");
+    expect(isDirty(saved)).toBe(false);
   });
 });
