@@ -3,8 +3,8 @@ import { editorState, createEditorView, setEditorText } from "./editor/editor";
 import { type TabsState, emptyTabs, activeTab, openOrFocus, newUntitled, setActive, updateActiveText, markActiveSaved, closeTab, tabDirty } from "./workspace/tabs";
 import { commands } from "./ipc/bindings";
 import { open, save } from "@tauri-apps/plugin-dialog";
-import { EditorView } from "@codemirror/view";
-import { EditorState } from "@codemirror/state";
+import { EditorView, keymap } from "@codemirror/view";
+import { EditorState, Prec } from "@codemirror/state";
 import { mountChrome } from "./chrome/chrome";
 import { setDocPath } from "./editor/docContext";
 import { mountFileTree } from "./workspace/fileTree";
@@ -39,7 +39,7 @@ function scheduleSaveSettings() {
 }
 
 function baseName(p: string): string { const i = Math.max(p.lastIndexOf("/"), p.lastIndexOf("\\")); return i >= 0 ? p.slice(i + 1) : p; }
-function extraExts() { return [EditorView.updateListener.of((u) => { if (u.selectionSet) refreshStatus(); }), auto.ext]; }
+function extraExts() { return [EditorView.updateListener.of((u) => { if (u.selectionSet) refreshStatus(); }), auto.ext, Prec.highest(keymap.of([{ key: "Mod-k", run: () => { palette.toggle(); return true; }, preventDefault: true }]))]; }
 function onChange(text: string) { tabs = updateActiveText(tabs, text); syncActiveUI(); }
 
 function refreshStatus(): void {
@@ -213,7 +213,6 @@ void restore();
 window.addEventListener("blur", () => auto.flush());
 window.addEventListener("keydown", (e) => {
   const mod = e.ctrlKey || e.metaKey;
-  if (mod && e.key.toLowerCase() === "k") { e.preventDefault(); palette.toggle(); return; }
   if (mod && e.shiftKey && e.key.toLowerCase() === "o") { e.preventDefault(); void openFolder(); return; }
   if (mod && e.key.toLowerCase() === "o") { e.preventDefault(); void openFile(); return; }
   if (mod && e.key.toLowerCase() === "s") { e.preventDefault(); void doSave(); return; }
