@@ -14,6 +14,7 @@ import { listen } from "@tauri-apps/api/event";
 import { mountConflictBanner } from "./workspace/conflictBanner";
 import { mountCommandPalette, type PaletteItem } from "./workspace/commandPalette";
 import { exportHtml, exportPdf } from "./export/exportDoc";
+import { mountSearchPanel } from "./workspace/searchPanel";
 
 const chrome = mountChrome(document.getElementById("titlebar")!, document.getElementById("statusbar")!, {
   onThemeChange: () => scheduleSaveSettings(),
@@ -162,11 +163,21 @@ function paletteItems(): PaletteItem[] {
     { label: "탭 닫기", run: () => { if (tabs.activeId) requestClose(tabs.activeId); } },
     { label: "HTML로 내보내기", run: () => void exportHtml(view.state.doc.toString(), exportTitle()) },
     { label: "PDF로 내보내기", run: () => void exportPdf(view.state.doc.toString(), exportTitle()) },
+    { label: "검색", run: () => searchPanel.toggle() },
   ];
   const files: PaletteItem[] = workspaceFiles.map((f) => ({ label: f.name, hint: f.path, run: () => void openPath(f.path) }));
   return [...cmds, ...files];
 }
 const palette = mountCommandPalette(paletteItems);
+function jumpToLine(n: number): void {
+  const line = view.state.doc.line(Math.max(1, Math.min(n, view.state.doc.lines)));
+  view.dispatch({ selection: { anchor: line.from }, scrollIntoView: true });
+  view.focus();
+}
+const searchPanel = mountSearchPanel(
+  () => currentFolder,
+  (path, line) => { void (async () => { await openPath(path); jumpToLine(line); })(); },
+);
 async function restore(): Promise<void> {
   const res = await commands.loadSettings();
   const s = res.status === "ok" ? res.data : { theme: null, lastFolder: null, openTabs: [] };
@@ -217,6 +228,7 @@ void restore();
 window.addEventListener("blur", () => auto.flush());
 window.addEventListener("keydown", (e) => {
   const mod = e.ctrlKey || e.metaKey;
+  if (mod && e.shiftKey && e.key.toLowerCase() === "f") { e.preventDefault(); searchPanel.toggle(); return; }
   if (mod && e.shiftKey && e.key.toLowerCase() === "o") { e.preventDefault(); void openFolder(); return; }
   if (mod && e.key.toLowerCase() === "o") { e.preventDefault(); void openFile(); return; }
   if (mod && e.key.toLowerCase() === "s") { e.preventDefault(); void doSave(); return; }
