@@ -1,3 +1,4 @@
+use sha2::{Digest, Sha256};
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -26,6 +27,31 @@ pub fn write_text_file_atomic(path: &Path, contents: &str) -> Result<(), String>
     write_result?;
     fs::rename(&tmp, path)
         .map_err(|e| format!("rename failed '{}' -> '{}': {e}", tmp.display(), path.display()))
+}
+
+fn write_bytes_atomic(path: &Path, bytes: &[u8]) -> Result<(), String> {
+    let tmp = temp_sibling(path)?;
+    {
+        let mut f = fs::File::create(&tmp).map_err(|e| format!("create temp failed '{}': {e}", tmp.display()))?;
+        f.write_all(bytes).map_err(|e| format!("write temp failed '{}': {e}", tmp.display()))?;
+        f.sync_all().map_err(|e| format!("sync failed '{}': {e}", tmp.display()))?;
+    }
+    fs::rename(&tmp, path).map_err(|e| format!("rename failed: {e}"))
+}
+
+/// 바이트를 <doc_dir>/assets/<sha256>.<ext> 에 저장하고 "assets/<name>" 반환.
+pub fn save_asset(doc_dir: &Path, bytes: &[u8], ext: &str) -> Result<String, String> {
+    let assets = doc_dir.join("assets");
+    fs::create_dir_all(&assets).map_err(|e| format!("create assets dir failed: {e}"))?;
+    let mut h = Sha256::new();
+    h.update(bytes);
+    let digest = h.finalize();
+    let hash: String = digest.iter().map(|b| format!("{b:02x}")).collect();
+    let safe_ext: String = ext.chars().filter(|c| c.is_ascii_alphanumeric()).collect();
+    let name = if safe_ext.is_empty() { hash } else { format!("{hash}.{safe_ext}") };
+    let path = assets.join(&name);
+    if !path.exists() { write_bytes_atomic(&path, bytes)?; }
+    Ok(format!("assets/{name}"))
 }
 
 /// 대상 파일과 같은 디렉토리의 `.<name>.tmp` 경로를 만든다.
@@ -83,5 +109,23 @@ mod tests {
         let content = "# 안녕하세요\n世界 🌍\n";
         write_text_file_atomic(&file, content).unwrap();
         assert_eq!(read_text_file(&file).unwrap(), content);
+    }
+
+    #[test]
+    fn save_asset_writes_hashed_file_and_returns_relative_path() {
+        let dir = tempfile::tempdir().unwrap();
+        let bytes = b"\x89PNG fake image";
+        let rel = save_asset(dir.path(), bytes, "png").unwrap();
+        assert!(rel.starts_with("assets/") && rel.ends_with(".png"));
+        assert!(dir.path().join(&rel).exists());
+    }
+
+    #[test]
+    fn save_asset_is_idempotent_for_same_bytes() {
+        let dir = tempfile::tempdir().unwrap();
+        let b = b"same";
+        let a1 = save_asset(dir.path(), b, "png").unwrap();
+        let a2 = save_asset(dir.path(), b, "png").unwrap();
+        assert_eq!(a1, a2);
     }
 }
