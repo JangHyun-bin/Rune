@@ -31,7 +31,7 @@ export function mountChrome(titlebar: HTMLElement, statusbar: HTMLElement): Chro
         dot.textContent = "● ";
         title.appendChild(dot);
       }
-      title.appendChild(document.createTextNode(`${name} — cp_markdown`));
+      title.appendChild(document.createTextNode(`${name} — Rune`));
     },
     setStatus(text, line, col) {
       left.textContent = `${countWords(text)} 단어`;

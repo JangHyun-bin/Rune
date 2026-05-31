@@ -1,4 +1,4 @@
-# cp_markdown
+# Rune
 
 크로스플랫폼 집중형 마크다운 에디터 — Tauri 2 (Rust 코어) + CodeMirror 6.
 
