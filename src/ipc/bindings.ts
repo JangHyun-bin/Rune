@@ -6,6 +6,7 @@ export type Result<T> =
 
 export interface FileNode { name: string; path: string; isDir: boolean; children: FileNode[]; }
 export interface Settings { theme: string | null; lastFolder: string | null; openTabs: string[]; }
+export interface SearchHit { path: string; line: number; snippet: string; }
 
 async function call<T>(cmd: string, args: Record<string, unknown>): Promise<Result<T>> {
   try {
@@ -25,4 +26,5 @@ export const commands = {
   loadSettings: () => call<Settings>("load_settings", {}),
   saveSettings: (settings: Settings) => call<null>("save_settings", { settings }),
   watchFolder: (path: string) => call<null>("watch_folder", { path }),
+  search: (root: string, query: string) => call<SearchHit[]>("search", { root, query }),
 };

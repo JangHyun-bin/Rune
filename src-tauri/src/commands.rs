@@ -60,3 +60,8 @@ pub fn watch_folder(app: AppHandle, state: tauri::State<crate::WatcherState>, pa
     *state.0.lock().map_err(|e| e.to_string())? = Some(watcher); // replacing drops & stops the old watcher
     Ok(())
 }
+
+#[tauri::command]
+pub fn search(root: String, query: String) -> Result<Vec<crate::search::SearchHit>, String> {
+    Ok(crate::search::search_files(std::path::Path::new(&root), &query))
+}
