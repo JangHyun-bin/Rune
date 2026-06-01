@@ -64,14 +64,17 @@ jobs:
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # macOS 코드 서명 + 공증(notarize). 아래 6개 시크릿이 모두 설정돼야 서명/공증되고,
-          # 비어 있으면 tauri-action이 자동으로 미서명 빌드로 진행합니다(다른 OS에선 무시됨).
+          # macOS 코드 서명 (Developer ID) — 이 3개로 .app/.dmg를 서명합니다.
+          # (비어 있으면 tauri-action이 미서명으로 진행하고, 다른 OS에선 무시됨)
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          # macOS 공증(notarize) — 일시 비활성화.
+          # GitHub 러너↔Apple 공증 서버 네트워크 오류(-1009)로 막혀, 우선 서명만 발행.
+          # 아래 3줄 주석을 풀면 공증까지 수행(공증 서버 정상일 때 재시도).
+          # APPLE_ID: ${{ secrets.APPLE_ID }}
+          # APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          # APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         with:
           tagName: ${{ github.ref_name }}
           releaseName: "Rune ${{ github.ref_name }}"
