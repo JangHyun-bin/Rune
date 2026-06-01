@@ -8,6 +8,7 @@ import { EditorState, Prec } from "@codemirror/state";
 import { mountChrome } from "./chrome/chrome";
 import { setDocPath } from "./editor/docContext";
 import { mountFileTree } from "./workspace/fileTree";
+import { sparkleSvg } from "./brand/sparkle";
 import { mountTabBar } from "./workspace/tabBar";
 import { autosave } from "./workspace/autosave";
 import { listen } from "@tauri-apps/api/event";
@@ -21,7 +22,9 @@ import { t as tr, setLocale, getLocale, detectLocale, LOCALES, type Locale } fro
 const chrome = mountChrome(document.getElementById("titlebar")!, document.getElementById("statusbar")!, {
   onOpenSettings: () => settingsPanel.open(),
 });
-const tree = mountFileTree(document.getElementById("sidebar")!, (p) => void openPath(p));
+document.getElementById("sidebar-head")!.innerHTML =
+  `<span class="brand-mark">${sparkleSvg(20)}</span><span class="brand-word">RUNE</span>`;
+const tree = mountFileTree(document.getElementById("filetree")!, (p) => void openPath(p));
 const tabBar = mountTabBar(document.getElementById("tabbar")!, { onSelect: switchTo, onClose: requestClose });
 
 let tabs: TabsState = emptyTabs();
