@@ -1,5 +1,6 @@
 import { countWords } from "./wordcount";
 import { t } from "../i18n/i18n";
+import { sparkleSvg } from "../brand/sparkle";
 
 export interface Chrome {
   setTitle(name: string, dirty: boolean): void;
@@ -20,9 +21,10 @@ export function mountChrome(
   settingsBtn.title = t("settings.title");
   settingsBtn.setAttribute("aria-label", t("settings.title"));
   settingsBtn.addEventListener("click", () => opts?.onOpenSettings?.());
-  const spacerL = document.createElement("span");
-  spacerL.style.width = "40px"; // balance right button so title stays centered
-  titlebar.replaceChildren(spacerL, title, settingsBtn);
+  const brand = document.createElement("span");
+  brand.className = "tb-brand";
+  brand.innerHTML = sparkleSvg(18);
+  titlebar.replaceChildren(brand, title, settingsBtn);
 
   const left = document.createElement("span");
   const right = document.createElement("span");
