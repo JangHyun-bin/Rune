@@ -12,4 +12,11 @@ describe("brand fonts", () => {
     expect(fonts).toContain("@fontsource/michroma");
     expect(fonts).toContain("@fontsource/ibm-plex-mono");
   });
+  it("keeps the KaTeX stylesheet for live math", () => {
+    expect(fonts).toContain("katex/dist/katex.min.css");
+  });
+  it("fully drops JetBrains Mono", () => {
+    expect(pkg.dependencies["@fontsource/jetbrains-mono"]).toBeFalsy();
+    expect(fonts).not.toContain("jetbrains-mono");
+  });
 });
