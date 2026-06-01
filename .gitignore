@@ -43,6 +43,7 @@ Thumbs.db
 
 # Brainstorming visual companion (local mockups, not source)
 .superpowers/
+_icon-mockups/
 
 # Misc
 *.local
