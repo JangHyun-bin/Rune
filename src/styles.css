@@ -59,3 +59,11 @@ body { background: var(--bg); color: var(--text); font-family: var(--sans); }
 .sp-file { font-size: 12px; color: var(--accent); font-weight: 600; }
 .sp-snip { font-size: 12.5px; color: var(--text); font-family: var(--mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .sp-empty { padding: 16px; color: var(--muted); font-size: 13px; }
+.settings-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.3); display: flex; justify-content: center; align-items: flex-start; padding-top: 14vh; z-index: 110; }
+.settings-backdrop.hidden { display: none; }
+.settings-card { width: 420px; max-width: 92vw; background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 12px; box-shadow: 0 20px 60px rgba(0,0,0,0.25); padding: 20px 22px; font-family: var(--sans); }
+.settings-title { font-size: 16px; font-weight: 700; margin: 0 0 16px; }
+.settings-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 10px 0; border-top: 1px solid var(--faint); }
+.settings-row label { font-size: 13px; color: var(--text); }
+.settings-row select { font-family: var(--sans); font-size: 13px; padding: 5px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--text); min-width: 140px; }
+#titlebar button { font-size: 14px; line-height: 1; padding: 4px 8px; color: var(--text); }

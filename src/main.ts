@@ -15,10 +15,11 @@ import { mountConflictBanner } from "./workspace/conflictBanner";
 import { mountCommandPalette, type PaletteItem } from "./workspace/commandPalette";
 import { exportHtml, exportPdf } from "./export/exportDoc";
 import { mountSearchPanel } from "./workspace/searchPanel";
+import { mountSettingsPanel } from "./workspace/settingsPanel";
 import { t as tr, setLocale, getLocale, detectLocale, LOCALES, type Locale } from "./i18n/i18n";
 
 const chrome = mountChrome(document.getElementById("titlebar")!, document.getElementById("statusbar")!, {
-  onThemeChange: () => scheduleSaveSettings(),
+  onOpenSettings: () => settingsPanel.open(),
 });
 const tree = mountFileTree(document.getElementById("sidebar")!, (p) => void openPath(p));
 const tabBar = mountTabBar(document.getElementById("tabbar")!, { onSelect: switchTo, onClose: requestClose });
@@ -35,10 +36,23 @@ function settingsSnapshot() {
   const theme = document.documentElement.getAttribute("data-theme") === "dark" ? "dark" : "light";
   return { theme, lastFolder: currentFolder, openTabs: tabs.tabs.map((t) => t.path).filter((p): p is string => !!p), locale: getLocale() };
 }
+function applyTheme(theme: "light" | "dark"): void {
+  document.documentElement.setAttribute("data-theme", theme);
+  scheduleSaveSettings();
+}
+function currentTheme(): "light" | "dark" {
+  return document.documentElement.getAttribute("data-theme") === "dark" ? "dark" : "light";
+}
+const settingsPanel = mountSettingsPanel({
+  onLocale: (l) => applyLocale(l),
+  onTheme: (th) => applyTheme(th),
+  getTheme: currentTheme,
+});
 function applyLocale(l: Locale): void {
   setLocale(l);
   chrome.relabel();
   syncActiveUI();
+  settingsPanel.refresh();
   scheduleSaveSettings();
 }
 let saveTimer: number | undefined;
@@ -171,6 +185,7 @@ function paletteItems(): PaletteItem[] {
     { label: tr("cmd.exportHtml"), run: () => void exportHtml(view.state.doc.toString(), exportTitle()) },
     { label: tr("cmd.exportPdf"), run: () => void exportPdf(view.state.doc.toString(), exportTitle()) },
     { label: tr("cmd.search"), run: () => searchPanel.toggle() },
+    { label: tr("settings.title"), run: () => settingsPanel.open() },
     ...LOCALES.map(({ code, label }) => ({ label: `${tr("cmd.language")}: ${label}`, run: () => applyLocale(code) })),
   ];
   const files: PaletteItem[] = workspaceFiles.map((f) => ({ label: f.name, hint: f.path, run: () => void openPath(f.path) }));
