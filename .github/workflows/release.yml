@@ -79,6 +79,9 @@ jobs:
           tagName: ${{ github.ref_name }}
           releaseName: "Rune ${{ github.ref_name }}"
           releaseBody: "다운로드: 아래 Assets에서 OS에 맞는 설치본을 받으세요."
-          releaseDraft: true
+          # Publish immediately (not draft): a draft release is NOT findable by tag,
+          # which makes concurrent matrix jobs race and drop assets. Published =
+          # findable by tag → every platform job attaches its installer reliably.
+          releaseDraft: false
           prerelease: false
           args: ${{ matrix.args }}
