@@ -12,9 +12,12 @@
     npm test                      # 프론트엔드 (Vitest)
     cd src-tauri && cargo test    # Rust 코어
 
-## 빌드
+## 빌드 / 패키징
 
-    npm run tauri build -- --no-bundle   # 릴리스 바이너리 (설치 패키지 제외)
+    npm run tauri build                  # 설치본(.msi/.exe 등, 현재 OS)
+    npm run tauri build -- --no-bundle   # 릴리스 바이너리만
+
+태그(`v*`) 푸시 시 GitHub Actions가 Windows·macOS·Linux 설치본을 빌드해 draft Release에 첨부합니다 (`.github/workflows/release.yml`).
 
 ## 현황
 
@@ -26,8 +29,10 @@
 - **멀티탭** — 크롬 같은 탭 바: 여러 문서 동시 열기 · 탭별 내용/커서/undo·dirty 보존 · 닫기 · Ctrl/Cmd-N(새 탭)·W(닫기)
 - **M3b** — 설정 영속화(테마·마지막 폴더·열린 탭 복원) · 외부 파일 변경 감시(리로드/충돌 배너) · 커맨드 팔레트(Ctrl/Cmd-K)
 - **M4** — 내보내기: 자기완결 HTML(Ctrl/Cmd-E) · PDF(인쇄) · 워크스페이스 전문 검색(Ctrl/Cmd-Shift-F, 줄 이동)
+- **i18n** — 다국어 UI: English · 한국어 · 日本語 · 简体中文 · **설정 패널(⚙: 언어·테마)** · 로케일 영속화·OS 감지
+- **패키징** — Windows `.msi`/`.exe` 빌드 · GitHub Actions 릴리스 워크플로(Win/macOS/Linux)
 
 - 설계 스펙: `docs/superpowers/specs/2026-05-29-cross-platform-markdown-editor-design.md`
-- 구현 계획: `docs/superpowers/plans/` (M0, M1, M2, 이미지, M3a, 멀티탭, M3b, M4)
+- 구현 계획: `docs/superpowers/plans/` (M0, M1, M2, 이미지, M3a, 멀티탭, M3b, M4, i18n)
 
-다음: M5 폴리시 — 디자인 정교화 · 성능 예산 · IME/CJK · 인스톨러 패키징 · (코드스팬 `$` 제외, 번들 코드 스플리팅 등 보정).
+다음: M5 폴리시 — 코드 서명·공증(mac) · 디자인 정교화 · 성능/번들 코드 스플리팅 · IME/CJK · 코드스팬 `$` 제외 등 보정.
