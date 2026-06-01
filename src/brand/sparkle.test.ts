@@ -13,7 +13,11 @@ describe("sparkle", () => {
     expect(s).toContain("<svg");
     expect(s).toContain('viewBox="0 0 24 24"');
     expect(s).toContain('width="20"');
+    expect(s).toContain('height="20"');
     expect(s).toContain("<path");
+  });
+  it("has exactly four arms (Q segments)", () => {
+    expect((sparklePath().match(/Q /g) ?? []).length).toBe(4);
   });
   it("defaults fill to currentColor (CSS-controllable)", () => {
     expect(sparkleSvg()).toContain("currentColor");

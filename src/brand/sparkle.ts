@@ -10,7 +10,9 @@ export function sparklePath(cx = 12, cy = 12, R = 11, f = 0.15): string {
   );
 }
 
-/** Inline SVG string for the solid sparkle. Uses currentColor so CSS controls the tint. */
+/** Inline SVG string for the solid sparkle. Uses currentColor so CSS controls the tint.
+ *  The embedded path always uses the default sparklePath geometry (cx=12,cy=12,R=11,f=0.15),
+ *  matched to the fixed viewBox="0 0 24 24"; `size` only scales the rendered pixel size. */
 export function sparkleSvg(size = 24, color = "currentColor"): string {
   return (
     `<svg width="${size}" height="${size}" viewBox="0 0 24 24" aria-hidden="true">` +
