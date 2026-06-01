@@ -1,12 +1,27 @@
 :root {
-  --bg: #ffffff; --faint: #f7f8fa; --border: #ecedf1;
-  --text: #181a1f; --muted: #8a909c; --accent: #5b5bd6; --accent-soft: #eef0fb;
-  --mono: "JetBrains Mono", ui-monospace, Menlo, Consolas, monospace;
-  --sans: "Pretendard Variable", Pretendard, -apple-system, system-ui, "Apple SD Gothic Neo", sans-serif;
+  /* color — light (docs/design.md §3) */
+  --bg:#FFFFFF; --faint:#FAF8F6; --border:#E2E5E9;
+  --text:#0D0F12; --muted:#6B717A; --accent:#114ADB; --accent-soft:#E7EDFB;
+  --accent-hover:#0F3FBE;
+  /* type */
+  --sans:"Pretendard Variable", Pretendard, -apple-system, system-ui, "Apple SD Gothic Neo", sans-serif;
+  --mono:"IBM Plex Mono", "Pretendard Variable", ui-monospace, Menlo, Consolas, monospace;
+  --display:"Michroma", var(--sans);
+  /* spacing (4px base) */
+  --space-4:4px; --space-8:8px; --space-12:12px; --space-16:16px; --space-24:24px; --space-32:32px;
+  /* radius */
+  --radius-sm:6px; --radius-md:10px; --radius-lg:14px; --radius-xl:20px;
+  /* elevation */
+  --shadow-sm:0 1px 2px rgba(13,15,18,.06);
+  --shadow-md:0 4px 16px rgba(13,15,18,.10);
+  --shadow-lg:0 20px 60px rgba(13,15,18,.25);
+  /* motion */
+  --ease:cubic-bezier(0.2,0,0,1); --dur:180ms;
 }
 :root[data-theme="dark"] {
-  --bg: #16181d; --faint: #1c1f26; --border: #2a2d36;
-  --text: #e6e8ee; --muted: #8a909c; --accent: #7c7cf0; --accent-soft: #23263a;
+  --bg:#0D0F12; --faint:#15181D; --border:#2C3138;
+  --text:#ECEEF1; --muted:#8A909C; --accent:#3D74F0; --accent-soft:#16233F;
+  --accent-hover:#5B8DEF;
 }
 html, body { height: 100%; margin: 0; }
 body { background: var(--bg); color: var(--text); font-family: var(--sans); }
