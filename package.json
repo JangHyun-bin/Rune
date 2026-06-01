@@ -8,7 +8,8 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "tauri": "tauri",
-    "test": "vitest run"
+    "test": "vitest run",
+    "gen:brand": "node tools/gen-brand-assets.mjs"
   },
   "dependencies": {
     "@codemirror/commands": "^6.10.3",
@@ -29,6 +30,7 @@
     "pretendard": "^1.3.9"
   },
   "devDependencies": {
+    "@resvg/resvg-js": "^2.6.2",
     "@tauri-apps/cli": "^2",
     "@types/markdown-it": "^14.1.2",
     "typescript": "~5.6.2",

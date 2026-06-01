@@ -8,6 +8,7 @@ dist/
 dist-ssr/
 build/
 out/
+tools/.out/
 
 # Rust / Tauri
 src-tauri/target/
