@@ -18,7 +18,7 @@ export function editorTheme() {
     ".cm-md-em": { fontStyle: "italic" },
     ".cm-md-strike": { textDecoration: "line-through", color: "var(--muted)" },
     ".cm-md-code": { fontFamily: "var(--mono)", fontSize: "0.9em", background: "var(--faint)", border: "1px solid var(--border)", borderRadius: "var(--radius-sm)", padding: "0.05em 0.35em" },
-    ".cm-md-quote": { color: "var(--muted)", borderLeft: "3px solid var(--accent-soft)", paddingLeft: "0.8em" },
+    ".cm-md-quote": { color: "var(--muted)", borderLeft: "3px solid var(--border)", paddingLeft: "0.8em" },
     ".cm-md-link": { color: "var(--accent)", textDecoration: "underline" },
     ".cm-md-codeblock": { fontFamily: "var(--mono)", fontSize: "0.92em", background: "var(--faint)", borderRadius: "var(--radius-sm)" },
     ".cm-block-widget": { margin: "0.5em 0" },
