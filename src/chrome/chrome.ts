@@ -28,6 +28,12 @@ export function mountChrome(
 
   const left = document.createElement("span");
   const right = document.createElement("span");
+  right.className = "sb-right";
+  const lineCol = document.createElement("span");
+  const autoSave = document.createElement("span");
+  autoSave.className = "sb-autosave";
+  autoSave.textContent = t("status.autosave");
+  right.replaceChildren(lineCol, autoSave);
   statusbar.replaceChildren(left, right);
 
   return {
@@ -43,11 +49,12 @@ export function mountChrome(
     },
     setStatus(text, line, col) {
       left.textContent = t("status.words", { n: countWords(text) });
-      right.textContent = t("status.lineCol", { line, col });
+      lineCol.textContent = t("status.lineCol", { line, col });
     },
     relabel() {
       settingsBtn.title = t("settings.title");
       settingsBtn.setAttribute("aria-label", t("settings.title"));
+      autoSave.textContent = t("status.autosave");
     },
   };
 }
