@@ -15,7 +15,7 @@ import { mountConflictBanner } from "./workspace/conflictBanner";
 import { mountCommandPalette, type PaletteItem } from "./workspace/commandPalette";
 import { exportHtml, exportPdf } from "./export/exportDoc";
 import { mountSearchPanel } from "./workspace/searchPanel";
-import { t as tr } from "./i18n/i18n";
+import { t as tr, setLocale, getLocale, detectLocale, LOCALES, type Locale } from "./i18n/i18n";
 
 const chrome = mountChrome(document.getElementById("titlebar")!, document.getElementById("statusbar")!, {
   onThemeChange: () => scheduleSaveSettings(),
@@ -33,7 +33,13 @@ let workspaceFiles: { name: string; path: string }[] = [];
 function prefersDark(): boolean { return window.matchMedia("(prefers-color-scheme: dark)").matches; }
 function settingsSnapshot() {
   const theme = document.documentElement.getAttribute("data-theme") === "dark" ? "dark" : "light";
-  return { theme, lastFolder: currentFolder, openTabs: tabs.tabs.map((t) => t.path).filter((p): p is string => !!p) };
+  return { theme, lastFolder: currentFolder, openTabs: tabs.tabs.map((t) => t.path).filter((p): p is string => !!p), locale: getLocale() };
+}
+function applyLocale(l: Locale): void {
+  setLocale(l);
+  chrome.relabel();
+  syncActiveUI();
+  scheduleSaveSettings();
 }
 let saveTimer: number | undefined;
 function scheduleSaveSettings() {
@@ -165,6 +171,7 @@ function paletteItems(): PaletteItem[] {
     { label: tr("cmd.exportHtml"), run: () => void exportHtml(view.state.doc.toString(), exportTitle()) },
     { label: tr("cmd.exportPdf"), run: () => void exportPdf(view.state.doc.toString(), exportTitle()) },
     { label: tr("cmd.search"), run: () => searchPanel.toggle() },
+    ...LOCALES.map(({ code, label }) => ({ label: `${tr("cmd.language")}: ${label}`, run: () => applyLocale(code) })),
   ];
   const files: PaletteItem[] = workspaceFiles.map((f) => ({ label: f.name, hint: f.path, run: () => void openPath(f.path) }));
   return [...cmds, ...files];
@@ -181,12 +188,15 @@ const searchPanel = mountSearchPanel(
 );
 async function restore(): Promise<void> {
   const res = await commands.loadSettings();
-  const s = res.status === "ok" ? res.data : { theme: null, lastFolder: null, openTabs: [] };
+  const s = res.status === "ok" ? res.data : { theme: null, lastFolder: null, openTabs: [], locale: null };
   document.documentElement.setAttribute("data-theme", s.theme === "light" || s.theme === "dark" ? s.theme : (prefersDark() ? "dark" : "light"));
   if (s.lastFolder) { await loadFolder(s.lastFolder).catch(() => {}); }
   let opened = false;
   for (const p of s.openTabs) { await openPath(p); opened = true; }
   if (!opened) newDoc();
+  const validCodes = LOCALES.map((x) => x.code) as string[];
+  setLocale(s.locale && validCodes.includes(s.locale) ? (s.locale as Locale) : detectLocale());
+  chrome.relabel();
   syncActiveUI();
 }
 

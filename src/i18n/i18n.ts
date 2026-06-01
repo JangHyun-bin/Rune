@@ -29,6 +29,7 @@ const DICT: Record<Locale, Dict> = {
     "cmd.exportHtml": "Export to HTML",
     "cmd.exportPdf": "Export to PDF",
     "cmd.language": "Language",
+    "error.mermaid": "Mermaid error: {msg}",
   },
   ko: {
     "doc.untitled": "제목 없음",
@@ -56,6 +57,7 @@ const DICT: Record<Locale, Dict> = {
     "cmd.exportHtml": "HTML로 내보내기",
     "cmd.exportPdf": "PDF로 내보내기",
     "cmd.language": "언어",
+    "error.mermaid": "Mermaid 오류: {msg}",
   },
   ja: {
     "doc.untitled": "無題",
@@ -83,6 +85,7 @@ const DICT: Record<Locale, Dict> = {
     "cmd.exportHtml": "HTML にエクスポート",
     "cmd.exportPdf": "PDF にエクスポート",
     "cmd.language": "言語",
+    "error.mermaid": "Mermaid エラー: {msg}",
   },
   "zh-Hans": {
     "doc.untitled": "无标题",
@@ -110,6 +113,7 @@ const DICT: Record<Locale, Dict> = {
     "cmd.exportHtml": "导出为 HTML",
     "cmd.exportPdf": "导出为 PDF",
     "cmd.language": "语言",
+    "error.mermaid": "Mermaid 错误: {msg}",
   },
 };
 

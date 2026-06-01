@@ -1,6 +1,7 @@
 import mermaid from "mermaid";
 import type { EditorState } from "@codemirror/state";
 import type { BlockSpec } from "./blockWidgets";
+import { t } from "../i18n/i18n";
 
 mermaid.initialize({ startOnLoad: false, securityLevel: "strict" });
 
@@ -30,7 +31,7 @@ export const mermaidSpec: BlockSpec = {
       .then(({ svg }) => { el.innerHTML = svg; })
       .catch((err) => {
         el.className = "cm-mermaid-error";
-        el.textContent = "Mermaid 오류: " + (err?.message ?? String(err));
+        el.textContent = t("error.mermaid", { msg: err?.message ?? String(err) });
       });
     return el;
   },

@@ -7,6 +7,7 @@ pub struct Settings {
     pub theme: Option<String>,
     pub last_folder: Option<String>,
     pub open_tabs: Vec<String>,
+    pub locale: Option<String>,
 }
 
 pub fn load(path: &PathBuf) -> Settings {
@@ -37,6 +38,7 @@ mod tests {
             theme: Some("dark".into()),
             last_folder: Some("/w".into()),
             open_tabs: vec!["/w/a.md".into()],
+            locale: None,
         };
         save(&p, &s).unwrap();
         let got = load(&p);
