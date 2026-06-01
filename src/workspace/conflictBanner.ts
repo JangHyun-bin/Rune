@@ -1,3 +1,5 @@
+import { t } from "../i18n/i18n";
+
 export interface ConflictBanner { show(): void; hide(): void; }
 
 export function mountConflictBanner(
@@ -8,14 +10,16 @@ export function mountConflictBanner(
   bar.className = "conflict-banner hidden";
   const msg = document.createElement("span");
   msg.className = "cb-msg";
-  msg.textContent = "이 파일이 디스크에서 변경되었습니다.";
   const reload = document.createElement("button");
-  reload.textContent = "디스크 버전 불러오기";
   const keep = document.createElement("button");
-  keep.textContent = "내 변경 유지";
   bar.append(msg, reload, keep);
   container.prepend(bar);
-  const show = () => bar.classList.remove("hidden");
+  const show = () => {
+    msg.textContent = t("conflict.msg");
+    reload.textContent = t("conflict.reload");
+    keep.textContent = t("conflict.keep");
+    bar.classList.remove("hidden");
+  };
   const hide = () => bar.classList.add("hidden");
   reload.addEventListener("click", () => { hide(); handlers.onReload(); });
   keep.addEventListener("click", () => { hide(); handlers.onKeep(); });

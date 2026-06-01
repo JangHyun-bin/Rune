@@ -15,6 +15,7 @@ import { mountConflictBanner } from "./workspace/conflictBanner";
 import { mountCommandPalette, type PaletteItem } from "./workspace/commandPalette";
 import { exportHtml, exportPdf } from "./export/exportDoc";
 import { mountSearchPanel } from "./workspace/searchPanel";
+import { t as tr } from "./i18n/i18n";
 
 const chrome = mountChrome(document.getElementById("titlebar")!, document.getElementById("statusbar")!, {
   onThemeChange: () => scheduleSaveSettings(),
@@ -55,7 +56,7 @@ function refreshStatus(): void {
 function syncActiveUI(): void {
   const t = activeTab(tabs);
   setDocPath(t?.path ?? null);
-  chrome.setTitle(t?.path ? baseName(t.path) : "제목 없음", t ? tabDirty(t) : false);
+  chrome.setTitle(t?.path ? baseName(t.path) : tr("doc.untitled"), t ? tabDirty(t) : false);
   tabBar.render(tabs);
   tree.setActive(t?.path ?? null);
   refreshStatus();
@@ -116,7 +117,7 @@ async function openFolder(): Promise<void> {
 }
 function requestClose(id: string): void {
   const t = tabs.tabs.find((x) => x.id === id);
-  if (t && tabDirty(t) && !confirm("저장하지 않은 변경이 있습니다. 닫을까요?")) return;
+  if (t && tabDirty(t) && !confirm(tr("confirm.closeDirty"))) return;
   if (tabs.activeId && view && tabs.activeId !== id) states.set(tabs.activeId, view.state);
   states.delete(id);
   tabs = closeTab(tabs, id);
@@ -155,15 +156,15 @@ function flipTheme(): void {
 }
 function paletteItems(): PaletteItem[] {
   const cmds: PaletteItem[] = [
-    { label: "새 탭", run: () => newDoc() },
-    { label: "파일 열기…", run: () => void openFile() },
-    { label: "폴더 열기…", run: () => void openFolder() },
-    { label: "저장", run: () => void doSave() },
-    { label: "테마 전환", run: () => flipTheme() },
-    { label: "탭 닫기", run: () => { if (tabs.activeId) requestClose(tabs.activeId); } },
-    { label: "HTML로 내보내기", run: () => void exportHtml(view.state.doc.toString(), exportTitle()) },
-    { label: "PDF로 내보내기", run: () => void exportPdf(view.state.doc.toString(), exportTitle()) },
-    { label: "검색", run: () => searchPanel.toggle() },
+    { label: tr("cmd.newTab"), run: () => newDoc() },
+    { label: tr("cmd.openFile"), run: () => void openFile() },
+    { label: tr("cmd.openFolder"), run: () => void openFolder() },
+    { label: tr("cmd.save"), run: () => void doSave() },
+    { label: tr("cmd.toggleTheme"), run: () => flipTheme() },
+    { label: tr("cmd.closeTab"), run: () => { if (tabs.activeId) requestClose(tabs.activeId); } },
+    { label: tr("cmd.exportHtml"), run: () => void exportHtml(view.state.doc.toString(), exportTitle()) },
+    { label: tr("cmd.exportPdf"), run: () => void exportPdf(view.state.doc.toString(), exportTitle()) },
+    { label: tr("cmd.search"), run: () => searchPanel.toggle() },
   ];
   const files: PaletteItem[] = workspaceFiles.map((f) => ({ label: f.name, hint: f.path, run: () => void openPath(f.path) }));
   return [...cmds, ...files];

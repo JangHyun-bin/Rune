@@ -1,4 +1,5 @@
 import { commands, type SearchHit } from "../ipc/bindings";
+import { t } from "../i18n/i18n";
 
 export function mountSearchPanel(
   getFolder: () => string | null,
@@ -7,7 +8,7 @@ export function mountSearchPanel(
   let open = false;
   const backdrop = document.createElement("div"); backdrop.className = "sp-backdrop hidden";
   const card = document.createElement("div"); card.className = "sp-card";
-  const input = document.createElement("input"); input.className = "sp-input"; input.placeholder = "워크스페이스 검색…";
+  const input = document.createElement("input"); input.className = "sp-input"; input.placeholder = t("search.placeholder");
   const list = document.createElement("div"); list.className = "sp-list";
   card.append(input, list); backdrop.appendChild(card); document.body.appendChild(backdrop);
 
@@ -15,7 +16,7 @@ export function mountSearchPanel(
   const msg = (text: string) => { const e = document.createElement("div"); e.className = "sp-empty"; e.textContent = text; list.replaceChildren(e); };
 
   function renderHits(hits: SearchHit[], q: string) {
-    if (hits.length === 0) { msg(q ? "결과 없음" : ""); return; }
+    if (hits.length === 0) { msg(q ? t("search.empty") : ""); return; }
     list.replaceChildren();
     for (const h of hits) {
       const row = document.createElement("div"); row.className = "sp-row";
@@ -29,7 +30,7 @@ export function mountSearchPanel(
   let timer: number | undefined;
   function runSearch() {
     const folder = getFolder();
-    if (!folder) { msg("폴더를 먼저 여세요 (Ctrl/Cmd-Shift-O)"); return; }
+    if (!folder) { msg(t("search.noFolder")); return; }
     const q = input.value.trim();
     if (timer !== undefined) clearTimeout(timer);
     timer = window.setTimeout(async () => {
@@ -41,7 +42,7 @@ export function mountSearchPanel(
   input.addEventListener("input", runSearch);
   input.addEventListener("keydown", (e) => { if (e.key === "Escape") { e.preventDefault(); hide(); } });
   backdrop.addEventListener("mousedown", (e) => { if (e.target === backdrop) hide(); });
-  function show() { open = true; backdrop.classList.remove("hidden"); input.value = ""; list.replaceChildren(); input.focus(); runSearch(); }
+  function show() { open = true; input.placeholder = t("search.placeholder"); backdrop.classList.remove("hidden"); input.value = ""; list.replaceChildren(); input.focus(); runSearch(); }
   function hide() { open = false; backdrop.classList.add("hidden"); }
   return { toggle: () => (open ? hide() : show()) };
 }

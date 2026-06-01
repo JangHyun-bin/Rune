@@ -1,8 +1,10 @@
 import { countWords } from "./wordcount";
+import { t } from "../i18n/i18n";
 
 export interface Chrome {
   setTitle(name: string, dirty: boolean): void;
   setStatus(text: string, line: number, col: number): void;
+  relabel(): void;
 }
 
 /** 상단바/상태바 DOM을 채우고 갱신 함수 + 테마 토글을 배선한다. 테마 영속화는 main이 소유한다. */
@@ -14,7 +16,7 @@ export function mountChrome(
   const title = document.createElement("span");
   title.className = "doc-title";
   const themeBtn = document.createElement("button");
-  themeBtn.textContent = "테마";
+  themeBtn.textContent = t("theme.toggle");
   themeBtn.addEventListener("click", () => toggleTheme(opts?.onThemeChange));
   const spacerL = document.createElement("span");
   spacerL.style.width = "40px"; // balance right button so title stays centered
@@ -36,8 +38,11 @@ export function mountChrome(
       title.appendChild(document.createTextNode(`${name} — Rune`));
     },
     setStatus(text, line, col) {
-      left.textContent = `${countWords(text)} 단어`;
-      right.textContent = `줄 ${line}, 열 ${col}`;
+      left.textContent = t("status.words", { n: countWords(text) });
+      right.textContent = t("status.lineCol", { line, col });
+    },
+    relabel() {
+      themeBtn.textContent = t("theme.toggle");
     },
   };
 }

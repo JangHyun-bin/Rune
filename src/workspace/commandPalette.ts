@@ -1,3 +1,5 @@
+import { t } from "../i18n/i18n";
+
 export interface PaletteItem { label: string; hint?: string; run: () => void; }
 
 /** ⌘K 팔레트. provide()는 열릴 때마다 현재 항목(명령+파일)을 반환. */
@@ -12,7 +14,7 @@ export function mountCommandPalette(provide: () => PaletteItem[]): { toggle: () 
   card.className = "cp-card";
   const input = document.createElement("input");
   input.className = "cp-input";
-  input.placeholder = "명령 또는 파일…";
+  input.placeholder = t("palette.placeholder");
   const list = document.createElement("div");
   list.className = "cp-list";
   card.append(input, list);
@@ -46,7 +48,7 @@ export function mountCommandPalette(provide: () => PaletteItem[]): { toggle: () 
     renderList();
   }
   let provideCache: PaletteItem[] = [];
-  function show() { open = true; provideCache = provide(); input.value = ""; refilter(); backdrop.classList.remove("hidden"); input.focus(); }
+  function show() { open = true; input.placeholder = t("palette.placeholder"); provideCache = provide(); input.value = ""; refilter(); backdrop.classList.remove("hidden"); input.focus(); }
   function hide() { open = false; backdrop.classList.add("hidden"); }
   function choose(idx: number) { const it = filtered[idx]; hide(); if (it) it.run(); }
 

@@ -1,6 +1,7 @@
 import { EditorView } from "@codemirror/view";
 import { commands } from "../ipc/bindings";
 import { getDocPath } from "./docContext";
+import { t } from "../i18n/i18n";
 
 function extFromType(type: string): string {
   const m = /image\/(\w+)/.exec(type);
@@ -9,7 +10,7 @@ function extFromType(type: string): string {
 
 async function handleFile(view: EditorView, file: File) {
   const docPath = getDocPath();
-  if (!docPath) { alert("이미지를 넣으려면 먼저 문서를 저장하세요 (Ctrl/Cmd-S)."); return; }
+  if (!docPath) { alert(t("image.saveFirst")); return; }
   const bytes = Array.from(new Uint8Array(await file.arrayBuffer()));
   const res = await commands.saveAsset(docPath, bytes, extFromType(file.type));
   if (res.status === "error") { console.error(res.error); return; }

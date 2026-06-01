@@ -1,14 +1,15 @@
 import type { TabsState, Tab } from "./tabs";
 import { tabDirty } from "./tabs";
+import { t } from "../i18n/i18n";
 
 export function mountTabBar(
   el: HTMLElement,
   handlers: { onSelect: (id: string) => void; onClose: (id: string) => void },
 ): { render: (s: TabsState) => void } {
-  function title(t: Tab): string {
-    if (!t.path) return "제목 없음";
-    const i = Math.max(t.path.lastIndexOf("/"), t.path.lastIndexOf("\\"));
-    return i >= 0 ? t.path.slice(i + 1) : t.path;
+  function title(tabItem: Tab): string {
+    if (!tabItem.path) return t("doc.untitled");
+    const i = Math.max(tabItem.path.lastIndexOf("/"), tabItem.path.lastIndexOf("\\"));
+    return i >= 0 ? tabItem.path.slice(i + 1) : tabItem.path;
   }
   return {
     render(s) {

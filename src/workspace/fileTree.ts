@@ -1,4 +1,5 @@
 import type { FileNode } from "../ipc/bindings";
+import { t } from "../i18n/i18n";
 
 export interface FileTree {
   render(root: FileNode[]): void;
@@ -35,7 +36,7 @@ export function mountFileTree(sidebar: HTMLElement, onOpen: (path: string) => vo
     sidebar.replaceChildren();
     const ws = document.createElement("div");
     ws.className = "ft-ws";
-    ws.textContent = "워크스페이스";
+    ws.textContent = t("tree.workspace");
     sidebar.appendChild(ws);
     const walk = (nodes: FileNode[], depth: number) => {
       for (const n of nodes) {
