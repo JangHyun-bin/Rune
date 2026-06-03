@@ -54,4 +54,7 @@ for (const [name, svg] of Object.entries(assets)) writeFileSync(join(brandDir, n
 writeFileSync(join(publicDir, "favicon.svg"), favicon);
 writeFileSync(join(outDir, "rune-icon-1024.png"),
   new Resvg(assets["sparkle-halftone-dark.svg"], { fitTo: { mode: "width", value: 1024 } }).render().asPng());
-console.log("brand assets written:", Object.keys(assets).length + 2, "files");
+// README hero — dark halftone sparkle (512px PNG, committed under docs/)
+writeFileSync(join(root, "docs/hero.png"),
+  new Resvg(assets["sparkle-halftone-dark.svg"], { fitTo: { mode: "width", value: 512 } }).render().asPng());
+console.log("brand assets written:", Object.keys(assets).length + 3, "files");
