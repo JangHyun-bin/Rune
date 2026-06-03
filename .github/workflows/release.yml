@@ -70,11 +70,12 @@ jobs:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-          # macOS 공증(notarize) — 활성화. 이 3개가 있으면 tauri-action이 서명 후 공증까지 수행.
-          # (Apple notary 네트워크 오류 -1009로 실패하면 이 3줄을 다시 주석 처리해 서명-온리로 폴백)
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          # macOS 공증(notarize) — 비활성화. GitHub 러너↔Apple notary 연결이 지속적으로 hang됨
+          # (notarytool이 제출 단계에서 출력 없이 멈춰 30분 타임아웃에 killed; -1009 no-route).
+          # 인프라(러너↔Apple) 문제라 앱/자격증명과 무관. 재시도하려면 아래 3줄 주석 해제.
+          # APPLE_ID: ${{ secrets.APPLE_ID }}
+          # APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          # APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         with:
           tagName: ${{ github.ref_name }}
           releaseName: "Rune ${{ github.ref_name }}"
