@@ -14,6 +14,7 @@ permissions:
 
 jobs:
   build:
+    timeout-minutes: 30   # self-kill if notarization hangs (Apple notary -1009), instead of GitHub's 6h default
     strategy:
       fail-fast: false
       matrix:
