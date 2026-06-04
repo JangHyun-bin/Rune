@@ -75,8 +75,12 @@ export function showLanguagePicker(detected: Locale): Promise<Locale> {
       buttons.push(b);
     }
 
+    const hint = document.createElement("p");
+    hint.className = "lang-picker-hint";
+    hint.textContent = "F1 — Help · 도움말";
+
     paint();
-    card.append(mark, title, sub, list);
+    card.append(mark, title, sub, list, hint);
     backdrop.appendChild(card);
     document.body.appendChild(backdrop);
     document.addEventListener("keydown", onKey, true);

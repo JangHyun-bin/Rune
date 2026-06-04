@@ -6,6 +6,7 @@ export function mountSettingsPanel(handlers: {
   onLocale: (l: Locale) => void;
   onTheme: (theme: "light" | "dark") => void;
   getTheme: () => "light" | "dark";
+  onHelp: () => void;
 }): SettingsPanel {
   const backdrop = document.createElement("div"); backdrop.className = "settings-backdrop hidden";
   const card = document.createElement("div"); card.className = "settings-card";
@@ -40,6 +41,13 @@ export function mountSettingsPanel(handlers: {
     }
     themeSel.addEventListener("change", () => handlers.onTheme(themeSel.value as "light" | "dark"));
     themeRow.append(themeLabel, themeSel); card.appendChild(themeRow);
+
+    // Shortcuts & help
+    const helpRow = document.createElement("div"); helpRow.className = "settings-row";
+    const helpLabel = document.createElement("label"); helpLabel.textContent = t("settings.help");
+    const helpBtn = document.createElement("button"); helpBtn.type = "button"; helpBtn.className = "btn btn-secondary"; helpBtn.textContent = t("help.title");
+    helpBtn.addEventListener("click", () => { hide(); handlers.onHelp(); });
+    helpRow.append(helpLabel, helpBtn); card.appendChild(helpRow);
   }
 
   const hide = () => backdrop.classList.add("hidden");

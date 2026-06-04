@@ -18,6 +18,7 @@ import { exportHtml, exportPdf } from "./export/exportDoc";
 import { mountSearchPanel } from "./workspace/searchPanel";
 import { mountSettingsPanel } from "./workspace/settingsPanel";
 import { showLanguagePicker } from "./workspace/languagePicker";
+import { mountHelpPanel } from "./workspace/helpPanel";
 import { t as tr, setLocale, getLocale, detectLocale, LOCALES, type Locale } from "./i18n/i18n";
 
 const chrome = mountChrome(document.getElementById("titlebar")!, document.getElementById("statusbar")!, {
@@ -47,10 +48,12 @@ function applyTheme(theme: "light" | "dark"): void {
 function currentTheme(): "light" | "dark" {
   return document.documentElement.getAttribute("data-theme") === "dark" ? "dark" : "light";
 }
+const helpPanel = mountHelpPanel();
 const settingsPanel = mountSettingsPanel({
   onLocale: (l) => applyLocale(l),
   onTheme: (th) => applyTheme(th),
   getTheme: currentTheme,
+  onHelp: () => helpPanel.open(),
 });
 function applyLocale(l: Locale): void {
   setLocale(l);
@@ -190,6 +193,7 @@ function paletteItems(): PaletteItem[] {
     { label: tr("cmd.exportPdf"), run: () => void exportPdf(view.state.doc.toString(), exportTitle()) },
     { label: tr("cmd.search"), run: () => searchPanel.toggle() },
     { label: tr("settings.title"), run: () => settingsPanel.open() },
+    { label: tr("cmd.help"), run: () => helpPanel.open() },
     ...LOCALES.map(({ code, label }) => ({ label: `${tr("cmd.language")}: ${label}`, run: () => applyLocale(code) })),
   ];
   const files: PaletteItem[] = workspaceFiles.map((f) => ({ label: f.name, hint: f.path, run: () => void openPath(f.path) }));
@@ -270,6 +274,7 @@ void restore();
 
 window.addEventListener("blur", () => auto.flush());
 window.addEventListener("keydown", (e) => {
+  if (e.key === "F1") { e.preventDefault(); helpPanel.toggle(); return; }
   const mod = e.ctrlKey || e.metaKey;
   if (mod && e.shiftKey && e.key.toLowerCase() === "f") { e.preventDefault(); searchPanel.toggle(); return; }
   if (mod && e.shiftKey && e.key.toLowerCase() === "o") { e.preventDefault(); void openFolder(); return; }
