@@ -49,12 +49,12 @@ Rune은 **입력하는 즉시** 서식이 적용되는 크로스플랫폼 마크
 
 | OS | 다운로드 |
 |----|----------|
-| **macOS** · Apple Silicon | [`Rune_0.1.1_aarch64.dmg`](https://github.com/JangHyun-bin/Rune/releases/download/v0.1.1/Rune_0.1.1_aarch64.dmg) |
-| **macOS** · Intel | [`Rune_0.1.1_x64.dmg`](https://github.com/JangHyun-bin/Rune/releases/download/v0.1.1/Rune_0.1.1_x64.dmg) |
-| **Windows** | [`.msi`](https://github.com/JangHyun-bin/Rune/releases/download/v0.1.1/Rune_0.1.1_x64_en-US.msi) · [`.exe`](https://github.com/JangHyun-bin/Rune/releases/download/v0.1.1/Rune_0.1.1_x64-setup.exe) |
-| **Linux** | [`.deb`](https://github.com/JangHyun-bin/Rune/releases/download/v0.1.1/Rune_0.1.1_amd64.deb) · [`.rpm`](https://github.com/JangHyun-bin/Rune/releases/download/v0.1.1/Rune-0.1.1-1.x86_64.rpm) · [`.AppImage`](https://github.com/JangHyun-bin/Rune/releases/download/v0.1.1/Rune_0.1.1_amd64.AppImage) |
+| **macOS** · Apple Silicon | [`Rune_0.1.2_aarch64.dmg`](https://github.com/JangHyun-bin/Rune/releases/download/v0.1.2/Rune_0.1.2_aarch64.dmg) |
+| **macOS** · Intel | [`Rune_0.1.2_x64.dmg`](https://github.com/JangHyun-bin/Rune/releases/download/v0.1.2/Rune_0.1.2_x64.dmg) |
+| **Windows** | [`.msi`](https://github.com/JangHyun-bin/Rune/releases/download/v0.1.2/Rune_0.1.2_x64_en-US.msi) · [`.exe`](https://github.com/JangHyun-bin/Rune/releases/download/v0.1.2/Rune_0.1.2_x64-setup.exe) |
+| **Linux** | [`.deb`](https://github.com/JangHyun-bin/Rune/releases/download/v0.1.2/Rune_0.1.2_amd64.deb) · [`.rpm`](https://github.com/JangHyun-bin/Rune/releases/download/v0.1.2/Rune-0.1.2-1.x86_64.rpm) · [`.AppImage`](https://github.com/JangHyun-bin/Rune/releases/download/v0.1.2/Rune_0.1.2_amd64.AppImage) |
 
-> **macOS:** 서명은 됐지만 아직 공증(notarize) 전입니다. 첫 실행 시 앱을 **우클릭 → 열기** (또는 시스템 설정 → 개인정보 보호 및 보안 → **확인 없이 열기**). 이후엔 정상적으로 열립니다.
+> **macOS:** 서명 및 공증 완료 — 게이트키퍼 경고 없이 바로 열립니다.
 
 ## 왜 Rune?
 

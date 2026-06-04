@@ -49,12 +49,12 @@ Get the latest installer for your OS from the [**Releases**](https://github.com/
 
 | OS | Download |
 |----|----------|
-| **macOS** · Apple Silicon | [`Rune_0.1.1_aarch64.dmg`](https://github.com/JangHyun-bin/Rune/releases/download/v0.1.1/Rune_0.1.1_aarch64.dmg) |
-| **macOS** · Intel | [`Rune_0.1.1_x64.dmg`](https://github.com/JangHyun-bin/Rune/releases/download/v0.1.1/Rune_0.1.1_x64.dmg) |
-| **Windows** | [`.msi`](https://github.com/JangHyun-bin/Rune/releases/download/v0.1.1/Rune_0.1.1_x64_en-US.msi) · [`.exe`](https://github.com/JangHyun-bin/Rune/releases/download/v0.1.1/Rune_0.1.1_x64-setup.exe) |
-| **Linux** | [`.deb`](https://github.com/JangHyun-bin/Rune/releases/download/v0.1.1/Rune_0.1.1_amd64.deb) · [`.rpm`](https://github.com/JangHyun-bin/Rune/releases/download/v0.1.1/Rune-0.1.1-1.x86_64.rpm) · [`.AppImage`](https://github.com/JangHyun-bin/Rune/releases/download/v0.1.1/Rune_0.1.1_amd64.AppImage) |
+| **macOS** · Apple Silicon | [`Rune_0.1.2_aarch64.dmg`](https://github.com/JangHyun-bin/Rune/releases/download/v0.1.2/Rune_0.1.2_aarch64.dmg) |
+| **macOS** · Intel | [`Rune_0.1.2_x64.dmg`](https://github.com/JangHyun-bin/Rune/releases/download/v0.1.2/Rune_0.1.2_x64.dmg) |
+| **Windows** | [`.msi`](https://github.com/JangHyun-bin/Rune/releases/download/v0.1.2/Rune_0.1.2_x64_en-US.msi) · [`.exe`](https://github.com/JangHyun-bin/Rune/releases/download/v0.1.2/Rune_0.1.2_x64-setup.exe) |
+| **Linux** | [`.deb`](https://github.com/JangHyun-bin/Rune/releases/download/v0.1.2/Rune_0.1.2_amd64.deb) · [`.rpm`](https://github.com/JangHyun-bin/Rune/releases/download/v0.1.2/Rune-0.1.2-1.x86_64.rpm) · [`.AppImage`](https://github.com/JangHyun-bin/Rune/releases/download/v0.1.2/Rune_0.1.2_amd64.AppImage) |
 
-> **macOS:** the app is signed but not yet notarized. On first launch, right-click the app → **Open** (or System Settings → Privacy & Security → **Open Anyway**). Afterwards it opens normally.
+> **macOS:** signed & notarized — opens normally, no Gatekeeper prompt.
 
 ## Why Rune?
 
