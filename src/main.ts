@@ -17,6 +17,7 @@ import { mountCommandPalette, type PaletteItem } from "./workspace/commandPalett
 import { exportHtml, exportPdf } from "./export/exportDoc";
 import { mountSearchPanel } from "./workspace/searchPanel";
 import { mountSettingsPanel } from "./workspace/settingsPanel";
+import { showLanguagePicker } from "./workspace/languagePicker";
 import { t as tr, setLocale, getLocale, detectLocale, LOCALES, type Locale } from "./i18n/i18n";
 
 const chrome = mountChrome(document.getElementById("titlebar")!, document.getElementById("statusbar")!, {
@@ -208,14 +209,27 @@ async function restore(): Promise<void> {
   const res = await commands.loadSettings();
   const s = res.status === "ok" ? res.data : { theme: null, lastFolder: null, openTabs: [], locale: null };
   document.documentElement.setAttribute("data-theme", s.theme === "light" || s.theme === "dark" ? s.theme : (prefersDark() ? "dark" : "light"));
+
+  // Resolve the UI language BEFORE loading any content, so the app never flashes
+  // a language the user didn't choose. On first run (no saved locale) we ask once
+  // with a picker — pre-selecting a best-effort guess — and persist the choice.
+  const validCodes = LOCALES.map((x) => x.code) as string[];
+  const saved = s.locale && validCodes.includes(s.locale) ? (s.locale as Locale) : null;
+  const firstRun = saved === null;
+  setLocale(saved ?? detectLocale());
+  if (firstRun) {
+    setLocale(await showLanguagePicker(getLocale()));
+  }
+  chrome.relabel();
+
   if (s.lastFolder) { await loadFolder(s.lastFolder).catch(() => {}); }
   let opened = false;
   for (const p of s.openTabs) { await openPath(p); opened = true; }
   if (!opened) newDoc();
-  const validCodes = LOCALES.map((x) => x.code) as string[];
-  setLocale(s.locale && validCodes.includes(s.locale) ? (s.locale as Locale) : detectLocale());
-  chrome.relabel();
   syncActiveUI();
+
+  // Persist the first-run language pick alongside the (now restored) session state.
+  if (firstRun) { void commands.saveSettings(settingsSnapshot()); }
 }
 
 const banner = mountConflictBanner(document.getElementById("main-col")!, {

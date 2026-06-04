@@ -153,11 +153,31 @@ export const LOCALES: { code: Locale; label: string }[] = [
 export function setLocale(l: Locale): void { current = l; }
 export function getLocale(): Locale { return current; }
 
-export function detectLocale(): Locale {
-  const l = (typeof navigator !== "undefined" ? navigator.language : "en").toLowerCase();
+/** Map one BCP-47 tag (e.g. "ko-KR", "zh-Hant-TW") to a supported Locale, or null. */
+function matchLocale(tag: string): Locale | null {
+  const l = (tag || "").toLowerCase();
   if (l.startsWith("ko")) return "ko";
   if (l.startsWith("ja")) return "ja";
-  if (l.startsWith("zh")) return "zh-Hans";
+  if (l.startsWith("zh")) return "zh-Hans"; // only Simplified ships; any Chinese → it
+  if (l.startsWith("en")) return "en";
+  return null;
+}
+
+/** Best-effort guess from the OS/browser preference list, used only as the
+ *  default selection in the first-run picker. Walks navigator.languages in
+ *  order and returns the first supported locale; falls back to English so the
+ *  app never silently lands on a CJK locale the user never chose. */
+export function detectLocale(): Locale {
+  const list: string[] =
+    typeof navigator !== "undefined"
+      ? (navigator.languages && navigator.languages.length
+          ? Array.from(navigator.languages)
+          : [navigator.language])
+      : [];
+  for (const tag of list) {
+    const m = matchLocale(tag);
+    if (m) return m;
+  }
   return "en";
 }
 
