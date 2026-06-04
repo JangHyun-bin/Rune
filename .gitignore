@@ -46,5 +46,11 @@ Thumbs.db
 .superpowers/
 _icon-mockups/
 
+# Secrets — Apple notarization / signing keys (NEVER commit; this repo is public)
+api/
+*.p8
+asc-key.json
+*.mobileprovision
+
 # Misc
 *.local
