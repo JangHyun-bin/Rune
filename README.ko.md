@@ -7,7 +7,7 @@
 **집중을 위한 데스크톱 마크다운 라이터.**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-114ADB.svg)](LICENSE)
-[![Release](https://img.shields.io/github/v/release/JangHyun-bin/Rune?color=114ADB)](https://github.com/JangHyun-bin/Rune/releases/latest)
+[![Release](https://img.shields.io/github/v/release/JangHyun-bin/Rune?sort=semver&color=114ADB)](https://github.com/JangHyun-bin/Rune/releases/latest)
 ![Platforms](https://img.shields.io/badge/platforms-Windows%20%C2%B7%20macOS%20%C2%B7%20Linux-6B717A)
 ![Built with Tauri + Rust](https://img.shields.io/badge/built%20with-Tauri%20%2B%20Rust-2C3138)
 
