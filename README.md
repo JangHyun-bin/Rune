@@ -49,10 +49,10 @@ Get the latest installer for your OS from the [**Releases**](https://github.com/
 
 | OS | Download |
 |----|----------|
-| **macOS** · Apple Silicon | [`Rune_0.1.2_aarch64.dmg`](https://github.com/JangHyun-bin/Rune/releases/download/v0.1.2/Rune_0.1.2_aarch64.dmg) |
-| **macOS** · Intel | [`Rune_0.1.2_x64.dmg`](https://github.com/JangHyun-bin/Rune/releases/download/v0.1.2/Rune_0.1.2_x64.dmg) |
-| **Windows** | [`.msi`](https://github.com/JangHyun-bin/Rune/releases/download/v0.1.2/Rune_0.1.2_x64_en-US.msi) · [`.exe`](https://github.com/JangHyun-bin/Rune/releases/download/v0.1.2/Rune_0.1.2_x64-setup.exe) |
-| **Linux** | [`.deb`](https://github.com/JangHyun-bin/Rune/releases/download/v0.1.2/Rune_0.1.2_amd64.deb) · [`.rpm`](https://github.com/JangHyun-bin/Rune/releases/download/v0.1.2/Rune-0.1.2-1.x86_64.rpm) · [`.AppImage`](https://github.com/JangHyun-bin/Rune/releases/download/v0.1.2/Rune_0.1.2_amd64.AppImage) |
+| **macOS** · Apple Silicon | [`Rune_0.1.3_aarch64.dmg`](https://github.com/JangHyun-bin/Rune/releases/download/v0.1.3/Rune_0.1.3_aarch64.dmg) |
+| **macOS** · Intel | [`Rune_0.1.3_x64.dmg`](https://github.com/JangHyun-bin/Rune/releases/download/v0.1.3/Rune_0.1.3_x64.dmg) |
+| **Windows** | [`.msi`](https://github.com/JangHyun-bin/Rune/releases/download/v0.1.3/Rune_0.1.3_x64_en-US.msi) · [`.exe`](https://github.com/JangHyun-bin/Rune/releases/download/v0.1.3/Rune_0.1.3_x64-setup.exe) |
+| **Linux** | [`.deb`](https://github.com/JangHyun-bin/Rune/releases/download/v0.1.3/Rune_0.1.3_amd64.deb) · [`.rpm`](https://github.com/JangHyun-bin/Rune/releases/download/v0.1.3/Rune-0.1.3-1.x86_64.rpm) · [`.AppImage`](https://github.com/JangHyun-bin/Rune/releases/download/v0.1.3/Rune_0.1.3_amd64.AppImage) |
 
 > **macOS:** signed & notarized — opens normally, no Gatekeeper prompt.
 
