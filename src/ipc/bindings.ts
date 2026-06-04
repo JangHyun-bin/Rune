@@ -27,4 +27,6 @@ export const commands = {
   saveSettings: (settings: Settings) => call<null>("save_settings", { settings }),
   watchFolder: (path: string) => call<null>("watch_folder", { path }),
   search: (root: string, query: string) => call<SearchHit[]>("search", { root, query }),
+  takeLaunchFile: () => call<string | null>("take_launch_file", {}),
+  openDefaultAppsSettings: () => call<null>("open_default_apps_settings", {}),
 };

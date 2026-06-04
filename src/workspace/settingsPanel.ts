@@ -7,6 +7,7 @@ export function mountSettingsPanel(handlers: {
   onTheme: (theme: "light" | "dark") => void;
   getTheme: () => "light" | "dark";
   onHelp: () => void;
+  onSetDefault: () => void;
 }): SettingsPanel {
   const backdrop = document.createElement("div"); backdrop.className = "settings-backdrop hidden";
   const card = document.createElement("div"); card.className = "settings-card";
@@ -48,6 +49,13 @@ export function mountSettingsPanel(handlers: {
     const helpBtn = document.createElement("button"); helpBtn.type = "button"; helpBtn.className = "btn btn-secondary"; helpBtn.textContent = t("help.title");
     helpBtn.addEventListener("click", () => { hide(); handlers.onHelp(); });
     helpRow.append(helpLabel, helpBtn); card.appendChild(helpRow);
+
+    // Default .md app
+    const defRow = document.createElement("div"); defRow.className = "settings-row";
+    const defLabel = document.createElement("label"); defLabel.textContent = t("settings.defaultApp");
+    const defBtn = document.createElement("button"); defBtn.type = "button"; defBtn.className = "btn btn-secondary"; defBtn.textContent = t("settings.setDefault");
+    defBtn.addEventListener("click", () => handlers.onSetDefault());
+    defRow.append(defLabel, defBtn); card.appendChild(defRow);
   }
 
   const hide = () => backdrop.classList.add("hidden");

@@ -65,3 +65,38 @@ pub fn watch_folder(app: AppHandle, state: tauri::State<crate::WatcherState>, pa
 pub fn search(root: String, query: String) -> Result<Vec<crate::search::SearchHit>, String> {
     Ok(crate::search::search_files(std::path::Path::new(&root), &query))
 }
+
+/// Return (and clear) the file Rune was launched with via file association, if any.
+#[tauri::command]
+pub fn take_launch_file(state: tauri::State<crate::LaunchFile>) -> Option<String> {
+    state.0.lock().ok().and_then(|mut g| g.take())
+}
+
+/// Open the OS "default apps" UI so the user can make Rune the default .md handler.
+/// Windows blocks programmatic default-handler changes (UserChoice hash), so we
+/// deep-link into Settings and let the user confirm; Linux can set it directly.
+#[tauri::command]
+pub fn open_default_apps_settings() -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    {
+        std::process::Command::new("cmd")
+            .args(["/C", "start", "", "ms-settings:defaultapps"])
+            .spawn()
+            .map_err(|e| e.to_string())?;
+    }
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open")
+            .arg("x-apple.systempreferences:")
+            .spawn()
+            .map_err(|e| e.to_string())?;
+    }
+    #[cfg(target_os = "linux")]
+    {
+        // xdg allows setting the default handler directly (best-effort).
+        let _ = std::process::Command::new("xdg-mime")
+            .args(["default", "Rune.desktop", "text/markdown"])
+            .spawn();
+    }
+    Ok(())
+}

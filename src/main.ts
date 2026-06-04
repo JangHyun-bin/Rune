@@ -54,6 +54,7 @@ const settingsPanel = mountSettingsPanel({
   onTheme: (th) => applyTheme(th),
   getTheme: currentTheme,
   onHelp: () => helpPanel.open(),
+  onSetDefault: () => void commands.openDefaultAppsSettings(),
 });
 function applyLocale(l: Locale): void {
   setLocale(l);
@@ -234,6 +235,10 @@ async function restore(): Promise<void> {
 
   // Persist the first-run language pick alongside the (now restored) session state.
   if (firstRun) { void commands.saveSettings(settingsSnapshot()); }
+
+  // If Rune was launched by double-clicking a .md (file association), open it.
+  const launch = await commands.takeLaunchFile();
+  if (launch.status === "ok" && launch.data) { await openPath(launch.data); }
 }
 
 const banner = mountConflictBanner(document.getElementById("main-col")!, {
@@ -267,6 +272,8 @@ function onFsChange(paths: string[]): void {
   }, 250);
 }
 void listen<string[]>("fs-change", (e) => onFsChange(e.payload));
+// A .md opened via file association while Rune is already running (single-instance / macOS).
+void listen<string>("open-file", (e) => { void openPath(e.payload); });
 
 // init: create the editor view with a bare empty state; restore() opens tabs.
 view = createEditorView(document.getElementById("editor")!, editorState("", onChange, extraExts()));
