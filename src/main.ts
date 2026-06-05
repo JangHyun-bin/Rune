@@ -125,6 +125,8 @@ async function openPath(path: string): Promise<void> {
   if (tabs.activeId && view) states.set(tabs.activeId, view.state);
   tabs = openOrFocus(tabs, path, res.data);
   showActive();
+  // Opened a loose file with no workspace open → load its folder into the tree.
+  // `await` is deliberate: currentFolder must be set before scheduleSaveSettings() captures lastFolder.
   if (!currentFolder) { const dir = parentDir(path); if (dir) await loadFolder(dir).catch(() => {}); }
   scheduleSaveSettings();
 }
