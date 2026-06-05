@@ -148,3 +148,9 @@ body { background: var(--bg); color: var(--text); font-family: var(--sans); }
 .btn-ghost:hover { color:var(--text); }
 .cm-md-bullet { color: var(--muted); }
 .cm-md-task { margin: 0 0.4em 0 0; vertical-align: middle; cursor: pointer; accent-color: var(--accent); }
+.prompt-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.3); display: flex; justify-content: center; align-items: flex-start; padding-top: 16vh; z-index: 130; }
+.prompt-card { width: 360px; max-width: 92vw; background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: var(--radius-xl); box-shadow: var(--shadow-lg); padding: 18px 20px; font-family: var(--sans); }
+.prompt-title { font-size: 14px; font-weight: 700; margin: 0 0 12px; }
+.prompt-input { width: 100%; box-sizing: border-box; border: 1px solid var(--border); border-radius: var(--radius-md); padding: 8px 10px; font-size: 14px; font-family: var(--sans); background: var(--bg); color: var(--text); }
+.prompt-input:focus { outline: none; border-color: var(--accent); }
+.prompt-row { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
