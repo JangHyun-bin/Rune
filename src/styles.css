@@ -154,3 +154,8 @@ body { background: var(--bg); color: var(--text); font-family: var(--sans); }
 .prompt-input { width: 100%; box-sizing: border-box; border: 1px solid var(--border); border-radius: var(--radius-md); padding: 8px 10px; font-size: 14px; font-family: var(--sans); background: var(--bg); color: var(--text); }
 .prompt-input:focus { outline: none; border-color: var(--accent); }
 .prompt-row { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
+.ctx-menu { position: fixed; z-index: 140; min-width: 160px; background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-md); box-shadow: var(--shadow-md); padding: 4px; font-family: var(--sans); font-size: 13px; }
+.ctx-item { padding: 6px 10px; border-radius: var(--radius-sm); cursor: pointer; color: var(--text); white-space: nowrap; }
+.ctx-item:hover { background: var(--accent-soft); }
+.ctx-item.danger { color: #b3261e; }
+.ctx-item.danger:hover { background: #fdecec; }
