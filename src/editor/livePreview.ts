@@ -1,8 +1,18 @@
 import { syntaxTree } from "@codemirror/language";
 import type { Range } from "@codemirror/state";
 import {
-  Decoration, type DecorationSet, EditorView, ViewPlugin, type ViewUpdate,
+  Decoration, type DecorationSet, EditorView, ViewPlugin, type ViewUpdate, WidgetType,
 } from "@codemirror/view";
+
+class BulletWidget extends WidgetType {
+  eq() { return true; }
+  toDOM() {
+    const s = document.createElement("span");
+    s.className = "cm-md-bullet";
+    s.textContent = "•";
+    return s;
+  }
+}
 
 // 커서가 그 줄에 없을 때 숨길 마커 노드들.
 const HIDDEN_MARKS = new Set([
@@ -59,6 +69,20 @@ function build(view: EditorView): { deco: DecorationSet; atomic: DecorationSet }
           const last = doc.lineAt(Math.max(node.from, node.to - 1)).number;
           for (let ln = first; ln <= last; ln++) {
             decoR.push(Decoration.line({ class: "cm-md-quote" }).range(doc.line(ln).from));
+          }
+          return;
+        }
+        if (name === "ListMark") {
+          const lineNo = doc.lineAt(node.from).number;
+          if (active.has(lineNo)) return;
+          const li = node.node.parent;            // ListItem
+          const isTask = !!li?.getChild("Task");
+          const inBullet = li?.parent?.name === "BulletList";
+          if (isTask) return;                      // Task 4 will hide the marker + render a checkbox
+          if (inBullet) {
+            const w = Decoration.replace({ widget: new BulletWidget() });
+            decoR.push(w.range(node.from, node.to));
+            atomicR.push(w.range(node.from, node.to));
           }
           return;
         }

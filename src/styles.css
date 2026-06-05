@@ -146,3 +146,4 @@ body { background: var(--bg); color: var(--text); font-family: var(--sans); }
 .btn-secondary:hover { border-color:var(--accent); color:var(--accent); }
 .btn-ghost { background:none; color:var(--muted); }
 .btn-ghost:hover { color:var(--text); }
+.cm-md-bullet { color: var(--muted); }
