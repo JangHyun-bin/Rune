@@ -14,4 +14,8 @@ describe("parentDir", () => {
   it("returns null at a root-level child", () => {
     expect(parentDir("/a.md")).toBe(null);
   });
+  it("returns null at a Windows drive-root child", () => {
+    expect(parentDir("C:\\a.md")).toBe(null);
+    expect(parentDir("C:/a.md")).toBe(null);
+  });
 });
