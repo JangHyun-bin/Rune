@@ -17,13 +17,15 @@ class BulletWidget extends WidgetType {
 
 class TaskWidget extends WidgetType {
   constructor(readonly checked: boolean, readonly view: EditorView, readonly from: number, readonly to: number) { super(); }
-  eq(o: TaskWidget) { return o.checked === this.checked && o.from === this.from; }
+  eq(o: TaskWidget) { return o.checked === this.checked && o.from === this.from && o.to === this.to; }
   toDOM() {
     const box = document.createElement("input");
     box.type = "checkbox";
     box.checked = this.checked;
     box.className = "cm-md-task";
     box.addEventListener("mousedown", (e) => {
+      // from/to are current: decorations rebuild synchronously on every docChanged,
+      // so the in-DOM widget always reflects the live doc; re-read the slice to toggle.
       e.preventDefault();
       const cur = this.view.state.doc.sliceString(this.from, this.to);
       this.view.dispatch({ changes: { from: this.from, to: this.to, insert: toggledTaskMarker(cur) } });
