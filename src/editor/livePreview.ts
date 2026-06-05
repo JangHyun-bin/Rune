@@ -3,6 +3,7 @@ import type { Range } from "@codemirror/state";
 import {
   Decoration, type DecorationSet, EditorView, ViewPlugin, type ViewUpdate, WidgetType,
 } from "@codemirror/view";
+import { toggledTaskMarker } from "./taskMarker";
 
 class BulletWidget extends WidgetType {
   eq() { return true; }
@@ -12,6 +13,24 @@ class BulletWidget extends WidgetType {
     s.textContent = "•";
     return s;
   }
+}
+
+class TaskWidget extends WidgetType {
+  constructor(readonly checked: boolean, readonly view: EditorView, readonly from: number, readonly to: number) { super(); }
+  eq(o: TaskWidget) { return o.checked === this.checked && o.from === this.from; }
+  toDOM() {
+    const box = document.createElement("input");
+    box.type = "checkbox";
+    box.checked = this.checked;
+    box.className = "cm-md-task";
+    box.addEventListener("mousedown", (e) => {
+      e.preventDefault();
+      const cur = this.view.state.doc.sliceString(this.from, this.to);
+      this.view.dispatch({ changes: { from: this.from, to: this.to, insert: toggledTaskMarker(cur) } });
+    });
+    return box;
+  }
+  ignoreEvent() { return false; }
 }
 
 // 커서가 그 줄에 없을 때 숨길 마커 노드들.
@@ -72,13 +91,27 @@ function build(view: EditorView): { deco: DecorationSet; atomic: DecorationSet }
           }
           return;
         }
+        if (name === "TaskMarker") {
+          const lineNo = doc.lineAt(node.from).number;
+          if (active.has(lineNo)) return;
+          const checked = /\[[xX]\]/.test(doc.sliceString(node.from, node.to));
+          const w = Decoration.replace({ widget: new TaskWidget(checked, view, node.from, node.to) });
+          decoR.push(w.range(node.from, node.to));
+          atomicR.push(w.range(node.from, node.to));
+          return;
+        }
         if (name === "ListMark") {
           const lineNo = doc.lineAt(node.from).number;
           if (active.has(lineNo)) return;
           const li = node.node.parent;            // ListItem
           const isTask = !!li?.getChild("Task");
           const inBullet = li?.parent?.name === "BulletList";
-          if (isTask) return;                      // Task 4 will hide the marker + render a checkbox
+          if (isTask) {
+            const hide = Decoration.replace({});
+            decoR.push(hide.range(node.from, node.to));
+            atomicR.push(hide.range(node.from, node.to));
+            return;
+          }
           if (inBullet) {
             const w = Decoration.replace({ widget: new BulletWidget() });
             decoR.push(w.range(node.from, node.to));

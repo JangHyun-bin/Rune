@@ -147,3 +147,4 @@ body { background: var(--bg); color: var(--text); font-family: var(--sans); }
 .btn-ghost { background:none; color:var(--muted); }
 .btn-ghost:hover { color:var(--text); }
 .cm-md-bullet { color: var(--muted); }
+.cm-md-task { margin: 0 0.4em 0 0; vertical-align: middle; cursor: pointer; accent-color: var(--accent); }
