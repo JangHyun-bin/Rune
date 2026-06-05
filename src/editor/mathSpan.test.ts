@@ -6,7 +6,7 @@ describe("isInlineMath", () => {
     expect(isInlineMath("E=mc^2")).toBe(true);
     expect(isInlineMath("x")).toBe(true);
   });
-  it("rejects content starting with a digit (currency like $5)", () => {
+  it("rejects prose-like currency spans", () => {
     expect(isInlineMath("5 and ")).toBe(false);
     expect(isInlineMath("20, sale ")).toBe(false);
   });
@@ -16,5 +16,13 @@ describe("isInlineMath", () => {
   });
   it("rejects empty content", () => {
     expect(isInlineMath("")).toBe(false);
+  });
+  it("accepts digit-leading real math", () => {
+    expect(isInlineMath("1+1")).toBe(true);
+    expect(isInlineMath("2x")).toBe(true);
+    expect(isInlineMath("3.14")).toBe(true);
+  });
+  it("rejects a bare number", () => {
+    expect(isInlineMath("42")).toBe(false);
   });
 });
