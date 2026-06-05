@@ -99,6 +99,53 @@ pub fn scan_dir(root: &Path, depth: usize) -> Vec<FileNode> {
     dirs.into_iter().chain(files).collect()
 }
 
+/// dir/<name> 검증: 빈 이름·경로구분자·상위참조 금지.
+fn safe_child(dir: &Path, name: &str) -> Result<PathBuf, String> {
+    let n = name.trim();
+    if n.is_empty() {
+        return Err("name is empty".into());
+    }
+    if n.contains('/') || n.contains('\\') || n == "." || n == ".." {
+        return Err("name may not contain path separators".into());
+    }
+    Ok(dir.join(n))
+}
+
+/// path를 같은 폴더 안에서 new_name으로 이름 변경. 대상이 이미 있으면 에러.
+pub fn rename(path: &Path, new_name: &str) -> Result<(), String> {
+    let parent = path.parent().ok_or("path has no parent folder")?;
+    let target = safe_child(parent, new_name)?;
+    if target.exists() {
+        return Err(format!("already exists: {}", target.display()));
+    }
+    fs::rename(path, &target).map_err(|e| format!("rename failed: {e}"))
+}
+
+/// dir 안에 빈 파일 생성. 새 경로 반환.
+pub fn create_file(dir: &Path, name: &str) -> Result<String, String> {
+    let target = safe_child(dir, name)?;
+    if target.exists() {
+        return Err(format!("already exists: {}", target.display()));
+    }
+    fs::File::create(&target).map_err(|e| format!("create file failed: {e}"))?;
+    Ok(target.to_string_lossy().to_string())
+}
+
+/// dir 안에 폴더 생성. 새 경로 반환.
+pub fn create_dir(dir: &Path, name: &str) -> Result<String, String> {
+    let target = safe_child(dir, name)?;
+    if target.exists() {
+        return Err(format!("already exists: {}", target.display()));
+    }
+    fs::create_dir(&target).map_err(|e| format!("create dir failed: {e}"))?;
+    Ok(target.to_string_lossy().to_string())
+}
+
+/// path를 OS 휴지통으로 이동(되돌릴 수 있음).
+pub fn delete_to_trash(path: &Path) -> Result<(), String> {
+    trash::delete(path).map_err(|e| format!("delete failed: {e}"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -161,6 +208,48 @@ mod tests {
         let a1 = save_asset(dir.path(), b, "png").unwrap();
         let a2 = save_asset(dir.path(), b, "png").unwrap();
         assert_eq!(a1, a2);
+    }
+
+    #[test]
+    fn rename_moves_within_parent() {
+        let dir = tempfile::tempdir().unwrap();
+        let a = dir.path().join("a.md");
+        std::fs::write(&a, "x").unwrap();
+        rename(&a, "b.md").unwrap();
+        assert!(!a.exists());
+        assert!(dir.path().join("b.md").exists());
+    }
+
+    #[test]
+    fn rename_to_existing_is_err() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("a.md"), "x").unwrap();
+        std::fs::write(dir.path().join("b.md"), "y").unwrap();
+        assert!(rename(&dir.path().join("a.md"), "b.md").is_err());
+    }
+
+    #[test]
+    fn create_file_makes_empty_and_returns_path() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = create_file(dir.path(), "note.md").unwrap();
+        assert!(std::path::Path::new(&p).exists());
+        assert_eq!(std::fs::read_to_string(&p).unwrap(), "");
+    }
+
+    #[test]
+    fn create_dir_makes_dir() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = create_dir(dir.path(), "sub").unwrap();
+        assert!(std::path::Path::new(&p).is_dir());
+    }
+
+    #[test]
+    fn names_with_separators_are_rejected() {
+        let dir = tempfile::tempdir().unwrap();
+        assert!(create_file(dir.path(), "a/b.md").is_err());
+        assert!(create_file(dir.path(), "..").is_err());
+        assert!(create_file(dir.path(), "").is_err());
+        assert!(create_dir(dir.path(), "a\\b").is_err());
     }
 
     #[test]

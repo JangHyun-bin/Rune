@@ -25,6 +25,7 @@ tauri-plugin-dialog = "2.7.1"
 tauri-plugin-opener = "2"
 sha2 = "0.11.0"
 notify = "8.2.0"
+trash = "5"
 
 # single-instance routes a double-clicked .md to the running window (desktop only)
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]

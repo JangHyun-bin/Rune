@@ -57,7 +57,11 @@ pub fn run() {
             commands::watch_folder,
             commands::search,
             commands::take_launch_file,
-            commands::open_default_apps_settings
+            commands::open_default_apps_settings,
+            commands::rename_path,
+            commands::delete_path,
+            commands::create_file,
+            commands::create_dir
         ])
         .build(tauri::generate_context!())
         .expect("error while running tauri application")

@@ -72,6 +72,26 @@ pub fn take_launch_file(state: tauri::State<crate::LaunchFile>) -> Option<String
     state.0.lock().ok().and_then(|mut g| g.take())
 }
 
+#[tauri::command]
+pub fn rename_path(path: String, new_name: String) -> Result<(), String> {
+    fs_ops::rename(std::path::Path::new(&path), &new_name)
+}
+
+#[tauri::command]
+pub fn delete_path(path: String) -> Result<(), String> {
+    fs_ops::delete_to_trash(std::path::Path::new(&path))
+}
+
+#[tauri::command]
+pub fn create_file(dir: String, name: String) -> Result<String, String> {
+    fs_ops::create_file(std::path::Path::new(&dir), &name)
+}
+
+#[tauri::command]
+pub fn create_dir(dir: String, name: String) -> Result<String, String> {
+    fs_ops::create_dir(std::path::Path::new(&dir), &name)
+}
+
 /// Open the OS "default apps" UI so the user can make Rune the default .md handler.
 /// Windows blocks programmatic default-handler changes (UserChoice hash), so we
 /// deep-link into Settings and let the user confirm; Linux can set it directly.
