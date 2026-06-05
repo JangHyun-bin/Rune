@@ -5,7 +5,7 @@ export function editorTheme() {
   return EditorView.theme({
     "&": { height: "100%", backgroundColor: "var(--bg)", color: "var(--text)" },
     ".cm-scroller": { fontFamily: "var(--sans)", fontSize: "16px", lineHeight: "1.7", overflow: "auto" },
-    ".cm-content": { maxWidth: "720px", margin: "0 auto", padding: "32px 28px" },
+    ".cm-content": { maxWidth: "var(--editor-max, 720px)", margin: "0 auto", padding: "32px 28px" },
     "&.cm-focused": { outline: "none" },
     ".cm-cursor, .cm-dropCursor": { borderLeftColor: "var(--accent)", borderLeftWidth: "2px" },
     ".cm-selectionBackground": { backgroundColor: "var(--accent-soft)" },

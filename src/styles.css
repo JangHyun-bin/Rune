@@ -23,6 +23,7 @@
   --text:#ECEEF1; --muted:#8A909C; --accent:#3D74F0; --accent-soft:#16233F;
   --accent-hover:#5B8DEF;
 }
+:root[data-editor-width="wide"] { --editor-max: none; }
 html, body { height: 100%; margin: 0; }
 body { background: var(--bg); color: var(--text); font-family: var(--sans); }
 #app { height: 100vh; display: flex; flex-direction: column; }
