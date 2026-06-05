@@ -1,6 +1,8 @@
 import katex from "katex";
 import { type EditorState, type Extension, RangeSetBuilder, StateField } from "@codemirror/state";
 import { Decoration, type DecorationSet, EditorView, WidgetType } from "@codemirror/view";
+import { syntaxTree } from "@codemirror/language";
+import { isInlineMath } from "./mathSpan";
 
 class MathWidget extends WidgetType {
   constructor(readonly tex: string, readonly block: boolean) { super(); }
@@ -26,17 +28,37 @@ function cursorInside(state: EditorState, from: number, to: number): boolean {
 const BLOCK_RE = /\$\$([^$]+?)\$\$/g;
 const INLINE_RE = /(?<!\$)\$([^$\n]+?)\$(?!\$)/g;
 
+function codeRanges(state: EditorState): { from: number; to: number }[] {
+  const ranges: { from: number; to: number }[] = [];
+  syntaxTree(state).iterate({
+    enter: (n) => {
+      if (n.name === "InlineCode" || n.name === "FencedCode" || n.name === "CodeText") {
+        ranges.push({ from: n.from, to: n.to });
+      }
+    },
+  });
+  return ranges;
+}
+
+function inCode(ranges: { from: number; to: number }[], from: number, to: number): boolean {
+  return ranges.some((r) => from < r.to && to > r.from);
+}
+
 function build(state: EditorState): DecorationSet {
   const text = state.doc.toString();
+  const code = codeRanges(state);
   const found: { from: number; to: number; deco: Decoration }[] = [];
   for (const m of text.matchAll(BLOCK_RE)) {
     const from = m.index!, to = from + m[0].length;
+    if (inCode(code, from, to)) continue;
     if (!cursorInside(state, from, to)) {
       found.push({ from, to, deco: Decoration.replace({ widget: new MathWidget(m[1].trim(), true), block: true }) });
     }
   }
   for (const m of text.matchAll(INLINE_RE)) {
     const from = m.index!, to = from + m[0].length;
+    if (inCode(code, from, to)) continue;
+    if (!isInlineMath(m[1])) continue;
     if (!cursorInside(state, from, to)) {
       found.push({ from, to, deco: Decoration.replace({ widget: new MathWidget(m[1].trim(), false) }) });
     }
