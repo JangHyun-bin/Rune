@@ -54,6 +54,8 @@ function build(view: EditorView): { deco: DecorationSet; atomic: DecorationSet }
         }
         if (name === "Blockquote") {
           const first = doc.lineAt(node.from).number;
+          // Blockquote node.to ends at the last content char (no trailing \n); -1 + Math.max
+          // guards doc.lineAt from landing on the next line / underflowing a 0-length node.
           const last = doc.lineAt(Math.max(node.from, node.to - 1)).number;
           for (let ln = first; ln <= last; ln++) {
             decoR.push(Decoration.line({ class: "cm-md-quote" }).range(doc.line(ln).from));
