@@ -39,7 +39,7 @@ let workspaceFiles: { name: string; path: string }[] = [];
 function prefersDark(): boolean { return window.matchMedia("(prefers-color-scheme: dark)").matches; }
 function settingsSnapshot() {
   const theme = document.documentElement.getAttribute("data-theme") === "dark" ? "dark" : "light";
-  return { theme, lastFolder: currentFolder, openTabs: tabs.tabs.map((t) => t.path).filter((p): p is string => !!p), locale: getLocale() };
+  return { theme, lastFolder: currentFolder, openTabs: tabs.tabs.map((t) => t.path).filter((p): p is string => !!p), locale: getLocale(), editorWidth: currentEditorWidth() };
 }
 function applyTheme(theme: "light" | "dark"): void {
   document.documentElement.setAttribute("data-theme", theme);
@@ -47,6 +47,16 @@ function applyTheme(theme: "light" | "dark"): void {
 }
 function currentTheme(): "light" | "dark" {
   return document.documentElement.getAttribute("data-theme") === "dark" ? "dark" : "light";
+}
+function currentEditorWidth(): "readable" | "wide" {
+  return document.documentElement.getAttribute("data-editor-width") === "wide" ? "wide" : "readable";
+}
+function applyEditorWidth(w: "readable" | "wide"): void {
+  document.documentElement.setAttribute("data-editor-width", w);
+  scheduleSaveSettings();
+}
+function flipEditorWidth(): void {
+  applyEditorWidth(currentEditorWidth() === "wide" ? "readable" : "wide");
 }
 const helpPanel = mountHelpPanel();
 const settingsPanel = mountSettingsPanel({
@@ -189,6 +199,7 @@ function paletteItems(): PaletteItem[] {
     { label: tr("cmd.openFolder"), run: () => void openFolder() },
     { label: tr("cmd.save"), run: () => void doSave() },
     { label: tr("cmd.toggleTheme"), run: () => flipTheme() },
+    { label: tr("cmd.toggleWidth"), run: () => flipEditorWidth() },
     { label: tr("cmd.closeTab"), run: () => { if (tabs.activeId) requestClose(tabs.activeId); } },
     { label: tr("cmd.exportHtml"), run: () => void exportHtml(view.state.doc.toString(), exportTitle()) },
     { label: tr("cmd.exportPdf"), run: () => void exportPdf(view.state.doc.toString(), exportTitle()) },
@@ -212,8 +223,9 @@ const searchPanel = mountSearchPanel(
 );
 async function restore(): Promise<void> {
   const res = await commands.loadSettings();
-  const s = res.status === "ok" ? res.data : { theme: null, lastFolder: null, openTabs: [], locale: null };
+  const s = res.status === "ok" ? res.data : { theme: null, lastFolder: null, openTabs: [], locale: null, editorWidth: null };
   document.documentElement.setAttribute("data-theme", s.theme === "light" || s.theme === "dark" ? s.theme : (prefersDark() ? "dark" : "light"));
+  document.documentElement.setAttribute("data-editor-width", s.editorWidth === "wide" ? "wide" : "readable");
 
   // Resolve the UI language BEFORE loading any content, so the app never flashes
   // a language the user didn't choose. On first run (no saved locale) we ask once
@@ -285,6 +297,7 @@ window.addEventListener("keydown", (e) => {
   const mod = e.ctrlKey || e.metaKey;
   if (mod && e.shiftKey && e.key.toLowerCase() === "f") { e.preventDefault(); searchPanel.toggle(); return; }
   if (mod && e.shiftKey && e.key.toLowerCase() === "o") { e.preventDefault(); void openFolder(); return; }
+  if (mod && e.shiftKey && e.key.toLowerCase() === "l") { e.preventDefault(); flipEditorWidth(); return; }
   if (mod && e.key.toLowerCase() === "o") { e.preventDefault(); void openFile(); return; }
   if (mod && e.key.toLowerCase() === "s") { e.preventDefault(); void doSave(); return; }
   if (mod && e.key.toLowerCase() === "n") { e.preventDefault(); newDoc(); return; }
