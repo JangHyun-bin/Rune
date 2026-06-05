@@ -53,8 +53,11 @@ function build(view: EditorView): { deco: DecorationSet; atomic: DecorationSet }
           return;
         }
         if (name === "Blockquote") {
-          const line = doc.lineAt(node.from);
-          decoR.push(Decoration.line({ class: "cm-md-quote" }).range(line.from));
+          const first = doc.lineAt(node.from).number;
+          const last = doc.lineAt(Math.max(node.from, node.to - 1)).number;
+          for (let ln = first; ln <= last; ln++) {
+            decoR.push(Decoration.line({ class: "cm-md-quote" }).range(doc.line(ln).from));
+          }
           return;
         }
         if (name === "URL" || name === "LinkLabel") {
