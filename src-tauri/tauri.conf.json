@@ -27,6 +27,7 @@
   },
   "bundle": {
     "active": true,
+    "createUpdaterArtifacts": true,
     "targets": "all",
     "icon": [
       "icons/32x32.png",
@@ -44,5 +45,14 @@
         "mimeType": "text/markdown"
       }
     ]
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "PASTE_rune-updater.key.pub_CONTENT_IN_TASK_8",
+      "endpoints": [
+        "https://github.com/JangHyun-bin/Rune/releases/latest/download/latest.json"
+      ],
+      "windows": { "installMode": "passive" }
+    }
   }
 }

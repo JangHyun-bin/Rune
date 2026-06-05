@@ -7,6 +7,9 @@
     "core:default",
     "dialog:allow-open",
     "dialog:allow-save",
-    "opener:allow-reveal-item-in-dir"
+    "opener:allow-reveal-item-in-dir",
+    "updater:default",
+    "process:default",
+    "opener:allow-open-url"
   ]
 }
