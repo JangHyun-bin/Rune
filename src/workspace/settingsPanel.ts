@@ -1,6 +1,6 @@
 import { t, getLocale, LOCALES, type Locale } from "../i18n/i18n";
 
-export interface SettingsPanel { open: () => void; refresh: () => void; }
+export interface SettingsPanel { open: () => void; refresh: () => void; setUpdateStatus: (text: string) => void; }
 
 export function mountSettingsPanel(handlers: {
   onLocale: (l: Locale) => void;
@@ -10,11 +10,14 @@ export function mountSettingsPanel(handlers: {
   getEditorWidth: () => "readable" | "wide";
   onHelp: () => void;
   onSetDefault: () => void;
+  onCheckUpdates: () => void;
 }): SettingsPanel {
   const backdrop = document.createElement("div"); backdrop.className = "settings-backdrop hidden";
   const card = document.createElement("div"); card.className = "settings-card";
   backdrop.appendChild(card);
   document.body.appendChild(backdrop);
+
+  let updateStatusEl: HTMLElement | null = null;
 
   function build() {
     card.replaceChildren();
@@ -70,6 +73,16 @@ export function mountSettingsPanel(handlers: {
     const defBtn = document.createElement("button"); defBtn.type = "button"; defBtn.className = "btn btn-secondary"; defBtn.textContent = t("settings.setDefault");
     defBtn.addEventListener("click", () => handlers.onSetDefault());
     defRow.append(defLabel, defBtn); card.appendChild(defRow);
+
+    // Updates
+    const upRow = document.createElement("div"); upRow.className = "settings-row";
+    const upLabel = document.createElement("label"); upLabel.textContent = t("settings.updates");
+    const upWrap = document.createElement("div"); upWrap.style.display = "flex"; upWrap.style.alignItems = "center"; upWrap.style.gap = "8px";
+    updateStatusEl = document.createElement("span"); updateStatusEl.className = "settings-status";
+    const upBtn = document.createElement("button"); upBtn.type = "button"; upBtn.className = "btn btn-secondary"; upBtn.textContent = t("settings.checkUpdates");
+    upBtn.addEventListener("click", () => { updateStatusEl!.textContent = t("update.checking"); handlers.onCheckUpdates(); });
+    upWrap.append(updateStatusEl, upBtn);
+    upRow.append(upLabel, upWrap); card.appendChild(upRow);
   }
 
   const hide = () => backdrop.classList.add("hidden");
@@ -79,5 +92,6 @@ export function mountSettingsPanel(handlers: {
   return {
     open: () => { build(); backdrop.classList.remove("hidden"); },
     refresh: () => { if (!backdrop.classList.contains("hidden")) build(); },
+    setUpdateStatus: (text: string) => { if (updateStatusEl) updateStatusEl.textContent = text; },
   };
 }

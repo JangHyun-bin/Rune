@@ -162,3 +162,4 @@ body { background: var(--bg); color: var(--text); font-family: var(--sans); }
 .update-banner .ub-msg { flex: 1; }
 .update-banner .ub-actions { display: inline-flex; gap: 6px; }
 .update-banner .btn { font-size: 11.5px; padding: 3px 10px; }
+.settings-status { font-size: 11px; color: var(--muted); }

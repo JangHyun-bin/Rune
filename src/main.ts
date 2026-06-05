@@ -4,7 +4,10 @@ import { type TabsState, emptyTabs, activeTab, openOrFocus, newUntitled, setActi
 import { nextTabId, prevTabId, nthTabId } from "./workspace/tabs";
 import { commands } from "./ipc/bindings";
 import { open, save } from "@tauri-apps/plugin-dialog";
-import { revealItemInDir } from "@tauri-apps/plugin-opener";
+import { revealItemInDir, openUrl } from "@tauri-apps/plugin-opener";
+import { check } from "@tauri-apps/plugin-updater";
+import { relaunch } from "@tauri-apps/plugin-process";
+import { mountUpdateBanner } from "./workspace/updatePanel";
 import { EditorView, keymap } from "@codemirror/view";
 import { EditorState, Prec } from "@codemirror/state";
 import { mountChrome } from "./chrome/chrome";
@@ -70,6 +73,7 @@ const settingsPanel = mountSettingsPanel({
   getEditorWidth: currentEditorWidth,
   onHelp: () => helpPanel.open(),
   onSetDefault: () => void commands.openDefaultAppsSettings(),
+  onCheckUpdates: () => void checkForUpdates(true),
 });
 function applyLocale(l: Locale): void {
   setLocale(l);
@@ -332,6 +336,7 @@ async function restore(): Promise<void> {
   // If Rune was launched by double-clicking a .md (file association), open it.
   const launch = await commands.takeLaunchFile();
   if (launch.status === "ok" && launch.data) { await openPath(launch.data); }
+  void checkForUpdates(false);
 }
 
 const banner = mountConflictBanner(document.getElementById("main-col")!, {
@@ -339,6 +344,31 @@ const banner = mountConflictBanner(document.getElementById("main-col")!, {
   onKeep: () => {},
 });
 const errorBanner = mountErrorBanner(document.getElementById("main-col")!);
+const updateBanner = mountUpdateBanner(document.getElementById("main-col")!);
+const isMacPlatform = typeof navigator !== "undefined" && /mac/i.test(navigator.platform || navigator.userAgent || "");
+const RELEASES_URL = "https://github.com/JangHyun-bin/Rune/releases/latest";
+
+async function checkForUpdates(manual: boolean): Promise<void> {
+  try {
+    const update = await check();
+    if (!update) { if (manual) settingsPanel.setUpdateStatus(tr("update.upToDate")); return; }
+    if (manual) settingsPanel.setUpdateStatus("");
+    if (isMacPlatform) {
+      updateBanner.showManual(update.version, () => void openUrl(RELEASES_URL));
+    } else {
+      updateBanner.showAuto(update.version, () => void (async () => {
+        updateBanner.setDownloading();
+        try {
+          await update.downloadAndInstall(() => {});
+          await relaunch();
+        } catch (e) { console.error(e); updateBanner.hide(); errorBanner.show(tr("update.failed")); }
+      })());
+    }
+  } catch (e) {
+    console.error(e);
+    if (manual) settingsPanel.setUpdateStatus(tr("update.failed"));
+  }
+}
 
 function samePath(a: string, b: string): boolean {
   const norm = (s: string) => s.replace(/\\/g, "/").toLowerCase();
