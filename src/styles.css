@@ -72,6 +72,12 @@ body { background: var(--bg); color: var(--text); font-family: var(--sans); }
 .conflict-banner .cb-msg { flex: 1; }
 .conflict-banner button { background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-md); color: var(--text); font-size: 11.5px; padding: 3px 9px; cursor: pointer; }
 .conflict-banner button:hover { border-color: var(--accent); color: var(--accent); }
+.error-banner { display: flex; align-items: center; gap: 10px; padding: 6px 12px; background: #fdecec; border-bottom: 1px solid var(--border); font-size: 12.5px; color: #8a1f1f; }
+:root[data-theme="dark"] .error-banner { background: #3a1d1d; color: #f0b4b4; }
+.error-banner.hidden { display: none; }
+.error-banner .eb-msg { flex: 1; }
+.error-banner button { background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-md); color: var(--text); font-size: 11.5px; padding: 3px 9px; cursor: pointer; }
+.error-banner button:hover { border-color: var(--accent); color: var(--accent); }
 .cp-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.3); display: flex; justify-content: center; align-items: flex-start; padding-top: 12vh; z-index: 100; }
 .cp-backdrop.hidden { display: none; }
 .cp-card { width: 520px; max-width: 90vw; background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-xl); box-shadow: var(--shadow-lg); overflow: hidden; }

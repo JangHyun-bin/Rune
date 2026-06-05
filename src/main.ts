@@ -13,6 +13,7 @@ import { mountTabBar } from "./workspace/tabBar";
 import { autosave } from "./workspace/autosave";
 import { listen } from "@tauri-apps/api/event";
 import { mountConflictBanner } from "./workspace/conflictBanner";
+import { mountErrorBanner } from "./workspace/errorBanner";
 import { mountCommandPalette, type PaletteItem } from "./workspace/commandPalette";
 import { exportHtml, exportPdf } from "./export/exportDoc";
 import { mountSearchPanel } from "./workspace/searchPanel";
@@ -259,6 +260,7 @@ const banner = mountConflictBanner(document.getElementById("main-col")!, {
   onReload: () => void reloadActive(),
   onKeep: () => {},
 });
+const errorBanner = mountErrorBanner(document.getElementById("main-col")!);
 
 function samePath(a: string, b: string): boolean {
   const norm = (s: string) => s.replace(/\\/g, "/").toLowerCase();
