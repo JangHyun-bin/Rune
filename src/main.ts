@@ -63,6 +63,8 @@ const settingsPanel = mountSettingsPanel({
   onLocale: (l) => applyLocale(l),
   onTheme: (th) => applyTheme(th),
   getTheme: currentTheme,
+  onEditorWidth: (w) => applyEditorWidth(w),
+  getEditorWidth: currentEditorWidth,
   onHelp: () => helpPanel.open(),
   onSetDefault: () => void commands.openDefaultAppsSettings(),
 });

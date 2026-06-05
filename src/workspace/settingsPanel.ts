@@ -6,6 +6,8 @@ export function mountSettingsPanel(handlers: {
   onLocale: (l: Locale) => void;
   onTheme: (theme: "light" | "dark") => void;
   getTheme: () => "light" | "dark";
+  onEditorWidth: (w: "readable" | "wide") => void;
+  getEditorWidth: () => "readable" | "wide";
   onHelp: () => void;
   onSetDefault: () => void;
 }): SettingsPanel {
@@ -42,6 +44,18 @@ export function mountSettingsPanel(handlers: {
     }
     themeSel.addEventListener("change", () => handlers.onTheme(themeSel.value as "light" | "dark"));
     themeRow.append(themeLabel, themeSel); card.appendChild(themeRow);
+
+    // Editor width
+    const widthRow = document.createElement("div"); widthRow.className = "settings-row";
+    const widthLabel = document.createElement("label"); widthLabel.textContent = t("settings.editorWidth");
+    const widthSel = document.createElement("select");
+    for (const v of ["readable", "wide"] as const) {
+      const o = document.createElement("option"); o.value = v; o.textContent = t(v === "readable" ? "width.readable" : "width.wide");
+      if (v === handlers.getEditorWidth()) o.selected = true;
+      widthSel.appendChild(o);
+    }
+    widthSel.addEventListener("change", () => handlers.onEditorWidth(widthSel.value as "readable" | "wide"));
+    widthRow.append(widthLabel, widthSel); card.appendChild(widthRow);
 
     // Shortcuts & help
     const helpRow = document.createElement("div"); helpRow.className = "settings-row";
