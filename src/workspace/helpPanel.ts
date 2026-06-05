@@ -17,6 +17,11 @@ const GROUPS: Group[] = [
     { keys: [MOD, "S"], labelKey: "cmd.save" },
     { keys: [MOD, "W"], labelKey: "cmd.closeTab" },
   ] },
+  { titleKey: "help.tabs", rows: [
+    { keys: [MOD, "Tab"], labelKey: "help.nextTab" },
+    { keys: [MOD, SHIFT, "Tab"], labelKey: "help.prevTab" },
+    { keys: [MOD, "1-9"], labelKey: "help.gotoTab" },
+  ] },
   { titleKey: "help.editing", rows: [
     { keys: [MOD, "Z"], labelKey: "help.undo" },
     { keys: [MOD, SHIFT, "Z"], labelKey: "help.redo" },
@@ -26,6 +31,7 @@ const GROUPS: Group[] = [
     { keys: [MOD, SHIFT, "F"], labelKey: "cmd.search" },
     { keys: [MOD, "E"], labelKey: "cmd.exportHtml" },
     { keys: ["F1"], labelKey: "cmd.help" },
+    { keys: [MOD, SHIFT, "L"], labelKey: "help.toggleWidth" },
   ] },
 ];
 
