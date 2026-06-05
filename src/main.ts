@@ -3,6 +3,7 @@ import { editorState, createEditorView, setEditorText } from "./editor/editor";
 import { type TabsState, emptyTabs, activeTab, openOrFocus, newUntitled, setActive, updateActiveText, markActiveSaved, closeTab, tabDirty } from "./workspace/tabs";
 import { commands } from "./ipc/bindings";
 import { open, save } from "@tauri-apps/plugin-dialog";
+import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import { EditorView, keymap } from "@codemirror/view";
 import { EditorState, Prec } from "@codemirror/state";
 import { mountChrome } from "./chrome/chrome";
@@ -85,6 +86,10 @@ function scheduleSaveSettings() {
 
 function baseName(p: string): string { const i = Math.max(p.lastIndexOf("/"), p.lastIndexOf("\\")); return i >= 0 ? p.slice(i + 1) : p; }
 function exportTitle(): string { const t = activeTab(tabs); return t?.path ? baseName(t.path).replace(/\.(md|markdown)$/i, "") : "untitled"; }
+function revealActive(): void {
+  const t = activeTab(tabs);
+  if (t?.path) void revealItemInDir(t.path);
+}
 function extraExts() { return [EditorView.updateListener.of((u) => { if (u.selectionSet) refreshStatus(); }), auto.ext, Prec.highest(keymap.of([{ key: "Mod-k", run: () => { palette.toggle(); return true; }, preventDefault: true }]))]; }
 function onChange(text: string) { tabs = updateActiveText(tabs, text); syncActiveUI(); }
 
@@ -211,6 +216,7 @@ function paletteItems(): PaletteItem[] {
     { label: tr("cmd.exportHtml"), run: () => void exportHtml(view.state.doc.toString(), exportTitle()) },
     { label: tr("cmd.exportPdf"), run: () => void exportPdf(view.state.doc.toString(), exportTitle()) },
     { label: tr("cmd.search"), run: () => searchPanel.toggle() },
+    { label: tr("cmd.reveal"), run: () => revealActive() },
     { label: tr("settings.title"), run: () => settingsPanel.open() },
     { label: tr("cmd.help"), run: () => helpPanel.open() },
     ...LOCALES.map(({ code, label }) => ({ label: `${tr("cmd.language")}: ${label}`, run: () => applyLocale(code) })),
