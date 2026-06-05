@@ -29,4 +29,11 @@ export const commands = {
   search: (root: string, query: string) => call<SearchHit[]>("search", { root, query }),
   takeLaunchFile: () => call<string | null>("take_launch_file", {}),
   openDefaultAppsSettings: () => call<null>("open_default_apps_settings", {}),
+  renamePath: (path: string, newName: string) =>
+    call<null>("rename_path", { path, newName }),
+  deletePath: (path: string) => call<null>("delete_path", { path }),
+  createFile: (dir: string, name: string) =>
+    call<string>("create_file", { dir, name }),
+  createDir: (dir: string, name: string) =>
+    call<string>("create_dir", { dir, name }),
 };
