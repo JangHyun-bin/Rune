@@ -27,7 +27,7 @@ const chrome = mountChrome(document.getElementById("titlebar")!, document.getEle
 });
 document.getElementById("sidebar-head")!.innerHTML =
   `<span class="brand-mark">${sparkleSvg(20)}</span><span class="brand-word">RUNE</span>`;
-const tree = mountFileTree(document.getElementById("filetree")!, (p) => void openPath(p));
+const tree = mountFileTree(document.getElementById("filetree")!, (p) => void openPath(p), () => void openFolder());
 const tabBar = mountTabBar(document.getElementById("tabbar")!, { onSelect: switchTo, onClose: requestClose });
 
 let tabs: TabsState = emptyTabs();
@@ -144,7 +144,7 @@ function flattenFiles(nodes: import("./ipc/bindings").FileNode[]): { name: strin
 }
 async function loadFolder(dir: string): Promise<void> {
   const res = await commands.listDir(dir);
-  if (res.status === "error") { console.error(res.error); throw new Error(res.error); }
+  if (res.status === "error") { console.error(res.error); errorBanner.show(tr("error.openFolder", { msg: res.error })); tree.showError(); throw new Error(res.error); }
   tree.render(res.data);
   workspaceFiles = flattenFiles(res.data);
   currentFolder = dir;
