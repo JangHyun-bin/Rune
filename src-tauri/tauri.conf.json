@@ -48,7 +48,7 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": "PASTE_rune-updater.key.pub_CONTENT_IN_TASK_8",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEFGQTRDQkI0MkQ0RUZEREUKUldUZS9VNHR0TXVrcjNZODk4UGpvQzN0K0ZsZ0JoVThxUVJ5bllvZnJiMUEvV3FxSHhCZG82K3YK",
       "endpoints": [
         "https://github.com/JangHyun-bin/Rune/releases/latest/download/latest.json"
       ],
