@@ -1,6 +1,7 @@
 import "./styles.css";
 import { editorState, createEditorView, setEditorText } from "./editor/editor";
 import { type TabsState, emptyTabs, activeTab, openOrFocus, newUntitled, setActive, updateActiveText, markActiveSaved, closeTab, tabDirty } from "./workspace/tabs";
+import { nextTabId, prevTabId, nthTabId } from "./workspace/tabs";
 import { commands } from "./ipc/bindings";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
@@ -382,6 +383,8 @@ window.addEventListener("keydown", (e) => {
   if (mod && e.shiftKey && e.key.toLowerCase() === "f") { e.preventDefault(); searchPanel.toggle(); return; }
   if (mod && e.shiftKey && e.key.toLowerCase() === "o") { e.preventDefault(); void openFolder(); return; }
   if (mod && e.shiftKey && e.key.toLowerCase() === "l") { e.preventDefault(); flipEditorWidth(); return; }
+  if (mod && e.key === "Tab") { e.preventDefault(); const id = e.shiftKey ? prevTabId(tabs) : nextTabId(tabs); if (id) switchTo(id); return; }
+  if (mod && !e.shiftKey && /^[1-9]$/.test(e.key)) { e.preventDefault(); const id = nthTabId(tabs, Number(e.key)); if (id) switchTo(id); return; }
   if (mod && e.key.toLowerCase() === "o") { e.preventDefault(); void openFile(); return; }
   if (mod && e.key.toLowerCase() === "s") { e.preventDefault(); void doSave(); return; }
   if (mod && e.key.toLowerCase() === "n") { e.preventDefault(); newDoc(); return; }
