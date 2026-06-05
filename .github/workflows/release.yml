@@ -65,6 +65,8 @@ jobs:
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
           # macOS 코드 서명 (Developer ID) — 이 3개로 .app/.dmg를 서명합니다.
           # (비어 있으면 tauri-action이 미서명으로 진행하고, 다른 OS에선 무시됨)
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
@@ -85,4 +87,5 @@ jobs:
           # findable by tag → every platform job attaches its installer reliably.
           releaseDraft: false
           prerelease: false
+          updaterJsonPreferNsis: true
           args: ${{ matrix.args }}
