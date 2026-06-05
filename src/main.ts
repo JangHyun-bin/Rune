@@ -11,7 +11,6 @@ import { mountChrome } from "./chrome/chrome";
 import { setDocPath } from "./editor/docContext";
 import { mountFileTree } from "./workspace/fileTree";
 import { parentDir } from "./workspace/paths";
-import { sparkleSvg } from "./brand/sparkle";
 import { mountTabBar } from "./workspace/tabBar";
 import { autosave } from "./workspace/autosave";
 import { listen } from "@tauri-apps/api/event";
@@ -30,8 +29,6 @@ import { promptModal } from "./workspace/promptModal";
 const chrome = mountChrome(document.getElementById("titlebar")!, document.getElementById("statusbar")!, {
   onOpenSettings: () => settingsPanel.open(),
 });
-document.getElementById("sidebar-head")!.innerHTML =
-  `<span class="brand-mark">${sparkleSvg(20)}</span><span class="brand-word">RUNE</span>`;
 const tree = mountFileTree(document.getElementById("filetree")!, (p) => void openPath(p), () => void openFolder(), fileTreeMenu);
 const tabBar = mountTabBar(document.getElementById("tabbar")!, { onSelect: switchTo, onClose: requestClose, onContextMenu: tabMenu });
 

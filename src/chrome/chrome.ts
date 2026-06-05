@@ -23,7 +23,7 @@ export function mountChrome(
   settingsBtn.addEventListener("click", () => opts?.onOpenSettings?.());
   const brand = document.createElement("span");
   brand.className = "tb-brand";
-  brand.innerHTML = sparkleSvg(18);
+  brand.innerHTML = `${sparkleSvg(18)}<span class="brand-word">RUNE</span>`;
   titlebar.replaceChildren(brand, title, settingsBtn);
 
   const left = document.createElement("span");
