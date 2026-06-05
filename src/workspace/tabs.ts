@@ -39,3 +39,20 @@ export function closeTab(s: TabsState, id: string): TabsState {
   if (s.activeId === id) activeId = (tabs[idx] ?? tabs[idx - 1])?.id ?? null;
   return { tabs, activeId };
 }
+
+export function nextTabId(s: TabsState): string | null {
+  if (s.tabs.length === 0) return null;
+  const i = s.tabs.findIndex((t) => t.id === s.activeId);
+  return s.tabs[(i + 1) % s.tabs.length].id;
+}
+
+export function prevTabId(s: TabsState): string | null {
+  if (s.tabs.length === 0) return null;
+  const i = s.tabs.findIndex((t) => t.id === s.activeId);
+  return s.tabs[(i - 1 + s.tabs.length) % s.tabs.length].id;
+}
+
+/** 1-based: nthTabId(s, 1) is the first tab; out of range → null. */
+export function nthTabId(s: TabsState, n: number): string | null {
+  return s.tabs[n - 1]?.id ?? null;
+}
