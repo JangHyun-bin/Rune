@@ -32,7 +32,7 @@ const chrome = mountChrome(document.getElementById("titlebar")!, document.getEle
 document.getElementById("sidebar-head")!.innerHTML =
   `<span class="brand-mark">${sparkleSvg(20)}</span><span class="brand-word">RUNE</span>`;
 const tree = mountFileTree(document.getElementById("filetree")!, (p) => void openPath(p), () => void openFolder(), fileTreeMenu);
-const tabBar = mountTabBar(document.getElementById("tabbar")!, { onSelect: switchTo, onClose: requestClose });
+const tabBar = mountTabBar(document.getElementById("tabbar")!, { onSelect: switchTo, onClose: requestClose, onContextMenu: tabMenu });
 
 let tabs: TabsState = emptyTabs();
 const states = new Map<string, EditorState>();
@@ -218,6 +218,21 @@ function fileTreeMenu(node: import("./ipc/bindings").FileNode, x: number, y: num
         { label: tr("menu.rename"), run: () => void renameEntry(node.path, node.name) },
         { label: tr("menu.delete"), run: () => void deleteEntry(node.path, node.name), danger: true },
       ];
+  showContextMenu(x, y, items);
+}
+function closeOthers(keepId: string): void {
+  for (const t of [...tabs.tabs]) if (t.id !== keepId) requestClose(t.id);
+}
+function tabMenu(id: string, x: number, y: number): void {
+  const t = tabs.tabs.find((x) => x.id === id);
+  const items: MenuItem[] = [
+    { label: tr("cmd.closeTab"), run: () => requestClose(id) },
+    { label: tr("menu.closeOthers"), run: () => closeOthers(id) },
+  ];
+  if (t?.path) {
+    items.push({ label: tr("menu.copyPath"), run: () => void copyPath(t.path!) });
+    items.push({ label: tr("cmd.reveal"), run: () => void revealItemInDir(t.path!) });
+  }
   showContextMenu(x, y, items);
 }
 function requestClose(id: string): void {

@@ -4,7 +4,7 @@ import { t } from "../i18n/i18n";
 
 export function mountTabBar(
   el: HTMLElement,
-  handlers: { onSelect: (id: string) => void; onClose: (id: string) => void },
+  handlers: { onSelect: (id: string) => void; onClose: (id: string) => void; onContextMenu: (id: string, x: number, y: number) => void },
 ): { render: (s: TabsState) => void } {
   function title(tabItem: Tab): string {
     if (!tabItem.path) return t("doc.untitled");
@@ -19,6 +19,10 @@ export function mountTabBar(
         tab.className = "tab" + (t.id === s.activeId ? " active" : "");
         tab.addEventListener("click", (e) => {
           if (!(e.target as HTMLElement).closest(".close")) handlers.onSelect(t.id);
+        });
+        tab.addEventListener("contextmenu", (e) => {
+          e.preventDefault();
+          handlers.onContextMenu(t.id, e.clientX, e.clientY);
         });
         if (tabDirty(t)) {
           const dot = document.createElement("span");
