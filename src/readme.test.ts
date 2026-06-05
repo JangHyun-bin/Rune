@@ -10,9 +10,9 @@ describe("README", () => {
       expect(readme).toContain(h);
     }
   });
-  it("links the v0.1.3 macOS dmg downloads", () => {
-    expect(readme).toContain("Rune_0.1.3_aarch64.dmg");
-    expect(readme).toContain("Rune_0.1.3_x64.dmg");
+  it("links the v0.1.4 macOS dmg downloads", () => {
+    expect(readme).toContain("Rune_0.1.4_aarch64.dmg");
+    expect(readme).toContain("Rune_0.1.4_x64.dmg");
   });
   it("references the Korean mirror and the hero image", () => {
     expect(readme).toContain("README.ko.md");
