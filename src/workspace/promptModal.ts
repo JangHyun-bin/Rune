@@ -6,6 +6,9 @@ export function promptModal(opts: { title: string; value?: string; }): Promise<s
   return new Promise((resolve) => {
     const backdrop = document.createElement("div");
     backdrop.className = "prompt-backdrop";
+    backdrop.setAttribute("role", "dialog");
+    backdrop.setAttribute("aria-modal", "true");
+    backdrop.setAttribute("aria-label", opts.title);
     const card = document.createElement("div");
     card.className = "prompt-card";
     const title = document.createElement("h2");
