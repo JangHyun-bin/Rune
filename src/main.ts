@@ -257,7 +257,7 @@ async function doSave(): Promise<void> {
   }
   const text = view.state.doc.toString();
   const res = await commands.writeFile(path, text);
-  if (res.status === "error") { console.error(res.error); return; }
+  if (res.status === "error") { console.error(res.error); errorBanner.show(tr("error.save", { msg: res.error })); return; }
   tabs = markActiveSaved(tabs, path, text);
   syncActiveUI();
 }
@@ -266,7 +266,7 @@ async function autoSave(): Promise<void> {
   if (!t || !t.path || !tabDirty(t)) return;
   const text = view.state.doc.toString();
   const res = await commands.writeFile(t.path, text);
-  if (res.status === "error") { console.error(res.error); return; }
+  if (res.status === "error") { console.error(res.error); errorBanner.show(tr("error.save", { msg: res.error })); return; }
   tabs = markActiveSaved(tabs, t.path, text);
   syncActiveUI();
 }

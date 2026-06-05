@@ -93,6 +93,7 @@ export const DICT: Record<Locale, Dict> = {
     "settings.checkUpdates": "Check for updates",
     "aria.taskDone": "Completed task",
     "aria.taskTodo": "To-do task",
+    "error.save": "Couldn't save: {msg}",
     "error.mermaid": "Mermaid error: {msg}",
   },
   ko: {
@@ -185,6 +186,7 @@ export const DICT: Record<Locale, Dict> = {
     "settings.checkUpdates": "업데이트 확인",
     "aria.taskDone": "완료된 할 일",
     "aria.taskTodo": "할 일",
+    "error.save": "저장할 수 없습니다: {msg}",
     "error.mermaid": "Mermaid 오류: {msg}",
   },
   ja: {
@@ -277,6 +279,7 @@ export const DICT: Record<Locale, Dict> = {
     "settings.checkUpdates": "更新を確認",
     "aria.taskDone": "完了したタスク",
     "aria.taskTodo": "未完了のタスク",
+    "error.save": "保存できません: {msg}",
     "error.mermaid": "Mermaid エラー: {msg}",
   },
   "zh-Hans": {
@@ -369,6 +372,7 @@ export const DICT: Record<Locale, Dict> = {
     "settings.checkUpdates": "检查更新",
     "aria.taskDone": "已完成的任务",
     "aria.taskTodo": "待办任务",
+    "error.save": "无法保存：{msg}",
     "error.mermaid": "Mermaid 错误: {msg}",
   },
 };
