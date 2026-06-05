@@ -29,6 +29,7 @@ export function editorState(
       keymap.of([...defaultKeymap, ...historyKeymap]),
       markdown({ base: markdownLanguage, codeLanguages: languages }),
       editorTheme(),
+      EditorView.lineWrapping,
       syntaxHighlighting(codeHighlightStyle),
       livePreview,
       blockWidgets([mermaidSpec, tableSpec]),
