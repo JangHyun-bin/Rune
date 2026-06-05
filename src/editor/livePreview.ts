@@ -62,7 +62,23 @@ function build(view: EditorView): { deco: DecorationSet; atomic: DecorationSet }
           }
           return;
         }
-        if (name === "URL" || name === "LinkLabel") {
+        if (name === "Link") {
+          decoR.push(Decoration.mark({ class: "cm-md-link" }).range(node.from, node.to));
+          return; // children (LinkMark, URL) are still visited below
+        }
+        if (name === "URL") {
+          const lineNo = doc.lineAt(node.from).number;
+          const inLink = node.node.parent?.name === "Link";
+          if (inLink && !active.has(lineNo)) {
+            const hide = Decoration.replace({});
+            decoR.push(hide.range(node.from, node.to));
+            atomicR.push(hide.range(node.from, node.to));
+          } else {
+            decoR.push(Decoration.mark({ class: "cm-md-link" }).range(node.from, node.to));
+          }
+          return;
+        }
+        if (name === "LinkLabel") {
           decoR.push(Decoration.mark({ class: "cm-md-link" }).range(node.from, node.to));
           return;
         }
