@@ -16,6 +16,7 @@ export function mountFileTree(
   sidebar: HTMLElement,
   onOpen: (path: string) => void,
   onOpenFolder: () => void,
+  onContextMenu: (node: FileNode, x: number, y: number) => void,
 ): FileTree {
   let activePath: string | null = null;
   const expanded = new Set<string>();
@@ -38,6 +39,10 @@ export function mountFileTree(
       } else {
         onOpen(node.path);
       }
+    });
+    row.addEventListener("contextmenu", (e) => {
+      e.preventDefault();
+      onContextMenu(node, e.clientX, e.clientY);
     });
     return row;
   }

@@ -23,13 +23,15 @@ import { mountSettingsPanel } from "./workspace/settingsPanel";
 import { showLanguagePicker } from "./workspace/languagePicker";
 import { mountHelpPanel } from "./workspace/helpPanel";
 import { t as tr, setLocale, getLocale, detectLocale, LOCALES, type Locale } from "./i18n/i18n";
+import { showContextMenu, type MenuItem } from "./workspace/contextMenu";
+import { promptModal } from "./workspace/promptModal";
 
 const chrome = mountChrome(document.getElementById("titlebar")!, document.getElementById("statusbar")!, {
   onOpenSettings: () => settingsPanel.open(),
 });
 document.getElementById("sidebar-head")!.innerHTML =
   `<span class="brand-mark">${sparkleSvg(20)}</span><span class="brand-word">RUNE</span>`;
-const tree = mountFileTree(document.getElementById("filetree")!, (p) => void openPath(p), () => void openFolder());
+const tree = mountFileTree(document.getElementById("filetree")!, (p) => void openPath(p), () => void openFolder(), fileTreeMenu);
 const tabBar = mountTabBar(document.getElementById("tabbar")!, { onSelect: switchTo, onClose: requestClose });
 
 let tabs: TabsState = emptyTabs();
@@ -164,6 +166,59 @@ async function openFolder(): Promise<void> {
   if (typeof dir !== "string") return;
   try { await loadFolder(dir); } catch { return; }
   scheduleSaveSettings();
+}
+async function refreshTree(): Promise<void> {
+  if (currentFolder) await loadFolder(currentFolder).catch(() => {});
+}
+async function copyPath(p: string): Promise<void> {
+  try { await navigator.clipboard.writeText(p); } catch (e) { console.error(e); }
+}
+async function renameEntry(path: string, name: string): Promise<void> {
+  const next = await promptModal({ title: tr("prompt.rename"), value: name });
+  if (!next || next === name) return;
+  const res = await commands.renamePath(path, next);
+  if (res.status === "error") { errorBanner.show(tr("error.fileOp", { msg: res.error })); return; }
+  await refreshTree();
+}
+async function deleteEntry(path: string, name: string): Promise<void> {
+  if (!confirm(tr("confirm.delete", { name }))) return;
+  const res = await commands.deletePath(path);
+  if (res.status === "error") { errorBanner.show(tr("error.fileOp", { msg: res.error })); return; }
+  await refreshTree();
+}
+async function newFileIn(dir: string): Promise<void> {
+  const name = await promptModal({ title: tr("prompt.newFile"), value: "untitled.md" });
+  if (!name) return;
+  const res = await commands.createFile(dir, name);
+  if (res.status === "error") { errorBanner.show(tr("error.fileOp", { msg: res.error })); return; }
+  await refreshTree();
+  await openPath(res.data);
+}
+async function newFolderIn(dir: string): Promise<void> {
+  const name = await promptModal({ title: tr("prompt.newFolder"), value: "new-folder" });
+  if (!name) return;
+  const res = await commands.createDir(dir, name);
+  if (res.status === "error") { errorBanner.show(tr("error.fileOp", { msg: res.error })); return; }
+  await refreshTree();
+}
+function fileTreeMenu(node: import("./ipc/bindings").FileNode, x: number, y: number): void {
+  const items: MenuItem[] = node.isDir
+    ? [
+        { label: tr("menu.newFile"), run: () => void newFileIn(node.path) },
+        { label: tr("menu.newFolder"), run: () => void newFolderIn(node.path) },
+        { label: tr("cmd.reveal"), run: () => void revealItemInDir(node.path) },
+        { label: tr("menu.copyPath"), run: () => void copyPath(node.path) },
+        { label: tr("menu.rename"), run: () => void renameEntry(node.path, node.name) },
+        { label: tr("menu.delete"), run: () => void deleteEntry(node.path, node.name), danger: true },
+      ]
+    : [
+        { label: tr("menu.open"), run: () => void openPath(node.path) },
+        { label: tr("cmd.reveal"), run: () => void revealItemInDir(node.path) },
+        { label: tr("menu.copyPath"), run: () => void copyPath(node.path) },
+        { label: tr("menu.rename"), run: () => void renameEntry(node.path, node.name) },
+        { label: tr("menu.delete"), run: () => void deleteEntry(node.path, node.name), danger: true },
+      ];
+  showContextMenu(x, y, items);
 }
 function requestClose(id: string): void {
   const t = tabs.tabs.find((x) => x.id === id);
