@@ -163,3 +163,4 @@ body { background: var(--bg); color: var(--text); font-family: var(--sans); }
 .update-banner .ub-actions { display: inline-flex; gap: 6px; }
 .update-banner .btn { font-size: 11.5px; padding: 3px 10px; }
 .settings-status { font-size: 11px; color: var(--muted); }
+.cm-md-image-missing { display: inline-block; padding: 2px 8px; border: 1px dashed var(--border); border-radius: var(--radius-sm); color: var(--muted); font-size: 0.9em; }

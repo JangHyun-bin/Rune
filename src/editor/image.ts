@@ -18,10 +18,21 @@ function resolveSrc(url: string): string {
   return convertFileSrc(dir + sep + url.replace(/\//g, sep));
 }
 
+function isResolvable(url: string): boolean {
+  if (/^(https?:|data:|asset:)/.test(url)) return true;
+  return getDocDir() !== null;
+}
+
 class ImageWidget extends WidgetType {
-  constructor(readonly src: string, readonly alt: string) { super(); }
-  eq(o: ImageWidget) { return o.src === this.src && o.alt === this.alt; }
+  constructor(readonly src: string, readonly alt: string, readonly resolvable: boolean) { super(); }
+  eq(o: ImageWidget) { return o.src === this.src && o.alt === this.alt && o.resolvable === this.resolvable; }
   toDOM() {
+    if (!this.resolvable) {
+      const ph = document.createElement("span");
+      ph.className = "cm-md-image-missing";
+      ph.textContent = this.alt || this.src;
+      return ph;
+    }
     const img = document.createElement("img");
     img.className = "cm-md-image";
     img.src = this.src;
@@ -45,7 +56,8 @@ function build(state: EditorState): DecorationSet {
       const url = urlFromImageNode(state, node.from, node.to);
       if (!url) return;
       const altM = /!\[([^\]]*)\]/.exec(state.doc.sliceString(node.from, node.to));
-      b.add(node.from, node.to, Decoration.replace({ widget: new ImageWidget(resolveSrc(url), altM?.[1] ?? "") }));
+      const resolvable = isResolvable(url);
+      b.add(node.from, node.to, Decoration.replace({ widget: new ImageWidget(resolveSrc(url), altM?.[1] ?? "", resolvable) }));
     },
   });
   return b.finish();
