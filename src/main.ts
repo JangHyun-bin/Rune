@@ -348,7 +348,10 @@ const updateBanner = mountUpdateBanner(document.getElementById("main-col")!);
 const isMacPlatform = typeof navigator !== "undefined" && /mac/i.test(navigator.platform || navigator.userAgent || "");
 const RELEASES_URL = "https://github.com/JangHyun-bin/Rune/releases/latest";
 
+let updateChecking = false;
 async function checkForUpdates(manual: boolean): Promise<void> {
+  if (updateChecking) return;
+  updateChecking = true;
   try {
     const update = await check();
     if (!update) { if (manual) settingsPanel.setUpdateStatus(tr("update.upToDate")); return; }
@@ -361,12 +364,14 @@ async function checkForUpdates(manual: boolean): Promise<void> {
         try {
           await update.downloadAndInstall(() => {});
           await relaunch();
-        } catch (e) { console.error(e); updateBanner.hide(); errorBanner.show(tr("update.failed")); }
+        } catch (e) { console.error(e); updateBanner.hide(); errorBanner.show(tr("update.installFailed")); }
       })());
     }
   } catch (e) {
     console.error(e);
     if (manual) settingsPanel.setUpdateStatus(tr("update.failed"));
+  } finally {
+    updateChecking = false;
   }
 }
 
