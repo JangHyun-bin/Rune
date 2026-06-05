@@ -91,6 +91,8 @@ export const DICT: Record<Locale, Dict> = {
     "update.installFailed": "Couldn't install the update.",
     "settings.updates": "Updates",
     "settings.checkUpdates": "Check for updates",
+    "aria.taskDone": "Completed task",
+    "aria.taskTodo": "To-do task",
     "error.mermaid": "Mermaid error: {msg}",
   },
   ko: {
@@ -181,6 +183,8 @@ export const DICT: Record<Locale, Dict> = {
     "update.installFailed": "업데이트를 설치할 수 없습니다.",
     "settings.updates": "업데이트",
     "settings.checkUpdates": "업데이트 확인",
+    "aria.taskDone": "완료된 할 일",
+    "aria.taskTodo": "할 일",
     "error.mermaid": "Mermaid 오류: {msg}",
   },
   ja: {
@@ -271,6 +275,8 @@ export const DICT: Record<Locale, Dict> = {
     "update.installFailed": "更新をインストールできませんでした。",
     "settings.updates": "更新",
     "settings.checkUpdates": "更新を確認",
+    "aria.taskDone": "完了したタスク",
+    "aria.taskTodo": "未完了のタスク",
     "error.mermaid": "Mermaid エラー: {msg}",
   },
   "zh-Hans": {
@@ -361,6 +367,8 @@ export const DICT: Record<Locale, Dict> = {
     "update.installFailed": "无法安装更新。",
     "settings.updates": "更新",
     "settings.checkUpdates": "检查更新",
+    "aria.taskDone": "已完成的任务",
+    "aria.taskTodo": "待办任务",
     "error.mermaid": "Mermaid 错误: {msg}",
   },
 };

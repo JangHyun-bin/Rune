@@ -3,6 +3,7 @@ import type { Range } from "@codemirror/state";
 import {
   Decoration, type DecorationSet, EditorView, ViewPlugin, type ViewUpdate, WidgetType,
 } from "@codemirror/view";
+import { t } from "../i18n/i18n";
 import { toggledTaskMarker } from "./taskMarker";
 
 class BulletWidget extends WidgetType {
@@ -23,6 +24,7 @@ class TaskWidget extends WidgetType {
     box.type = "checkbox";
     box.checked = this.checked;
     box.className = "cm-md-task";
+    box.setAttribute("aria-label", this.checked ? t("aria.taskDone") : t("aria.taskTodo"));
     box.addEventListener("mousedown", (e) => {
       // from/to are current: decorations rebuild synchronously on every docChanged,
       // so the in-DOM widget always reflects the live doc; re-read the slice to toggle.
@@ -139,6 +141,15 @@ function build(view: EditorView): { deco: DecorationSet; atomic: DecorationSet }
         }
         if (name === "LinkLabel") {
           decoR.push(Decoration.mark({ class: "cm-md-link" }).range(node.from, node.to));
+          return;
+        }
+        if (name === "LinkTitle") {
+          const lineNo = doc.lineAt(node.from).number;
+          if (!active.has(lineNo)) {
+            const hide = Decoration.replace({});
+            decoR.push(hide.range(node.from, node.to));
+            atomicR.push(hide.range(node.from, node.to));
+          }
           return;
         }
         const cls = NODE_CLASS[name];
