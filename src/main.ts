@@ -8,6 +8,7 @@ import { EditorState, Prec } from "@codemirror/state";
 import { mountChrome } from "./chrome/chrome";
 import { setDocPath } from "./editor/docContext";
 import { mountFileTree } from "./workspace/fileTree";
+import { parentDir } from "./workspace/paths";
 import { sparkleSvg } from "./brand/sparkle";
 import { mountTabBar } from "./workspace/tabBar";
 import { autosave } from "./workspace/autosave";
@@ -120,10 +121,11 @@ async function openPath(path: string): Promise<void> {
   const existing = tabs.tabs.find((t) => t.path === path);
   if (existing) { switchTo(existing.id); return; }
   const res = await commands.readFile(path);
-  if (res.status === "error") { console.error(res.error); return; }
+  if (res.status === "error") { console.error(res.error); errorBanner.show(tr("error.readFile", { msg: res.error })); return; }
   if (tabs.activeId && view) states.set(tabs.activeId, view.state);
   tabs = openOrFocus(tabs, path, res.data);
   showActive();
+  if (!currentFolder) { const dir = parentDir(path); if (dir) await loadFolder(dir).catch(() => {}); }
   scheduleSaveSettings();
 }
 function newDoc(): void {
