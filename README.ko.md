@@ -19,6 +19,10 @@
 
 ---
 
+<p align="center">
+  <img src="docs/rune-demo.gif" width="80%" alt="Rune — 입력하는 즉시 서식 적용" />
+</p>
+
 <!-- 스크린샷: `npm run tauri dev`로 라이트/다크를 캡처해 docs/screenshots/{light,dark}.png 에 넣고 주석을 해제하세요.
 <p align="center">
   <img src="docs/screenshots/light.png" width="48%" alt="Rune — 라이트" />
