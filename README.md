@@ -19,6 +19,10 @@ English · [한국어](README.ko.md)
 
 ---
 
+<p align="center">
+  <img src="docs/rune-demo.gif" width="80%" alt="Rune — formatting as you type" />
+</p>
+
 <!-- Screenshots: capture light & dark via `npm run tauri dev`, save to docs/screenshots/{light,dark}.png, then uncomment.
 <p align="center">
   <img src="docs/screenshots/light.png" width="48%" alt="Rune — light" />
