@@ -1,6 +1,6 @@
 [package]
 name = "rune"
-version = "0.1.4"
+version = "0.1.5"
 description = "A Tauri App"
 authors = ["you"]
 edition = "2021"
@@ -35,4 +35,3 @@ tauri-plugin-single-instance = "2"
 
 [dev-dependencies]
 tempfile = "3.27.0"
-

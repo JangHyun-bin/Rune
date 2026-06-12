@@ -41,11 +41,14 @@ let view: EditorView;
 const auto = autosave(800, () => void autoSave());
 let currentFolder: string | null = null;
 let workspaceFiles: { name: string; path: string }[] = [];
+const SIDEBAR_DEFAULT = 240;
+const SIDEBAR_MIN = 180;
+const SIDEBAR_MAX = 480;
 
 function prefersDark(): boolean { return window.matchMedia("(prefers-color-scheme: dark)").matches; }
 function settingsSnapshot() {
   const theme = document.documentElement.getAttribute("data-theme") === "dark" ? "dark" : "light";
-  return { theme, lastFolder: currentFolder, openTabs: tabs.tabs.map((t) => t.path).filter((p): p is string => !!p), locale: getLocale(), editorWidth: currentEditorWidth() };
+  return { theme, lastFolder: currentFolder, openTabs: tabs.tabs.map((t) => t.path).filter((p): p is string => !!p), locale: getLocale(), editorWidth: currentEditorWidth(), sidebarWidth: currentSidebarWidth() };
 }
 function applyTheme(theme: "light" | "dark"): void {
   document.documentElement.setAttribute("data-theme", theme);
@@ -64,6 +67,67 @@ function applyEditorWidth(w: "readable" | "wide"): void {
 function flipEditorWidth(): void {
   applyEditorWidth(currentEditorWidth() === "wide" ? "readable" : "wide");
 }
+function maxSidebarWidth(): number {
+  return Math.max(SIDEBAR_MIN, Math.min(SIDEBAR_MAX, window.innerWidth - 360));
+}
+function clampSidebarWidth(width: number): number {
+  if (!Number.isFinite(width)) return SIDEBAR_DEFAULT;
+  return Math.min(maxSidebarWidth(), Math.max(SIDEBAR_MIN, Math.round(width)));
+}
+function currentSidebarWidth(): number {
+  const raw = getComputedStyle(document.documentElement).getPropertyValue("--sidebar-width");
+  const parsed = Number.parseInt(raw, 10);
+  return clampSidebarWidth(parsed);
+}
+function applySidebarWidth(width: number, persist = true): void {
+  document.documentElement.style.setProperty("--sidebar-width", `${clampSidebarWidth(width)}px`);
+  if (persist) scheduleSaveSettings();
+}
+function mountSidebarResizer(handle: HTMLElement): void {
+  let dragging = false;
+  let activePointerId: number | null = null;
+  let startX = 0;
+  let startWidth = SIDEBAR_DEFAULT;
+  let moved = false;
+
+  const finish = () => {
+    if (!dragging) return;
+    if (activePointerId !== null && handle.hasPointerCapture(activePointerId)) {
+      handle.releasePointerCapture(activePointerId);
+    }
+    dragging = false;
+    activePointerId = null;
+    handle.classList.remove("dragging");
+    document.body.classList.remove("resizing-sidebar");
+    if (moved) applySidebarWidth(currentSidebarWidth());
+  };
+  const move = (e: PointerEvent) => {
+    if (!dragging) return;
+    moved = true;
+    applySidebarWidth(startWidth + e.clientX - startX, false);
+  };
+
+  handle.addEventListener("pointerdown", (e) => {
+    if (e.button !== 0) return;
+    dragging = true;
+    activePointerId = e.pointerId;
+    startX = e.clientX;
+    startWidth = currentSidebarWidth();
+    moved = false;
+    handle.classList.add("dragging");
+    document.body.classList.add("resizing-sidebar");
+    try {
+      handle.setPointerCapture(e.pointerId);
+    } catch {
+      activePointerId = null;
+    }
+    e.preventDefault();
+  });
+  window.addEventListener("pointermove", move);
+  window.addEventListener("pointerup", finish);
+  window.addEventListener("pointercancel", finish);
+  window.addEventListener("blur", finish);
+}
 const helpPanel = mountHelpPanel();
 const settingsPanel = mountSettingsPanel({
   onLocale: (l) => applyLocale(l),
@@ -75,6 +139,7 @@ const settingsPanel = mountSettingsPanel({
   onSetDefault: () => void commands.openDefaultAppsSettings(),
   onCheckUpdates: () => void checkForUpdates(true),
 });
+mountSidebarResizer(document.getElementById("sidebar-resizer")!);
 function applyLocale(l: Locale): void {
   setLocale(l);
   chrome.relabel();
@@ -308,9 +373,10 @@ const searchPanel = mountSearchPanel(
 );
 async function restore(): Promise<void> {
   const res = await commands.loadSettings();
-  const s = res.status === "ok" ? res.data : { theme: null, lastFolder: null, openTabs: [], locale: null, editorWidth: null };
+  const s = res.status === "ok" ? res.data : { theme: null, lastFolder: null, openTabs: [], locale: null, editorWidth: null, sidebarWidth: null };
   document.documentElement.setAttribute("data-theme", s.theme === "light" || s.theme === "dark" ? s.theme : (prefersDark() ? "dark" : "light"));
   document.documentElement.setAttribute("data-editor-width", s.editorWidth === "wide" ? "wide" : "readable");
+  applySidebarWidth(typeof s.sidebarWidth === "number" ? s.sidebarWidth : SIDEBAR_DEFAULT, false);
 
   // Resolve the UI language BEFORE loading any content, so the app never flashes
   // a language the user didn't choose. On first run (no saved locale) we ask once
@@ -409,6 +475,7 @@ view = createEditorView(document.getElementById("editor")!, editorState("", onCh
 void restore();
 
 window.addEventListener("blur", () => auto.flush());
+window.addEventListener("resize", () => applySidebarWidth(currentSidebarWidth(), false));
 window.addEventListener("keydown", (e) => {
   if (e.key === "F1") { e.preventDefault(); helpPanel.toggle(); return; }
   const mod = e.ctrlKey || e.metaKey;

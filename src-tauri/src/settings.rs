@@ -9,6 +9,7 @@ pub struct Settings {
     pub open_tabs: Vec<String>,
     pub locale: Option<String>,
     pub editor_width: Option<String>,
+    pub sidebar_width: Option<u16>,
 }
 
 pub fn load(path: &PathBuf) -> Settings {
@@ -36,17 +37,20 @@ mod tests {
         let p = dir.path().join("settings.json");
         assert_eq!(load(&p).theme, None);
         assert_eq!(load(&p).editor_width, None);
+        assert_eq!(load(&p).sidebar_width, None);
         let s = Settings {
             theme: Some("dark".into()),
             last_folder: Some("/w".into()),
             open_tabs: vec!["/w/a.md".into()],
             locale: None,
             editor_width: Some("wide".into()),
+            sidebar_width: Some(320),
         };
         save(&p, &s).unwrap();
         let got = load(&p);
         assert_eq!(got.theme.as_deref(), Some("dark"));
         assert_eq!(got.open_tabs, vec!["/w/a.md".to_string()]);
         assert_eq!(got.editor_width.as_deref(), Some("wide"));
+        assert_eq!(got.sidebar_width, Some(320));
     }
 }

@@ -17,6 +17,7 @@
   --shadow-lg:0 20px 60px rgba(13,15,18,.25);
   /* motion */
   --ease:cubic-bezier(0.2,0,0,1); --dur:180ms;
+  --sidebar-width:240px;
 }
 :root[data-theme="dark"] {
   --bg:#0D0F12; --faint:#15181D; --border:#2C3138;
@@ -31,16 +32,19 @@ body { background: var(--bg); color: var(--text); font-family: var(--sans); }
   border-bottom:1px solid var(--border); background:var(--faint); font-size:12.5px; color:var(--muted); user-select:none; }
 #titlebar .tb-brand { display:inline-flex; align-items:center; gap:6px; color:var(--text); }
 #titlebar .tb-brand svg { display:block; }
-#titlebar .brand-word { font-family:var(--display); font-size:12px; letter-spacing:0.18em; }
 #titlebar .doc-title { flex:1; text-align:center; color:var(--text); font-weight:500; }
 #titlebar .dirty { color:var(--accent); }
 #titlebar button { background:none; border:none; color:var(--muted); font-size:14px; line-height:1; padding:4px 8px;
   border-radius:var(--radius-sm); cursor:pointer; transition:color var(--dur) var(--ease), background var(--dur) var(--ease); }
 #titlebar button:hover { color:var(--text); background:var(--accent-soft); }
 #body { flex: 1; min-height: 0; display: flex; }
-#sidebar { width:240px; flex-shrink:0; display:flex; flex-direction:column; background:var(--faint);
-  border-right:1px solid var(--border); font-size:13px; }
+#sidebar { width:var(--sidebar-width); flex:0 0 var(--sidebar-width); display:flex; flex-direction:column; background:var(--faint);
+  font-size:13px; min-width:180px; max-width:min(480px, 50vw); }
 #sidebar.hidden { display:none; }
+#sidebar-resizer { width:6px; flex:0 0 6px; cursor:col-resize; background:var(--faint); border-left:1px solid var(--border);
+  border-right:1px solid var(--border); touch-action:none; transition:background var(--dur) var(--ease), border-color var(--dur) var(--ease); }
+#sidebar-resizer:hover, #sidebar-resizer.dragging { background:var(--accent-soft); border-right-color:var(--accent); }
+body.resizing-sidebar { cursor:col-resize; user-select:none; }
 #filetree { flex:1; overflow:auto; padding:8px 6px; }
 #main-col { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 #tabbar { display:flex; align-items:stretch; height:36px; background:var(--faint); border-bottom:1px solid var(--border); overflow-x:auto; }

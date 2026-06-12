@@ -23,7 +23,7 @@ export function mountChrome(
   settingsBtn.addEventListener("click", () => opts?.onOpenSettings?.());
   const brand = document.createElement("span");
   brand.className = "tb-brand";
-  brand.innerHTML = `${sparkleSvg(18)}<span class="brand-word">RUNE</span>`;
+  brand.innerHTML = sparkleSvg(18);
   titlebar.replaceChildren(brand, title, settingsBtn);
 
   const left = document.createElement("span");
@@ -45,7 +45,7 @@ export function mountChrome(
         dot.textContent = "● ";
         title.appendChild(dot);
       }
-      title.appendChild(document.createTextNode(`${name} — Rune`));
+      title.appendChild(document.createTextNode(name));
     },
     setStatus(text, line, col) {
       left.textContent = t("status.words", { n: countWords(text) });
