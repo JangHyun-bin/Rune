@@ -1,6 +1,6 @@
 import { t, getLocale, LOCALES, type Locale } from "../i18n/i18n";
 
-export interface SettingsPanel { open: () => void; refresh: () => void; setUpdateStatus: (text: string) => void; }
+export interface SettingsPanel { open: () => void; close: () => void; refresh: () => void; setUpdateStatus: (text: string) => void; }
 
 export function mountSettingsPanel(handlers: {
   onLocale: (l: Locale) => void;
@@ -91,6 +91,7 @@ export function mountSettingsPanel(handlers: {
 
   return {
     open: () => { build(); backdrop.classList.remove("hidden"); },
+    close: hide,
     refresh: () => { if (!backdrop.classList.contains("hidden")) build(); },
     setUpdateStatus: (text: string) => { if (updateStatusEl) updateStatusEl.textContent = text; },
   };

@@ -422,6 +422,7 @@ async function checkForUpdates(manual: boolean): Promise<void> {
     const update = await check();
     if (!update) { if (manual) settingsPanel.setUpdateStatus(tr("update.upToDate")); return; }
     if (manual) settingsPanel.setUpdateStatus("");
+    if (manual) settingsPanel.close();
     if (isMacPlatform) {
       updateBanner.showManual(update.version, () => void openUrl(RELEASES_URL));
     } else {

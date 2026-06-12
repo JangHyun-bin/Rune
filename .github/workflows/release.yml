@@ -89,6 +89,18 @@ jobs:
           # which makes concurrent matrix jobs race and drop assets. Published =
           # findable by tag → every platform job attaches its installer reliably.
           releaseDraft: false
-          prerelease: false
+          # Keep the in-progress matrix release out of /releases/latest until
+          # every platform has uploaded installers and latest.json.
+          prerelease: true
           updaterJsonPreferNsis: true
           args: ${{ matrix.args }}
+
+  promote:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Mark release as latest
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release edit "${GITHUB_REF_NAME}" --repo "${GITHUB_REPOSITORY}" --prerelease=false
