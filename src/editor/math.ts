@@ -17,7 +17,7 @@ class MathWidget extends WidgetType {
     }
     return el;
   }
-  ignoreEvent() { return false; }
+  ignoreEvent() { return true; }
 }
 
 function cursorInside(state: EditorState, from: number, to: number): boolean {

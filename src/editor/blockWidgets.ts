@@ -19,7 +19,7 @@ class BlockWidget extends WidgetType {
     wrap.appendChild(this.spec.render(this.source));
     return wrap;
   }
-  ignoreEvent() { return false; }
+  ignoreEvent() { return true; }
 }
 
 function cursorInside(state: EditorState, from: number, to: number): boolean {

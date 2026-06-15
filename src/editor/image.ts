@@ -39,7 +39,7 @@ class ImageWidget extends WidgetType {
     img.alt = this.alt;
     return img;
   }
-  ignoreEvent() { return false; }
+  ignoreEvent() { return true; }
 }
 
 function cursorInside(state: EditorState, from: number, to: number): boolean {
