@@ -12,7 +12,7 @@ export interface SlashCommand {
 }
 
 export const slashCommands: SlashCommand[] = [
-  { id: "table", label: "Table", insert: "| Column | Column |\n| --- | --- |\n|  |  |", cursorOffset: 30 },
+  { id: "table", label: "Table", insert: "| Column | Column |\n| --- | --- |\n|  |  |", cursorOffset: 36 },
   { id: "code", label: "Code block", insert: "```\n\n```", cursorOffset: 4 },
   { id: "mermaid", label: "Mermaid diagram", insert: "```mermaid\ngraph TD\n  A[Start] --> B[End]\n```", cursorOffset: 19 },
   { id: "todo", label: "Task list", insert: "- [ ] ", cursorOffset: 6 },
