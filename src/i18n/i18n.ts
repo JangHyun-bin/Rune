@@ -452,8 +452,39 @@ const FIND_REPLACE_DICT: Record<Locale, Dict> = {
   },
 };
 
+const MARKDOWN_SHORTCUT_DICT: Record<Locale, Dict> = {
+  en: {
+    "help.bold": "Bold",
+    "help.italic": "Italic",
+    "help.indent": "Indent",
+    "help.outdent": "Outdent",
+  },
+  ko: {
+    "help.bold": "\uAD75\uAC8C",
+    "help.italic": "\uAE30\uC6B8\uC784",
+    "help.indent": "\uB4E4\uC5EC\uC4F0\uAE30",
+    "help.outdent": "\uB0B4\uC5B4\uC4F0\uAE30",
+  },
+  ja: {
+    "help.bold": "\u592A\u5B57",
+    "help.italic": "\u659C\u4F53",
+    "help.indent": "\u30A4\u30F3\u30C7\u30F3\u30C8",
+    "help.outdent": "\u30A2\u30A6\u30C8\u30C7\u30F3\u30C8",
+  },
+  "zh-Hans": {
+    "help.bold": "\u52A0\u7C97",
+    "help.italic": "\u659C\u4F53",
+    "help.indent": "\u7F29\u8FDB",
+    "help.outdent": "\u51CF\u5C11\u7F29\u8FDB",
+  },
+};
+
 for (const locale of Object.keys(FIND_REPLACE_DICT) as Locale[]) {
   Object.assign(DICT[locale], FIND_REPLACE_DICT[locale]);
+}
+
+for (const locale of Object.keys(MARKDOWN_SHORTCUT_DICT) as Locale[]) {
+  Object.assign(DICT[locale], MARKDOWN_SHORTCUT_DICT[locale]);
 }
 
 let current: Locale = "en";

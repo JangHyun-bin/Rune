@@ -14,6 +14,7 @@ import { tableSpec } from "./table";
 import { mathField } from "./math";
 import { imagePaste } from "./paste";
 import { imagePreview } from "./image";
+import { markdownShortcutKeymap } from "./markdownCommands";
 
 export type EditorMode = "preview" | "source";
 
@@ -39,6 +40,7 @@ export function editorState(
     extensions: [
       history(),
       drawSelection(),
+      markdownShortcutKeymap(),
       keymap.of([...defaultKeymap, ...historyKeymap]),
       markdown({ base: markdownLanguage, codeLanguages: languages }),
       editorTheme(),
