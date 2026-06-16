@@ -23,7 +23,8 @@ export function toggleInlineMarker(
   const hasMarkers =
     beforeMarkerFrom >= 0 &&
     text.slice(beforeMarkerFrom, range.from) === marker &&
-    text.slice(range.to, range.to + markerLength) === marker;
+    text.slice(range.to, range.to + markerLength) === marker &&
+    (marker !== "*" || hasSingleStarDelimiter(text, range));
 
   if (hasMarkers) {
     return {
@@ -169,10 +170,27 @@ function lineStartAt(text: string, position: number): number {
 
 function outdentWidth(text: string, lineStart: number, unit: string): number {
   if (text.slice(lineStart, lineStart + unit.length) === unit) return unit.length;
+  if (text[lineStart] === "\t") return 1;
 
   let width = 0;
   while (width < unit.length && text[lineStart + width] === " ") width += 1;
   return width;
+}
+
+function hasSingleStarDelimiter(text: string, range: TextRange): boolean {
+  return countRunBefore(text, range.from, "*") % 2 === 1 && countRunAfter(text, range.to, "*") % 2 === 1;
+}
+
+function countRunBefore(text: string, position: number, char: string): number {
+  let count = 0;
+  for (let index = position - 1; index >= 0 && text[index] === char; index -= 1) count += 1;
+  return count;
+}
+
+function countRunAfter(text: string, position: number, char: string): number {
+  let count = 0;
+  for (let index = position; index < text.length && text[index] === char; index += 1) count += 1;
+  return count;
 }
 
 function removedBefore(position: number, removal: TextRange): number {
