@@ -26,6 +26,8 @@ export interface FindReplaceHandlers {
   selectRange: (from: number, to: number, options?: SelectOptions) => void;
   replaceRange: (from: number, to: number, insert: string) => void;
   replaceRanges: (ranges: MatchRange[], insert: string) => void;
+  setHighlights: (matches: MatchRange[], activeIndex: number) => void;
+  clearHighlights: () => void;
 }
 
 export function mountFindReplacePanel(handlers: FindReplaceHandlers): FindReplacePanel {
@@ -120,6 +122,8 @@ export function mountFindReplacePanel(handlers: FindReplaceHandlers): FindReplac
       count.textContent = t("find.count", { current: activeIndex + 1, total: matches.length });
     }
     updateButtons();
+    if (currentQuery().length === 0) handlers.clearHighlights();
+    else handlers.setHighlights(matches, activeIndex);
   }
 
   function computeMatches(): void {
@@ -231,6 +235,7 @@ export function mountFindReplacePanel(handlers: FindReplaceHandlers): FindReplac
   function hide(): void {
     open = false;
     backdrop.classList.add("hidden");
+    handlers.clearHighlights();
   }
 
   queryInput.addEventListener("input", () => refreshSelection(false));

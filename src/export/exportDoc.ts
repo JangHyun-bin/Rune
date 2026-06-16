@@ -20,6 +20,17 @@ pre.hljs{background:#f6f8fa;padding:12px 14px;border-radius:8px;overflow:auto}
 code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:.92em}
 table{border-collapse:collapse} th,td{border:1px solid #ddd;padding:6px 10px;text-align:left} th{background:#f6f8fa}
 blockquote{border-left:3px solid #ddd;color:#666;padding-left:1em;margin-left:0}
+blockquote.callout{border:1px solid #d0d7de;border-left-width:4px;border-radius:8px;color:#24292f;background:#f6f8fa;padding:12px 14px;margin:1em 0}
+blockquote.callout::before{content:attr(data-callout-title);display:block;font-weight:700;margin-bottom:.35em}
+blockquote.callout-note{border-left-color:#0969da}
+blockquote.callout-tip{border-left-color:#1a7f37}
+blockquote.callout-important{border-left-color:#8250df}
+blockquote.callout-warning{border-left-color:#9a6700}
+blockquote.callout-caution{border-left-color:#cf222e}
+.footnote-ref a{text-decoration:none}
+.footnotes{border-top:1px solid #d0d7de;margin-top:2em;padding-top:1em;font-size:.9em;color:#57606a}
+.footnotes ol{padding-left:1.5em}
+.footnote-backref{text-decoration:none;margin-left:.25em}
 .mermaid{display:flex;justify-content:center;margin:1em 0}
 img{max-width:100%}
 </style></head><body><article>${body}</article></body></html>`;

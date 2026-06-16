@@ -10,6 +10,8 @@ export function editorTheme() {
     ".cm-cursor, .cm-dropCursor": { borderLeftColor: "var(--accent)", borderLeftWidth: "2px" },
     ".cm-selectionBackground": { backgroundColor: "var(--accent-soft)" },
     "&.cm-focused .cm-selectionBackground": { backgroundColor: "var(--accent-soft)" },
+    ".cm-find-match": { backgroundColor: "rgba(255, 209, 102, 0.45)", borderRadius: "2px" },
+    ".cm-find-match-active": { backgroundColor: "rgba(255, 183, 3, 0.65)", outline: "1px solid rgba(255, 183, 3, 0.9)" },
     ".cm-md-h1": { fontSize: "1.9em", fontWeight: "700", lineHeight: "1.25" },
     ".cm-md-h2": { fontSize: "1.55em", fontWeight: "700", lineHeight: "1.3" },
     ".cm-md-h3": { fontSize: "1.3em", fontWeight: "700" },

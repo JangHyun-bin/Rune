@@ -31,6 +31,7 @@ import { mountHelpPanel } from "./workspace/helpPanel";
 import { t as tr, setLocale, getLocale, detectLocale, LOCALES, type Locale } from "./i18n/i18n";
 import { showContextMenu, type MenuItem } from "./workspace/contextMenu";
 import { promptModal } from "./workspace/promptModal";
+import { clearFindHighlights, findHighlightExtension, setFindHighlights } from "./editor/findHighlights";
 
 const chrome = mountChrome(document.getElementById("titlebar")!, document.getElementById("statusbar")!, {
   onOpenSettings: () => settingsPanel.open(),
@@ -202,6 +203,7 @@ function extraExts() {
         findReplacePanel?.refresh();
       }
     }),
+    findHighlightExtension(),
     auto.ext,
     Prec.highest(keymap.of([{ key: "Mod-k", run: () => { palette.toggle(); return true; }, preventDefault: true }])),
   ];
@@ -453,6 +455,12 @@ findReplacePanel = mountFindReplacePanel({
       scrollIntoView: true,
     });
     view.focus();
+  },
+  setHighlights: (matches, activeIndex) => {
+    view.dispatch({ effects: setFindHighlights.of({ matches, activeIndex }) });
+  },
+  clearHighlights: () => {
+    view.dispatch({ effects: clearFindHighlights.of(undefined) });
   },
 });
 async function restore(): Promise<void> {
