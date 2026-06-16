@@ -53,7 +53,8 @@ body.resizing-sidebar { cursor:col-resize; user-select:none; }
 .layout-mode-control { display:inline-flex; align-items:center; border:1px solid var(--border); border-radius:var(--radius-sm);
   overflow:hidden; background:var(--bg); }
 .layout-mode-button { border:0; border-right:1px solid var(--border); background:var(--bg); color:var(--muted);
-  font-family:var(--sans); font-size:12px; line-height:1; padding:6px 9px; min-width:72px; cursor:pointer; }
+  font-family:var(--sans); font-size:12px; line-height:1; padding:6px 9px; min-width:0; max-width:112px; cursor:pointer;
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .layout-mode-button:last-child { border-right:0; }
 .layout-mode-button:hover { color:var(--text); background:var(--faint); }
 .layout-mode-button.active { background:var(--accent-soft); color:var(--accent); font-weight:600; }

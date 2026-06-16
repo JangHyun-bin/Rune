@@ -527,6 +527,7 @@ async function restore(): Promise<void> {
     setLocale(await showLanguagePicker(getLocale()));
   }
   chrome.relabel();
+  layoutModeControl?.relabel();
 
   if (s.lastFolder) { await loadFolder(s.lastFolder).catch(() => {}); }
   let opened = false;
