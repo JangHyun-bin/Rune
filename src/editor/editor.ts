@@ -15,11 +15,24 @@ import { mathField } from "./math";
 import { imagePaste } from "./paste";
 import { imagePreview } from "./image";
 
+export type EditorMode = "preview" | "source";
+
+function modeExtensions(mode: EditorMode): Extension[] {
+  if (mode === "source") return [];
+  return [
+    livePreview,
+    blockWidgets([mermaidSpec, tableSpec]),
+    mathField(),
+    imagePreview(),
+  ];
+}
+
 /** 탭별 EditorState를 만든다. 내용이 바뀌면 onChange(text)를 호출한다. extraExtensions로 추가 확장 주입 가능. */
 export function editorState(
   doc: string,
   onChange: (text: string) => void,
   extraExtensions: Extension[] = [],
+  mode: EditorMode = "preview",
 ): EditorState {
   return EditorState.create({
     doc,
@@ -31,11 +44,8 @@ export function editorState(
       editorTheme(),
       EditorView.lineWrapping,
       syntaxHighlighting(codeHighlightStyle),
-      livePreview,
-      blockWidgets([mermaidSpec, tableSpec]),
-      mathField(),
+      ...modeExtensions(mode),
       imagePaste,
-      imagePreview(),
       EditorView.updateListener.of((u) => {
         if (u.docChanged) onChange(u.state.doc.toString());
       }),
@@ -55,8 +65,9 @@ export function createEditor(
   doc: string,
   onChange: (text: string) => void,
   extraExtensions: Extension[] = [],
+  mode: EditorMode = "preview",
 ): EditorView {
-  return createEditorView(parent, editorState(doc, onChange, extraExtensions));
+  return createEditorView(parent, editorState(doc, onChange, extraExtensions, mode));
 }
 
 /** 에디터 전체 내용을 text로 교체(파일 열기 시). */

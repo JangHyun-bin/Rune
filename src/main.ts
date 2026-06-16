@@ -1,5 +1,5 @@
 import "./styles.css";
-import { editorState, createEditorView, setEditorText } from "./editor/editor";
+import { editorState, createEditorView, setEditorText, type EditorMode } from "./editor/editor";
 import { type TabsState, emptyTabs, activeTab, openOrFocus, newUntitled, setActive, updateActiveText, markActiveSaved, closeTab, tabDirty } from "./workspace/tabs";
 import { nextTabId, prevTabId, nthTabId } from "./workspace/tabs";
 import { commands } from "./ipc/bindings";
@@ -23,6 +23,8 @@ import { mountCommandPalette, type PaletteItem } from "./workspace/commandPalett
 import { exportHtml, exportPdf } from "./export/exportDoc";
 import { mountSearchPanel } from "./workspace/searchPanel";
 import { mountSettingsPanel } from "./workspace/settingsPanel";
+import { parseHeadings } from "./editor/outline";
+import { mountOutlinePanel } from "./workspace/outlinePanel";
 import { showLanguagePicker } from "./workspace/languagePicker";
 import { mountHelpPanel } from "./workspace/helpPanel";
 import { t as tr, setLocale, getLocale, detectLocale, LOCALES, type Locale } from "./i18n/i18n";
@@ -41,6 +43,7 @@ let view: EditorView;
 const auto = autosave(800, () => void autoSave());
 let currentFolder: string | null = null;
 let workspaceFiles: { name: string; path: string }[] = [];
+let editorMode: EditorMode = "preview";
 const SIDEBAR_DEFAULT = 240;
 const SIDEBAR_MIN = 180;
 const SIDEBAR_MAX = 480;
@@ -48,7 +51,7 @@ const SIDEBAR_MAX = 480;
 function prefersDark(): boolean { return window.matchMedia("(prefers-color-scheme: dark)").matches; }
 function settingsSnapshot() {
   const theme = document.documentElement.getAttribute("data-theme") === "dark" ? "dark" : "light";
-  return { theme, lastFolder: currentFolder, openTabs: tabs.tabs.map((t) => t.path).filter((p): p is string => !!p), locale: getLocale(), editorWidth: currentEditorWidth(), sidebarWidth: currentSidebarWidth() };
+  return { theme, lastFolder: currentFolder, openTabs: tabs.tabs.map((t) => t.path).filter((p): p is string => !!p), locale: getLocale(), editorWidth: currentEditorWidth(), editorMode, sidebarWidth: currentSidebarWidth() };
 }
 function applyTheme(theme: "light" | "dark"): void {
   document.documentElement.setAttribute("data-theme", theme);
@@ -66,6 +69,33 @@ function applyEditorWidth(w: "readable" | "wide"): void {
 }
 function flipEditorWidth(): void {
   applyEditorWidth(currentEditorWidth() === "wide" ? "readable" : "wide");
+}
+function currentEditorMode(): EditorMode {
+  return editorMode;
+}
+function applyEditorMode(mode: EditorMode, persist = true): void {
+  if (editorMode === mode) return;
+  const text = view ? view.state.doc.toString() : (activeTab(tabs)?.currentText ?? "");
+  const selection = view?.state.selection;
+  const activeId = tabs.activeId;
+
+  editorMode = mode;
+  document.documentElement.setAttribute("data-editor-mode", mode);
+  states.clear();
+
+  if (view) {
+    view.setState(editorState(text, onChange, extraExts(), editorMode));
+    if (selection && selection.main.to <= view.state.doc.length) {
+      view.dispatch({ selection, scrollIntoView: true });
+    }
+    if (activeId) states.set(activeId, view.state);
+  }
+  syncActiveUI();
+  settingsPanel.refresh();
+  if (persist) scheduleSaveSettings();
+}
+function flipEditorMode(): void {
+  applyEditorMode(currentEditorMode() === "preview" ? "source" : "preview");
 }
 function maxSidebarWidth(): number {
   return Math.max(SIDEBAR_MIN, Math.min(SIDEBAR_MAX, window.innerWidth - 360));
@@ -135,6 +165,8 @@ const settingsPanel = mountSettingsPanel({
   getTheme: currentTheme,
   onEditorWidth: (w) => applyEditorWidth(w),
   getEditorWidth: currentEditorWidth,
+  onEditorMode: (mode) => applyEditorMode(mode),
+  getEditorMode: currentEditorMode,
   onHelp: () => helpPanel.open(),
   onSetDefault: () => void commands.openDefaultAppsSettings(),
   onCheckUpdates: () => void checkForUpdates(true),
@@ -159,7 +191,7 @@ function revealActive(): void {
   const t = activeTab(tabs);
   if (t?.path) void revealItemInDir(t.path);
 }
-function extraExts() { return [EditorView.updateListener.of((u) => { if (u.selectionSet) refreshStatus(); }), auto.ext, Prec.highest(keymap.of([{ key: "Mod-k", run: () => { palette.toggle(); return true; }, preventDefault: true }]))]; }
+function extraExts() { return [EditorView.updateListener.of((u) => { if (u.selectionSet || u.docChanged) { refreshStatus(); refreshOutline(); } }), auto.ext, Prec.highest(keymap.of([{ key: "Mod-k", run: () => { palette.toggle(); return true; }, preventDefault: true }]))]; }
 function onChange(text: string) { tabs = updateActiveText(tabs, text); syncActiveUI(); }
 
 function refreshStatus(): void {
@@ -169,6 +201,11 @@ function refreshStatus(): void {
   const line = view.state.doc.lineAt(head);
   chrome.setStatus(text, line.number, head - line.from + 1);
 }
+function refreshOutline(): void {
+  if (!view) return;
+  outlinePanel.render(parseHeadings(view.state.doc.toString()));
+  outlinePanel.setActiveLine(view.state.doc.lineAt(view.state.selection.main.head).number);
+}
 function syncActiveUI(): void {
   const t = activeTab(tabs);
   setDocPath(t?.path ?? null);
@@ -176,12 +213,13 @@ function syncActiveUI(): void {
   tabBar.render(tabs);
   tree.setActive(t?.path ?? null);
   refreshStatus();
+  refreshOutline();
 }
 function showActive(): void {
   const id = tabs.activeId!;
   const t = activeTab(tabs);
   let st = states.get(id);
-  if (!st) { st = editorState(t?.currentText ?? "", onChange, extraExts()); states.set(id, st); }
+  if (!st) { st = editorState(t?.currentText ?? "", onChange, extraExts(), editorMode); states.set(id, st); }
   view.setState(st);
   syncActiveUI();
 }
@@ -349,6 +387,7 @@ function paletteItems(): PaletteItem[] {
     { label: tr("cmd.save"), run: () => void doSave() },
     { label: tr("cmd.toggleTheme"), run: () => flipTheme() },
     { label: tr("cmd.toggleWidth"), run: () => flipEditorWidth() },
+    { label: tr("cmd.toggleSourceMode"), run: () => flipEditorMode() },
     { label: tr("cmd.closeTab"), run: () => { if (tabs.activeId) requestClose(tabs.activeId); } },
     { label: tr("cmd.exportHtml"), run: () => void exportHtml(view.state.doc.toString(), exportTitle()) },
     { label: tr("cmd.exportPdf"), run: () => void exportPdf(view.state.doc.toString(), exportTitle()) },
@@ -367,15 +406,18 @@ function jumpToLine(n: number): void {
   view.dispatch({ selection: { anchor: line.from }, scrollIntoView: true });
   view.focus();
 }
+const outlinePanel = mountOutlinePanel(document.getElementById("outline")!, jumpToLine);
 const searchPanel = mountSearchPanel(
   () => currentFolder,
   (path, line) => { void (async () => { await openPath(path); jumpToLine(line); })(); },
 );
 async function restore(): Promise<void> {
   const res = await commands.loadSettings();
-  const s = res.status === "ok" ? res.data : { theme: null, lastFolder: null, openTabs: [], locale: null, editorWidth: null, sidebarWidth: null };
+  const s = res.status === "ok" ? res.data : { theme: null, lastFolder: null, openTabs: [], locale: null, editorWidth: null, editorMode: null, sidebarWidth: null };
   document.documentElement.setAttribute("data-theme", s.theme === "light" || s.theme === "dark" ? s.theme : (prefersDark() ? "dark" : "light"));
   document.documentElement.setAttribute("data-editor-width", s.editorWidth === "wide" ? "wide" : "readable");
+  editorMode = s.editorMode === "source" ? "source" : "preview";
+  document.documentElement.setAttribute("data-editor-mode", editorMode);
   applySidebarWidth(typeof s.sidebarWidth === "number" ? s.sidebarWidth : SIDEBAR_DEFAULT, false);
 
   // Resolve the UI language BEFORE loading any content, so the app never flashes
@@ -472,7 +514,7 @@ void listen<string[]>("fs-change", (e) => onFsChange(e.payload));
 void listen<string>("open-file", (e) => { void openPath(e.payload); });
 
 // init: create the editor view with a bare empty state; restore() opens tabs.
-view = createEditorView(document.getElementById("editor")!, editorState("", onChange, extraExts()));
+view = createEditorView(document.getElementById("editor")!, editorState("", onChange, extraExts(), editorMode));
 void restore();
 
 window.addEventListener("blur", () => auto.flush());
@@ -483,6 +525,7 @@ window.addEventListener("keydown", (e) => {
   if (mod && e.shiftKey && e.key.toLowerCase() === "f") { e.preventDefault(); searchPanel.toggle(); return; }
   if (mod && e.shiftKey && e.key.toLowerCase() === "o") { e.preventDefault(); void openFolder(); return; }
   if (mod && e.shiftKey && e.key.toLowerCase() === "l") { e.preventDefault(); flipEditorWidth(); return; }
+  if (mod && e.shiftKey && e.key.toLowerCase() === "m") { e.preventDefault(); flipEditorMode(); return; }
   if (mod && e.key === "Tab") { e.preventDefault(); const id = e.shiftKey ? prevTabId(tabs) : nextTabId(tabs); if (id) switchTo(id); return; }
   if (mod && !e.shiftKey && /^[1-9]$/.test(e.key)) { e.preventDefault(); const id = nthTabId(tabs, Number(e.key)); if (id) switchTo(id); return; }
   if (mod && e.key.toLowerCase() === "o") { e.preventDefault(); void openFile(); return; }

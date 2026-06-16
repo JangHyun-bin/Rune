@@ -45,7 +45,8 @@ body { background: var(--bg); color: var(--text); font-family: var(--sans); }
   border-right:1px solid var(--border); touch-action:none; transition:background var(--dur) var(--ease), border-color var(--dur) var(--ease); }
 #sidebar-resizer:hover, #sidebar-resizer.dragging { background:var(--accent-soft); border-right-color:var(--accent); }
 body.resizing-sidebar { cursor:col-resize; user-select:none; }
-#filetree { flex:1; overflow:auto; padding:8px 6px; }
+#filetree { flex:1 1 auto; overflow:auto; padding:8px 6px; min-height:120px; }
+#outline { flex:0 0 34%; min-height:112px; max-height:42%; border-top:1px solid var(--border); overflow:auto; }
 #main-col { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 #tabbar { display:flex; align-items:stretch; height:36px; background:var(--faint); border-bottom:1px solid var(--border); overflow-x:auto; }
 #tabbar:empty { display:none; }
@@ -68,6 +69,15 @@ body.resizing-sidebar { cursor:col-resize; user-select:none; }
 .ft-empty-msg { margin: 0; font-size: 12.5px; color: var(--text); }
 .ft-empty-hint { margin: 0; font-size: 11px; color: var(--muted); }
 .ft-empty .btn { margin-top: 4px; }
+.outline-panel { padding:8px 6px 10px; box-sizing:border-box; }
+.outline-title { font-size:10.5px; text-transform:uppercase; letter-spacing:0.06em; color:var(--muted); padding:2px 8px 6px; }
+.outline-empty { color:var(--muted); font-size:12px; padding:8px; }
+.outline-list { display:flex; flex-direction:column; gap:1px; }
+.outline-row { display:block; width:100%; border:0; background:transparent; color:var(--text); cursor:pointer; text-align:left;
+  font-family:var(--sans); font-size:12.5px; line-height:1.35; padding:5px 8px 5px calc(8px + (var(--level) - 1) * 12px);
+  border-radius:var(--radius-md); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.outline-row:hover { background:var(--accent-soft); }
+.outline-row.active { color:var(--accent); background:var(--accent-soft); font-weight:600; }
 #statusbar { height:26px; flex-shrink:0; display:flex; align-items:center; justify-content:space-between; padding:0 16px;
   border-top:1px solid var(--border); background:var(--faint); font-size:11px; color:var(--muted); user-select:none; }
 #statusbar .sb-right { display:flex; align-items:center; gap:14px; }

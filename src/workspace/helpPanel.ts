@@ -32,6 +32,7 @@ const GROUPS: Group[] = [
     { keys: [MOD, "E"], labelKey: "cmd.exportHtml" },
     { keys: ["F1"], labelKey: "cmd.help" },
     { keys: [MOD, SHIFT, "L"], labelKey: "help.toggleWidth" },
+    { keys: [MOD, SHIFT, "M"], labelKey: "cmd.toggleSourceMode" },
   ] },
 ];
 

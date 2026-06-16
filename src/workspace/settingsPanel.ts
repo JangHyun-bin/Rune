@@ -1,4 +1,5 @@
 import { t, getLocale, LOCALES, type Locale } from "../i18n/i18n";
+import type { EditorMode } from "../editor/editor";
 
 export interface SettingsPanel { open: () => void; close: () => void; refresh: () => void; setUpdateStatus: (text: string) => void; }
 
@@ -8,6 +9,8 @@ export function mountSettingsPanel(handlers: {
   getTheme: () => "light" | "dark";
   onEditorWidth: (w: "readable" | "wide") => void;
   getEditorWidth: () => "readable" | "wide";
+  onEditorMode: (mode: EditorMode) => void;
+  getEditorMode: () => EditorMode;
   onHelp: () => void;
   onSetDefault: () => void;
   onCheckUpdates: () => void;
@@ -59,6 +62,18 @@ export function mountSettingsPanel(handlers: {
     }
     widthSel.addEventListener("change", () => handlers.onEditorWidth(widthSel.value as "readable" | "wide"));
     widthRow.append(widthLabel, widthSel); card.appendChild(widthRow);
+
+    // Editor mode
+    const modeRow = document.createElement("div"); modeRow.className = "settings-row";
+    const modeLabel = document.createElement("label"); modeLabel.textContent = t("settings.editorMode");
+    const modeSel = document.createElement("select");
+    for (const v of ["preview", "source"] as const) {
+      const o = document.createElement("option"); o.value = v; o.textContent = t(v === "preview" ? "editorMode.preview" : "editorMode.source");
+      if (v === handlers.getEditorMode()) o.selected = true;
+      modeSel.appendChild(o);
+    }
+    modeSel.addEventListener("change", () => handlers.onEditorMode(modeSel.value as EditorMode));
+    modeRow.append(modeLabel, modeSel); card.appendChild(modeRow);
 
     // Shortcuts & help
     const helpRow = document.createElement("div"); helpRow.className = "settings-row";
