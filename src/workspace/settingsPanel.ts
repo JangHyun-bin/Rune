@@ -67,8 +67,8 @@ export function mountSettingsPanel(handlers: {
     const modeRow = document.createElement("div"); modeRow.className = "settings-row";
     const modeLabel = document.createElement("label"); modeLabel.textContent = t("settings.editorMode");
     const modeSel = document.createElement("select");
-    for (const v of ["preview", "source"] as const) {
-      const o = document.createElement("option"); o.value = v; o.textContent = t(v === "preview" ? "editorMode.preview" : "editorMode.source");
+    for (const v of ["preview", "source", "split"] as const) {
+      const o = document.createElement("option"); o.value = v; o.textContent = t(`editorMode.${v}`);
       if (v === handlers.getEditorMode()) o.selected = true;
       modeSel.appendChild(o);
     }

@@ -24,6 +24,7 @@ import { exportHtml, exportPdf } from "./export/exportDoc";
 import { mountSearchPanel } from "./workspace/searchPanel";
 import { mountFindReplacePanel, type FindReplacePanel } from "./workspace/findReplacePanel";
 import { mountSettingsPanel } from "./workspace/settingsPanel";
+import { mountLayoutModeControl, normalizeEditorMode, type LayoutModeControl } from "./workspace/layoutModeControl";
 import { parseHeadings } from "./editor/outline";
 import { mountOutlinePanel } from "./workspace/outlinePanel";
 import { showLanguagePicker } from "./workspace/languagePicker";
@@ -32,10 +33,13 @@ import { t as tr, setLocale, getLocale, detectLocale, LOCALES, type Locale } fro
 import { showContextMenu, type MenuItem } from "./workspace/contextMenu";
 import { promptModal } from "./workspace/promptModal";
 import { clearFindHighlights, findHighlightExtension, setFindHighlights } from "./editor/findHighlights";
+import { mountSplitPreview, type SplitPreview } from "./editor/splitPreview";
 
 const chrome = mountChrome(document.getElementById("titlebar")!, document.getElementById("statusbar")!, {
   onOpenSettings: () => settingsPanel.open(),
 });
+const editorRoot = document.getElementById("editor")!;
+const editorToolbar = document.getElementById("editor-toolbar")!;
 const tree = mountFileTree(document.getElementById("filetree")!, (p) => void openPath(p), () => void openFolder(), fileTreeMenu, {
   onNewFile: () => { if (currentFolder) void newFileIn(currentFolder); },
   onNewFolder: () => { if (currentFolder) void newFolderIn(currentFolder); },
@@ -50,6 +54,8 @@ let currentFolder: string | null = null;
 let workspaceFiles: { name: string; path: string }[] = [];
 let editorMode: EditorMode = "preview";
 let findReplacePanel: FindReplacePanel | null = null;
+let splitPreview: SplitPreview | null = null;
+let layoutModeControl: LayoutModeControl | null = null;
 const SIDEBAR_DEFAULT = 240;
 const SIDEBAR_MIN = 180;
 const SIDEBAR_MAX = 480;
@@ -79,6 +85,27 @@ function flipEditorWidth(): void {
 function currentEditorMode(): EditorMode {
   return editorMode;
 }
+function syncEditorLayout(): HTMLElement {
+  splitPreview?.destroy();
+  splitPreview = null;
+  editorRoot.className = "";
+  editorRoot.replaceChildren();
+
+  const sourcePane = document.createElement("div");
+  sourcePane.className = editorMode === "split" ? "editor-pane split-source" : "editor-pane";
+  editorRoot.appendChild(sourcePane);
+
+  if (editorMode === "split") {
+    editorRoot.className = "editor-split";
+    splitPreview = mountSplitPreview(editorRoot);
+  }
+
+  if (view) sourcePane.appendChild(view.dom);
+  return sourcePane;
+}
+function syncSplitPreview(): void {
+  if (splitPreview && view) splitPreview.update(view.state.doc.toString());
+}
 function applyEditorMode(mode: EditorMode, persist = true): void {
   if (editorMode === mode) return;
   const text = view ? view.state.doc.toString() : (activeTab(tabs)?.currentText ?? "");
@@ -88,6 +115,7 @@ function applyEditorMode(mode: EditorMode, persist = true): void {
   editorMode = mode;
   document.documentElement.setAttribute("data-editor-mode", mode);
   states.clear();
+  syncEditorLayout();
 
   if (view) {
     view.setState(editorState(text, onChange, extraExts(), editorMode));
@@ -96,7 +124,9 @@ function applyEditorMode(mode: EditorMode, persist = true): void {
     }
     if (activeId) states.set(activeId, view.state);
   }
+  syncSplitPreview();
   syncActiveUI();
+  layoutModeControl?.setMode(editorMode);
   settingsPanel.refresh();
   if (persist) scheduleSaveSettings();
 }
@@ -177,10 +207,12 @@ const settingsPanel = mountSettingsPanel({
   onSetDefault: () => void commands.openDefaultAppsSettings(),
   onCheckUpdates: () => void checkForUpdates(true),
 });
+layoutModeControl = mountLayoutModeControl(editorToolbar, currentEditorMode, (mode) => applyEditorMode(mode));
 mountSidebarResizer(document.getElementById("sidebar-resizer")!);
 function applyLocale(l: Locale): void {
   setLocale(l);
   chrome.relabel();
+  layoutModeControl?.relabel();
   syncActiveUI();
   settingsPanel.refresh();
   scheduleSaveSettings();
@@ -211,7 +243,11 @@ function extraExts() {
     Prec.highest(keymap.of([{ key: "Mod-k", run: () => { palette.toggle(); return true; }, preventDefault: true }])),
   ];
 }
-function onChange(text: string) { tabs = updateActiveText(tabs, text); syncActiveUI(); }
+function onChange(text: string) {
+  tabs = updateActiveText(tabs, text);
+  splitPreview?.update(text);
+  syncActiveUI();
+}
 
 function refreshStatus(): void {
   if (!view) return;
@@ -240,6 +276,7 @@ function showActive(): void {
   let st = states.get(id);
   if (!st) { st = editorState(t?.currentText ?? "", onChange, extraExts(), editorMode); states.set(id, st); }
   view.setState(st);
+  syncSplitPreview();
   syncActiveUI();
 }
 function switchTo(id: string): void {
@@ -473,8 +510,10 @@ async function restore(): Promise<void> {
   const s = res.status === "ok" ? res.data : { theme: null, lastFolder: null, openTabs: [], locale: null, editorWidth: null, editorMode: null, sidebarWidth: null };
   document.documentElement.setAttribute("data-theme", s.theme === "light" || s.theme === "dark" ? s.theme : (prefersDark() ? "dark" : "light"));
   document.documentElement.setAttribute("data-editor-width", s.editorWidth === "wide" ? "wide" : "readable");
-  editorMode = s.editorMode === "source" ? "source" : "preview";
+  editorMode = normalizeEditorMode(s.editorMode);
   document.documentElement.setAttribute("data-editor-mode", editorMode);
+  layoutModeControl?.setMode(editorMode);
+  syncEditorLayout();
   applySidebarWidth(typeof s.sidebarWidth === "number" ? s.sidebarWidth : SIDEBAR_DEFAULT, false);
 
   // Resolve the UI language BEFORE loading any content, so the app never flashes
@@ -571,7 +610,7 @@ void listen<string[]>("fs-change", (e) => onFsChange(e.payload));
 void listen<string>("open-file", (e) => { void openPath(e.payload); });
 
 // init: create the editor view with a bare empty state; restore() opens tabs.
-view = createEditorView(document.getElementById("editor")!, editorState("", onChange, extraExts(), editorMode));
+view = createEditorView(syncEditorLayout(), editorState("", onChange, extraExts(), editorMode));
 void restore();
 
 window.addEventListener("blur", () => auto.flush());

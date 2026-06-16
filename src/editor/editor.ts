@@ -17,10 +17,10 @@ import { imagePaste } from "./paste";
 import { imagePreview } from "./image";
 import { markdownShortcutKeymap } from "./markdownCommands";
 
-export type EditorMode = "preview" | "source";
+export type EditorMode = "preview" | "source" | "split";
 
 function modeExtensions(mode: EditorMode): Extension[] {
-  if (mode === "source") return [];
+  if (mode === "source" || mode === "split") return [];
   return [
     livePreview,
     blockWidgets([horizontalRuleSpec, mermaidSpec, tableSpec]),

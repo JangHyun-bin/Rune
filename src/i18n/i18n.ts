@@ -483,12 +483,35 @@ const MARKDOWN_SHORTCUT_DICT: Record<Locale, Dict> = {
   },
 };
 
+const LAYOUT_MODE_DICT: Record<Locale, Dict> = {
+  en: {
+    "editorMode.split": "Split",
+    "layout.mode": "Layout",
+  },
+  ko: {
+    "editorMode.split": "\uBD84\uD560",
+    "layout.mode": "\uB808\uC774\uC544\uC6C3",
+  },
+  ja: {
+    "editorMode.split": "\u5206\u5272",
+    "layout.mode": "\u30EC\u30A4\u30A2\u30A6\u30C8",
+  },
+  "zh-Hans": {
+    "editorMode.split": "\u5206\u5C4F",
+    "layout.mode": "\u5E03\u5C40",
+  },
+};
+
 for (const locale of Object.keys(FIND_REPLACE_DICT) as Locale[]) {
   Object.assign(DICT[locale], FIND_REPLACE_DICT[locale]);
 }
 
 for (const locale of Object.keys(MARKDOWN_SHORTCUT_DICT) as Locale[]) {
   Object.assign(DICT[locale], MARKDOWN_SHORTCUT_DICT[locale]);
+}
+
+for (const locale of Object.keys(LAYOUT_MODE_DICT) as Locale[]) {
+  Object.assign(DICT[locale], LAYOUT_MODE_DICT[locale]);
 }
 
 let current: Locale = "en";
