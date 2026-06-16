@@ -34,6 +34,7 @@ import { showContextMenu, type MenuItem } from "./workspace/contextMenu";
 import { promptModal } from "./workspace/promptModal";
 import { clearFindHighlights, findHighlightExtension, setFindHighlights } from "./editor/findHighlights";
 import { mountSplitPreview, type SplitPreview } from "./editor/splitPreview";
+import { DEFAULT_LAYOUT, normalizeLayoutSettings, parseLayoutSettingsJson, serializeLayoutSettings, type LayoutSettings, type ResolvedLayoutSettings } from "./workspace/layoutSettings";
 
 const chrome = mountChrome(document.getElementById("titlebar")!, document.getElementById("statusbar")!, {
   onOpenSettings: () => settingsPanel.open(),
@@ -55,15 +56,23 @@ let workspaceFiles: { name: string; path: string }[] = [];
 let editorMode: EditorMode = "preview";
 let findReplacePanel: FindReplacePanel | null = null;
 let splitPreview: SplitPreview | null = null;
+let splitResizerCleanup: (() => void) | null = null;
 let layoutModeControl: LayoutModeControl | null = null;
-const SIDEBAR_DEFAULT = 240;
-const SIDEBAR_MIN = 180;
-const SIDEBAR_MAX = 480;
+const SIDEBAR_DEFAULT = DEFAULT_LAYOUT.sidebarWidth;
+const SIDEBAR_MIN = 96;
+const MAIN_MIN = 220;
+const OUTLINE_DEFAULT = DEFAULT_LAYOUT.outlineHeight;
+const OUTLINE_MIN = 64;
+const FILETREE_MIN = 120;
+const SPLIT_RATIO_DEFAULT = DEFAULT_LAYOUT.splitRatio;
+const SPLIT_RATIO_MIN = 0.12;
+const SPLIT_RATIO_MAX = 0.88;
 
 function prefersDark(): boolean { return window.matchMedia("(prefers-color-scheme: dark)").matches; }
 function settingsSnapshot() {
   const theme = document.documentElement.getAttribute("data-theme") === "dark" ? "dark" : "light";
-  return { theme, lastFolder: currentFolder, openTabs: tabs.tabs.map((t) => t.path).filter((p): p is string => !!p), locale: getLocale(), editorWidth: currentEditorWidth(), editorMode, sidebarWidth: currentSidebarWidth() };
+  const layout = currentLayoutSettings();
+  return { theme, lastFolder: currentFolder, openTabs: tabs.tabs.map((t) => t.path).filter((p): p is string => !!p), locale: getLocale(), editorWidth: currentEditorWidth(), editorMode, sidebarWidth: layout.sidebarWidth, layout };
 }
 function applyTheme(theme: "light" | "dark"): void {
   document.documentElement.setAttribute("data-theme", theme);
@@ -85,9 +94,90 @@ function flipEditorWidth(): void {
 function currentEditorMode(): EditorMode {
   return editorMode;
 }
+function clampRatio(value: number): number {
+  if (!Number.isFinite(value)) return SPLIT_RATIO_DEFAULT;
+  return Math.min(SPLIT_RATIO_MAX, Math.max(SPLIT_RATIO_MIN, value));
+}
+function maxSidebarWidth(): number {
+  return Math.max(SIDEBAR_MIN, window.innerWidth - MAIN_MIN);
+}
+function clampSidebarWidth(width: number): number {
+  if (!Number.isFinite(width)) return SIDEBAR_DEFAULT;
+  return Math.min(maxSidebarWidth(), Math.max(SIDEBAR_MIN, Math.round(width)));
+}
+function maxOutlineHeight(): number {
+  const sidebar = document.getElementById("sidebar");
+  const height = sidebar?.clientHeight || window.innerHeight - 80;
+  return Math.max(OUTLINE_MIN, height - FILETREE_MIN - 6);
+}
+function clampOutlineHeight(height: number): number {
+  if (!Number.isFinite(height)) return OUTLINE_DEFAULT;
+  return Math.min(maxOutlineHeight(), Math.max(OUTLINE_MIN, Math.round(height)));
+}
+function currentSidebarWidth(): number {
+  const raw = getComputedStyle(document.documentElement).getPropertyValue("--sidebar-width");
+  const parsed = Number.parseFloat(raw);
+  return clampSidebarWidth(parsed);
+}
+function currentOutlineHeight(): number {
+  const raw = getComputedStyle(document.documentElement).getPropertyValue("--outline-height");
+  const parsed = Number.parseFloat(raw);
+  return clampOutlineHeight(parsed);
+}
+function currentSplitRatio(): number {
+  const raw = getComputedStyle(document.documentElement).getPropertyValue("--split-source-width").trim();
+  if (raw.endsWith("%")) return clampRatio(Number.parseFloat(raw) / 100);
+  return SPLIT_RATIO_DEFAULT;
+}
+function currentLayoutSettings(): ResolvedLayoutSettings {
+  return {
+    sidebarWidth: currentSidebarWidth(),
+    outlineHeight: currentOutlineHeight(),
+    splitRatio: currentSplitRatio(),
+  };
+}
+function applySidebarWidth(width: number, persist = true): void {
+  document.documentElement.style.setProperty("--sidebar-width", `${clampSidebarWidth(width)}px`);
+  if (persist) scheduleSaveSettings();
+}
+function applyOutlineHeight(height: number, persist = true): void {
+  document.documentElement.style.setProperty("--outline-height", `${clampOutlineHeight(height)}px`);
+  if (persist) scheduleSaveSettings();
+}
+function applySplitRatio(ratio: number, persist = true): void {
+  document.documentElement.style.setProperty("--split-source-width", `${Math.round(clampRatio(ratio) * 1000) / 10}%`);
+  if (persist) scheduleSaveSettings();
+}
+function applyLayoutSettings(layout: Partial<LayoutSettings>, persist = true): void {
+  const normalized = normalizeLayoutSettings(layout);
+  applySidebarWidth(normalized.sidebarWidth, false);
+  applyOutlineHeight(normalized.outlineHeight, false);
+  applySplitRatio(normalized.splitRatio, false);
+  if (persist) scheduleSaveSettings();
+}
+function resetLayoutSettings(): void {
+  applyLayoutSettings(DEFAULT_LAYOUT);
+  settingsPanel.refresh();
+}
+function importLayoutSettings(text: string): boolean {
+  const parsed = parseLayoutSettingsJson(text);
+  if (!parsed) return false;
+  applyLayoutSettings(parsed);
+  settingsPanel.refresh();
+  return true;
+}
+function exportLayoutSettings(): string {
+  return serializeLayoutSettings(currentLayoutSettings());
+}
+function layoutSummary(): string {
+  const layout = currentLayoutSettings();
+  return `${layout.sidebarWidth}px / ${layout.outlineHeight}px / ${Math.round(layout.splitRatio * 100)}%`;
+}
 function syncEditorLayout(): HTMLElement {
   splitPreview?.destroy();
   splitPreview = null;
+  splitResizerCleanup?.();
+  splitResizerCleanup = null;
   editorRoot.className = "";
   editorRoot.replaceChildren();
 
@@ -97,6 +187,13 @@ function syncEditorLayout(): HTMLElement {
 
   if (editorMode === "split") {
     editorRoot.className = "editor-split";
+    const resizer = document.createElement("div");
+    resizer.className = "split-resizer";
+    resizer.setAttribute("role", "separator");
+    resizer.setAttribute("aria-orientation", "vertical");
+    resizer.setAttribute("aria-label", "Resize split preview");
+    editorRoot.appendChild(resizer);
+    splitResizerCleanup = mountSplitResizer(resizer);
     splitPreview = mountSplitPreview(editorRoot);
   }
 
@@ -136,22 +233,6 @@ function applyEditorMode(mode: EditorMode, persist = true): void {
 }
 function flipEditorMode(): void {
   applyEditorMode(currentEditorMode() === "preview" ? "source" : "preview");
-}
-function maxSidebarWidth(): number {
-  return Math.max(SIDEBAR_MIN, Math.min(SIDEBAR_MAX, window.innerWidth - 360));
-}
-function clampSidebarWidth(width: number): number {
-  if (!Number.isFinite(width)) return SIDEBAR_DEFAULT;
-  return Math.min(maxSidebarWidth(), Math.max(SIDEBAR_MIN, Math.round(width)));
-}
-function currentSidebarWidth(): number {
-  const raw = getComputedStyle(document.documentElement).getPropertyValue("--sidebar-width");
-  const parsed = Number.parseInt(raw, 10);
-  return clampSidebarWidth(parsed);
-}
-function applySidebarWidth(width: number, persist = true): void {
-  document.documentElement.style.setProperty("--sidebar-width", `${clampSidebarWidth(width)}px`);
-  if (persist) scheduleSaveSettings();
 }
 function mountSidebarResizer(handle: HTMLElement): void {
   let dragging = false;
@@ -198,6 +279,107 @@ function mountSidebarResizer(handle: HTMLElement): void {
   window.addEventListener("pointercancel", finish);
   window.addEventListener("blur", finish);
 }
+function mountOutlineResizer(handle: HTMLElement): void {
+  let dragging = false;
+  let activePointerId: number | null = null;
+  let startY = 0;
+  let startHeight = OUTLINE_DEFAULT;
+  let moved = false;
+
+  const finish = () => {
+    if (!dragging) return;
+    if (activePointerId !== null && handle.hasPointerCapture(activePointerId)) {
+      handle.releasePointerCapture(activePointerId);
+    }
+    dragging = false;
+    activePointerId = null;
+    handle.classList.remove("dragging");
+    document.body.classList.remove("resizing-outline");
+    if (moved) applyOutlineHeight(currentOutlineHeight());
+  };
+  const move = (e: PointerEvent) => {
+    if (!dragging) return;
+    moved = true;
+    applyOutlineHeight(startHeight + startY - e.clientY, false);
+  };
+
+  handle.addEventListener("pointerdown", (e) => {
+    if (e.button !== 0) return;
+    dragging = true;
+    activePointerId = e.pointerId;
+    startY = e.clientY;
+    startHeight = currentOutlineHeight();
+    moved = false;
+    handle.classList.add("dragging");
+    document.body.classList.add("resizing-outline");
+    try {
+      handle.setPointerCapture(e.pointerId);
+    } catch {
+      activePointerId = null;
+    }
+    e.preventDefault();
+  });
+  window.addEventListener("pointermove", move);
+  window.addEventListener("pointerup", finish);
+  window.addEventListener("pointercancel", finish);
+  window.addEventListener("blur", finish);
+}
+function mountSplitResizer(handle: HTMLElement): () => void {
+  let dragging = false;
+  let activePointerId: number | null = null;
+  let startX = 0;
+  let startRatio = SPLIT_RATIO_DEFAULT;
+  let width = 1;
+  let moved = false;
+
+  const finish = () => {
+    if (!dragging) return;
+    if (activePointerId !== null && handle.hasPointerCapture(activePointerId)) {
+      handle.releasePointerCapture(activePointerId);
+    }
+    dragging = false;
+    activePointerId = null;
+    handle.classList.remove("dragging");
+    document.body.classList.remove("resizing-editor-split");
+    if (moved) applySplitRatio(currentSplitRatio());
+  };
+  const move = (e: PointerEvent) => {
+    if (!dragging) return;
+    moved = true;
+    applySplitRatio(startRatio + (e.clientX - startX) / width, false);
+  };
+  const down = (e: PointerEvent) => {
+    if (e.button !== 0) return;
+    dragging = true;
+    activePointerId = e.pointerId;
+    startX = e.clientX;
+    startRatio = currentSplitRatio();
+    width = Math.max(1, editorRoot.getBoundingClientRect().width);
+    moved = false;
+    handle.classList.add("dragging");
+    document.body.classList.add("resizing-editor-split");
+    try {
+      handle.setPointerCapture(e.pointerId);
+    } catch {
+      activePointerId = null;
+    }
+    e.preventDefault();
+  };
+
+  handle.addEventListener("pointerdown", down);
+  window.addEventListener("pointermove", move);
+  window.addEventListener("pointerup", finish);
+  window.addEventListener("pointercancel", finish);
+  window.addEventListener("blur", finish);
+  return () => {
+    finish();
+    handle.removeEventListener("pointerdown", down);
+    window.removeEventListener("pointermove", move);
+    window.removeEventListener("pointerup", finish);
+    window.removeEventListener("pointercancel", finish);
+    window.removeEventListener("blur", finish);
+  };
+}
 const helpPanel = mountHelpPanel();
 const settingsPanel = mountSettingsPanel({
   onLocale: (l) => applyLocale(l),
@@ -210,9 +392,15 @@ const settingsPanel = mountSettingsPanel({
   onHelp: () => helpPanel.open(),
   onSetDefault: () => void commands.openDefaultAppsSettings(),
   onCheckUpdates: () => void checkForUpdates(true),
+  onSaveLayout: () => saveSettingsNow(),
+  onExportLayout: exportLayoutSettings,
+  onImportLayout: importLayoutSettings,
+  onResetLayout: resetLayoutSettings,
+  getLayoutSummary: layoutSummary,
 });
 layoutModeControl = mountLayoutModeControl(editorToolbar, currentEditorMode, (mode) => applyEditorMode(mode));
 mountSidebarResizer(document.getElementById("sidebar-resizer")!);
+mountOutlineResizer(document.getElementById("outline-resizer")!);
 function applyLocale(l: Locale): void {
   setLocale(l);
   chrome.relabel();
@@ -225,6 +413,11 @@ let saveTimer: number | undefined;
 function scheduleSaveSettings() {
   if (saveTimer !== undefined) clearTimeout(saveTimer);
   saveTimer = window.setTimeout(() => void commands.saveSettings(settingsSnapshot()), 500);
+}
+function saveSettingsNow(): void {
+  if (saveTimer !== undefined) clearTimeout(saveTimer);
+  saveTimer = undefined;
+  void commands.saveSettings(settingsSnapshot());
 }
 
 function baseName(p: string): string { const i = Math.max(p.lastIndexOf("/"), p.lastIndexOf("\\")); return i >= 0 ? p.slice(i + 1) : p; }
@@ -512,7 +705,7 @@ findReplacePanel = mountFindReplacePanel({
 });
 async function restore(): Promise<void> {
   const res = await commands.loadSettings();
-  const s = res.status === "ok" ? res.data : { theme: null, lastFolder: null, openTabs: [], locale: null, editorWidth: null, editorMode: null, sidebarWidth: null };
+  const s = res.status === "ok" ? res.data : { theme: null, lastFolder: null, openTabs: [], locale: null, editorWidth: null, editorMode: null, sidebarWidth: null, layout: null };
   document.documentElement.setAttribute("data-theme", s.theme === "light" || s.theme === "dark" ? s.theme : (prefersDark() ? "dark" : "light"));
   document.documentElement.setAttribute("data-editor-width", s.editorWidth === "wide" ? "wide" : "readable");
   editorMode = normalizeEditorMode(s.editorMode);
@@ -520,7 +713,7 @@ async function restore(): Promise<void> {
   layoutModeControl?.setMode(editorMode);
   syncEditorLayout();
   bindSplitPreviewScroll();
-  applySidebarWidth(typeof s.sidebarWidth === "number" ? s.sidebarWidth : SIDEBAR_DEFAULT, false);
+  applyLayoutSettings(s.layout ?? { sidebarWidth: s.sidebarWidth }, false);
 
   // Resolve the UI language BEFORE loading any content, so the app never flashes
   // a language the user didn't choose. On first run (no saved locale) we ask once
@@ -622,7 +815,7 @@ bindSplitPreviewScroll();
 void restore();
 
 window.addEventListener("blur", () => auto.flush());
-window.addEventListener("resize", () => applySidebarWidth(currentSidebarWidth(), false));
+window.addEventListener("resize", () => applyLayoutSettings(currentLayoutSettings(), false));
 window.addEventListener("keydown", (e) => {
   if (e.key === "F1") { e.preventDefault(); helpPanel.toggle(); return; }
   const mod = e.ctrlKey || e.metaKey;

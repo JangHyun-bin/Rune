@@ -5,7 +5,8 @@ export type Result<T> =
   | { status: "error"; error: string };
 
 export interface FileNode { name: string; path: string; isDir: boolean; children: FileNode[]; }
-export interface Settings { theme: string | null; lastFolder: string | null; openTabs: string[]; locale: string | null; editorWidth: string | null; editorMode: string | null; sidebarWidth: number | null; }
+export interface LayoutSettings { sidebarWidth: number | null; outlineHeight: number | null; splitRatio: number | null; }
+export interface Settings { theme: string | null; lastFolder: string | null; openTabs: string[]; locale: string | null; editorWidth: string | null; editorMode: string | null; sidebarWidth: number | null; layout: LayoutSettings | null; }
 export interface SearchHit { path: string; line: number; snippet: string; }
 
 async function call<T>(cmd: string, args: Record<string, unknown>): Promise<Result<T>> {

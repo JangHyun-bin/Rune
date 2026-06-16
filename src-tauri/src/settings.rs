@@ -3,6 +3,14 @@ use std::path::PathBuf;
 
 #[derive(Serialize, Deserialize, Debug, Default)]
 #[serde(rename_all = "camelCase", default)]
+pub struct LayoutSettings {
+    pub sidebar_width: Option<u16>,
+    pub outline_height: Option<u16>,
+    pub split_ratio: Option<f32>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Default)]
+#[serde(rename_all = "camelCase", default)]
 pub struct Settings {
     pub theme: Option<String>,
     pub last_folder: Option<String>,
@@ -11,6 +19,7 @@ pub struct Settings {
     pub editor_width: Option<String>,
     pub editor_mode: Option<String>,
     pub sidebar_width: Option<u16>,
+    pub layout: Option<LayoutSettings>,
 }
 
 pub fn load(path: &PathBuf) -> Settings {
@@ -39,6 +48,7 @@ mod tests {
         assert_eq!(load(&p).theme, None);
         assert_eq!(load(&p).editor_width, None);
         assert_eq!(load(&p).sidebar_width, None);
+        assert!(load(&p).layout.is_none());
         let s = Settings {
             theme: Some("dark".into()),
             last_folder: Some("/w".into()),
@@ -47,6 +57,11 @@ mod tests {
             editor_width: Some("wide".into()),
             editor_mode: Some("source".into()),
             sidebar_width: Some(320),
+            layout: Some(LayoutSettings {
+                sidebar_width: Some(330),
+                outline_height: Some(180),
+                split_ratio: Some(0.6),
+            }),
         };
         save(&p, &s).unwrap();
         let got = load(&p);
@@ -55,5 +70,9 @@ mod tests {
         assert_eq!(got.editor_width.as_deref(), Some("wide"));
         assert_eq!(got.editor_mode.as_deref(), Some("source"));
         assert_eq!(got.sidebar_width, Some(320));
+        let layout = got.layout.unwrap();
+        assert_eq!(layout.sidebar_width, Some(330));
+        assert_eq!(layout.outline_height, Some(180));
+        assert_eq!(layout.split_ratio, Some(0.6));
     }
 }
