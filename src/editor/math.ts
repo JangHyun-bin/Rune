@@ -3,6 +3,7 @@ import { type EditorState, type Extension, RangeSetBuilder, StateField } from "@
 import { Decoration, type DecorationSet, EditorView, WidgetType } from "@codemirror/view";
 import { syntaxTree } from "@codemirror/language";
 import { isInlineMath } from "./mathSpan";
+import { makePreviewWidgetInert, selectionInsideSource } from "./previewWidget";
 
 class MathWidget extends WidgetType {
   constructor(readonly tex: string, readonly block: boolean) { super(); }
@@ -15,14 +16,9 @@ class MathWidget extends WidgetType {
     } catch {
       el.textContent = this.tex;
     }
-    return el;
+    return makePreviewWidgetInert(el);
   }
   ignoreEvent() { return true; }
-}
-
-function cursorInside(state: EditorState, from: number, to: number): boolean {
-  for (const r of state.selection.ranges) if (r.to >= from && r.from <= to) return true;
-  return false;
 }
 
 const BLOCK_RE = /\$\$([^$]+?)\$\$/g;
@@ -51,7 +47,7 @@ function build(state: EditorState): DecorationSet {
   for (const m of text.matchAll(BLOCK_RE)) {
     const from = m.index!, to = from + m[0].length;
     if (inCode(code, from, to)) continue;
-    if (!cursorInside(state, from, to)) {
+    if (!selectionInsideSource(state, from, to)) {
       found.push({ from, to, deco: Decoration.replace({ widget: new MathWidget(m[1].trim(), true), block: true }) });
     }
   }
@@ -59,7 +55,7 @@ function build(state: EditorState): DecorationSet {
     const from = m.index!, to = from + m[0].length;
     if (inCode(code, from, to)) continue;
     if (!isInlineMath(m[1])) continue;
-    if (!cursorInside(state, from, to)) {
+    if (!selectionInsideSource(state, from, to)) {
       found.push({ from, to, deco: Decoration.replace({ widget: new MathWidget(m[1].trim(), false) }) });
     }
   }
