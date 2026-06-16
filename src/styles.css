@@ -65,6 +65,12 @@ body.resizing-sidebar { cursor:col-resize; user-select:none; }
 .ft-row.active { background:var(--accent-soft); color:var(--accent); font-weight:600; }
 .ft-twist { width:12px; color:var(--muted); font-size:10px; flex-shrink:0; }
 .ft-ws { font-size:10.5px; text-transform:uppercase; letter-spacing:0.06em; color:var(--muted); padding:8px 8px 4px; }
+.ft-header { display:flex; align-items:center; justify-content:space-between; gap:8px; padding:8px 8px 6px; }
+.ft-header .ft-ws { padding:0; }
+.ft-actions { display:inline-flex; align-items:center; gap:4px; flex-wrap:wrap; justify-content:flex-end; }
+.ft-action { border:1px solid var(--border); background:var(--bg); color:var(--muted); border-radius:var(--radius-sm);
+  font-family:var(--sans); font-size:11px; line-height:1; padding:4px 6px; cursor:pointer; }
+.ft-action:hover { color:var(--accent); border-color:var(--accent); }
 .ft-empty { padding: 16px 12px; display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
 .ft-empty-msg { margin: 0; font-size: 12.5px; color: var(--text); }
 .ft-empty-hint { margin: 0; font-size: 11px; color: var(--muted); }

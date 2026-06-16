@@ -2,10 +2,15 @@ import type { FileNode } from "../ipc/bindings";
 import { t } from "../i18n/i18n";
 
 export interface FileTree {
-  render(root: FileNode[]): void;
+  render(root: FileNode[], folderPath?: string | null): void;
   setActive(path: string | null): void;
   showNoFolder(): void;
   showError(): void;
+}
+
+export interface FileTreeActions {
+  onNewFile?: () => void;
+  onNewFolder?: () => void;
 }
 
 type Mode = "tree" | "noFolder" | "error";
@@ -17,8 +22,10 @@ export function mountFileTree(
   onOpen: (path: string) => void,
   onOpenFolder: () => void,
   onContextMenu: (node: FileNode, x: number, y: number) => void,
+  actions: FileTreeActions = {},
 ): FileTree {
   let activePath: string | null = null;
+  let currentFolderPath: string | null = null;
   const expanded = new Set<string>();
   let lastRoot: FileNode[] = [];
   let mode: Mode = "noFolder";
@@ -69,12 +76,35 @@ export function mountFileTree(
     return box;
   }
 
-  function draw() {
-    sidebar.replaceChildren();
+  function actionButton(label: string, onClick: () => void): HTMLButtonElement {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "ft-action";
+    btn.textContent = label;
+    btn.addEventListener("click", onClick);
+    return btn;
+  }
+
+  function headerEl(): HTMLElement {
+    const header = document.createElement("div");
+    header.className = "ft-header";
     const ws = document.createElement("div");
     ws.className = "ft-ws";
     ws.textContent = t("tree.workspace");
-    sidebar.appendChild(ws);
+    const actionRow = document.createElement("div");
+    actionRow.className = "ft-actions";
+    actionRow.appendChild(actionButton(currentFolderPath ? t("tree.changeFolder") : t("tree.openFolder"), () => onOpenFolder()));
+    if (currentFolderPath) {
+      actionRow.appendChild(actionButton(t("menu.newFile"), () => actions.onNewFile?.()));
+      actionRow.appendChild(actionButton(t("menu.newFolder"), () => actions.onNewFolder?.()));
+    }
+    header.append(ws, actionRow);
+    return header;
+  }
+
+  function draw() {
+    sidebar.replaceChildren();
+    sidebar.appendChild(headerEl());
 
     if (mode === "noFolder") { sidebar.appendChild(emptyState("tree.noFolder", null)); return; }
     if (mode === "error") { sidebar.appendChild(emptyState("tree.error", null)); return; }
@@ -90,9 +120,9 @@ export function mountFileTree(
   }
 
   return {
-    render(root) { mode = "tree"; lastRoot = root; draw(); },
+    render(root, folderPath = null) { mode = "tree"; lastRoot = root; currentFolderPath = folderPath; draw(); },
     setActive(path) { activePath = path; draw(); },
-    showNoFolder() { mode = "noFolder"; draw(); },
-    showError() { mode = "error"; draw(); },
+    showNoFolder() { mode = "noFolder"; currentFolderPath = null; draw(); },
+    showError() { mode = "error"; currentFolderPath = null; draw(); },
   };
 }

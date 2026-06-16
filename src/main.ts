@@ -36,7 +36,10 @@ import { clearFindHighlights, findHighlightExtension, setFindHighlights } from "
 const chrome = mountChrome(document.getElementById("titlebar")!, document.getElementById("statusbar")!, {
   onOpenSettings: () => settingsPanel.open(),
 });
-const tree = mountFileTree(document.getElementById("filetree")!, (p) => void openPath(p), () => void openFolder(), fileTreeMenu);
+const tree = mountFileTree(document.getElementById("filetree")!, (p) => void openPath(p), () => void openFolder(), fileTreeMenu, {
+  onNewFile: () => { if (currentFolder) void newFileIn(currentFolder); },
+  onNewFolder: () => { if (currentFolder) void newFolderIn(currentFolder); },
+});
 const tabBar = mountTabBar(document.getElementById("tabbar")!, { onSelect: switchTo, onClose: requestClose, onContextMenu: tabMenu });
 
 let tabs: TabsState = emptyTabs();
@@ -277,7 +280,7 @@ function flattenFiles(nodes: import("./ipc/bindings").FileNode[]): { name: strin
 async function loadFolder(dir: string): Promise<void> {
   const res = await commands.listDir(dir);
   if (res.status === "error") { console.error(res.error); errorBanner.show(tr("error.openFolder", { msg: res.error })); tree.showError(); throw new Error(res.error); }
-  tree.render(res.data);
+  tree.render(res.data, dir);
   workspaceFiles = flattenFiles(res.data);
   currentFolder = dir;
   void commands.watchFolder(dir);
@@ -400,6 +403,8 @@ function paletteItems(): PaletteItem[] {
     { label: tr("cmd.newTab"), run: () => newDoc() },
     { label: tr("cmd.openFile"), run: () => void openFile() },
     { label: tr("cmd.openFolder"), run: () => void openFolder() },
+    { label: tr("menu.newFile"), run: () => { if (currentFolder) void newFileIn(currentFolder); } },
+    { label: tr("menu.newFolder"), run: () => { if (currentFolder) void newFolderIn(currentFolder); } },
     { label: tr("cmd.save"), run: () => void doSave() },
     { label: tr("cmd.toggleTheme"), run: () => flipTheme() },
     { label: tr("cmd.toggleWidth"), run: () => flipEditorWidth() },
