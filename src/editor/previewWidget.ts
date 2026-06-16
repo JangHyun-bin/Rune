@@ -20,15 +20,20 @@ export function selectionInsideSource(state: EditorState, from: number, to: numb
   return selectionIntersectsSourceRange(state.selection.ranges, from, to);
 }
 
+export function preventPreviewWidgetEvent(event: Event): void {
+  event.preventDefault();
+  event.stopPropagation();
+}
+
 export function makePreviewWidgetInert(element: HTMLElement): HTMLElement {
   element.contentEditable = "false";
   element.draggable = false;
   element.setAttribute("data-rune-preview-widget", "true");
 
-  const prevent = (event: Event) => event.preventDefault();
-  element.addEventListener("mousedown", prevent);
-  element.addEventListener("dragstart", prevent);
-  element.addEventListener("selectstart", prevent);
+  element.addEventListener("pointerdown", preventPreviewWidgetEvent);
+  element.addEventListener("mousedown", preventPreviewWidgetEvent);
+  element.addEventListener("dragstart", preventPreviewWidgetEvent);
+  element.addEventListener("selectstart", preventPreviewWidgetEvent);
   return element;
 }
 

@@ -9,7 +9,9 @@ class TestNode {
   parentElement: TestNode | null = null;
   style: Record<string, string> = {};
   tagName: string;
+  title = "";
   type = "";
+  private attributes = new Map<string, string>();
   private listeners = new Map<string, Listener[]>();
   private text = "";
 
@@ -39,6 +41,14 @@ class TestNode {
   replaceChildren(...children: TestNode[]): void {
     this.children = [];
     this.append(...children);
+  }
+
+  setAttribute(name: string, value: string): void {
+    this.attributes.set(name, value);
+  }
+
+  getAttribute(name: string): string | null {
+    return this.attributes.get(name) ?? null;
   }
 
   addEventListener(type: string, listener: Listener): void {
@@ -78,6 +88,7 @@ class TestNode {
 function createTestDocument() {
   return {
     createElement: (tagName: string) => new TestNode(tagName),
+    createElementNS: (_namespace: string, tagName: string) => new TestNode(tagName),
     createTextNode: (text: string) => {
       const node = new TestNode("#text");
       node.textContent = text;
@@ -107,7 +118,10 @@ describe("mountFileTree", () => {
     expect(host.textContent).toContain("Workspace");
 
     const actionButtons = host.querySelectorAll(".ft-action") as unknown as HTMLElement[];
-    expect(actionButtons.map((button) => button.textContent)).toEqual(["Change Folder...", "New file…", "New folder…"]);
+    expect(actionButtons.map((button) => button.getAttribute("aria-label"))).toEqual(["Change Folder...", "New file…", "New folder…"]);
+    expect(actionButtons.map((button) => button.title)).toEqual(["Change Folder...", "New file…", "New folder…"]);
+    expect(actionButtons.every((button) => button.textContent === "")).toBe(true);
+    expect(actionButtons.every((button) => button.querySelector("svg") !== null)).toBe(true);
 
     actionButtons[0].click();
     actionButtons[1].click();

@@ -106,6 +106,9 @@ function syncEditorLayout(): HTMLElement {
 function syncSplitPreview(): void {
   if (splitPreview && view) splitPreview.update(view.state.doc.toString());
 }
+function bindSplitPreviewScroll(): void {
+  if (splitPreview && view) splitPreview.bindSourceScroller(view.scrollDOM);
+}
 function applyEditorMode(mode: EditorMode, persist = true): void {
   if (editorMode === mode) return;
   const text = view ? view.state.doc.toString() : (activeTab(tabs)?.currentText ?? "");
@@ -119,6 +122,7 @@ function applyEditorMode(mode: EditorMode, persist = true): void {
 
   if (view) {
     view.setState(editorState(text, onChange, extraExts(), editorMode));
+    bindSplitPreviewScroll();
     if (selection && selection.main.to <= view.state.doc.length) {
       view.dispatch({ selection, scrollIntoView: true });
     }
@@ -276,6 +280,7 @@ function showActive(): void {
   let st = states.get(id);
   if (!st) { st = editorState(t?.currentText ?? "", onChange, extraExts(), editorMode); states.set(id, st); }
   view.setState(st);
+  bindSplitPreviewScroll();
   syncSplitPreview();
   syncActiveUI();
 }
@@ -514,6 +519,7 @@ async function restore(): Promise<void> {
   document.documentElement.setAttribute("data-editor-mode", editorMode);
   layoutModeControl?.setMode(editorMode);
   syncEditorLayout();
+  bindSplitPreviewScroll();
   applySidebarWidth(typeof s.sidebarWidth === "number" ? s.sidebarWidth : SIDEBAR_DEFAULT, false);
 
   // Resolve the UI language BEFORE loading any content, so the app never flashes
@@ -612,6 +618,7 @@ void listen<string>("open-file", (e) => { void openPath(e.payload); });
 
 // init: create the editor view with a bare empty state; restore() opens tabs.
 view = createEditorView(syncEditorLayout(), editorState("", onChange, extraExts(), editorMode));
+bindSplitPreviewScroll();
 void restore();
 
 window.addEventListener("blur", () => auto.flush());

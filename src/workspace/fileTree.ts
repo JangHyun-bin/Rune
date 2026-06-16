@@ -14,6 +14,14 @@ export interface FileTreeActions {
 }
 
 type Mode = "tree" | "noFolder" | "error";
+type ActionIcon = "folder" | "file-plus" | "folder-plus";
+
+const SVG_NS = "http://www.w3.org/2000/svg";
+const ICON_PATHS: Record<ActionIcon, string[]> = {
+  folder: ["M3.5 6.5h5.8l1.5 2h9.7v9H3.5z"],
+  "file-plus": ["M6.5 3.5h7.5l4 4v13h-11.5z", "M14 3.5v4h4", "M12.25 10.75v5", "M9.75 13.25h5"],
+  "folder-plus": ["M3.5 6.5h5.8l1.5 2h9.7v9H3.5z", "M12 10.75v5", "M9.5 13.25h5"],
+};
 
 /** sidebar에 트리를 그리고 파일 클릭 시 onOpen(path) 호출.
  *  빈/미선택/오류 상태에서는 안내문 + '폴더 열기' 버튼(onOpenFolder)을 보여준다. */
@@ -76,11 +84,26 @@ export function mountFileTree(
     return box;
   }
 
-  function actionButton(label: string, onClick: () => void): HTMLButtonElement {
+  function actionIcon(icon: ActionIcon): SVGSVGElement {
+    const svg = document.createElementNS(SVG_NS, "svg");
+    svg.setAttribute("viewBox", "0 0 24 24");
+    svg.setAttribute("aria-hidden", "true");
+    svg.setAttribute("focusable", "false");
+    for (const d of ICON_PATHS[icon]) {
+      const path = document.createElementNS(SVG_NS, "path");
+      path.setAttribute("d", d);
+      svg.appendChild(path);
+    }
+    return svg;
+  }
+
+  function actionButton(label: string, icon: ActionIcon, onClick: () => void): HTMLButtonElement {
     const btn = document.createElement("button");
     btn.type = "button";
     btn.className = "ft-action";
-    btn.textContent = label;
+    btn.title = label;
+    btn.setAttribute("aria-label", label);
+    btn.appendChild(actionIcon(icon));
     btn.addEventListener("click", onClick);
     return btn;
   }
@@ -93,10 +116,10 @@ export function mountFileTree(
     ws.textContent = t("tree.workspace");
     const actionRow = document.createElement("div");
     actionRow.className = "ft-actions";
-    actionRow.appendChild(actionButton(currentFolderPath ? t("tree.changeFolder") : t("tree.openFolder"), () => onOpenFolder()));
+    actionRow.appendChild(actionButton(currentFolderPath ? t("tree.changeFolder") : t("tree.openFolder"), "folder", () => onOpenFolder()));
     if (currentFolderPath) {
-      actionRow.appendChild(actionButton(t("menu.newFile"), () => actions.onNewFile?.()));
-      actionRow.appendChild(actionButton(t("menu.newFolder"), () => actions.onNewFolder?.()));
+      actionRow.appendChild(actionButton(t("menu.newFile"), "file-plus", () => actions.onNewFile?.()));
+      actionRow.appendChild(actionButton(t("menu.newFolder"), "folder-plus", () => actions.onNewFolder?.()));
     }
     header.append(ws, actionRow);
     return header;
