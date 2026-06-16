@@ -53,10 +53,10 @@ Get the latest installer for your OS from the [**Releases**](https://github.com/
 
 | OS | Download |
 |----|----------|
-| **macOS** · Apple Silicon | [`Rune_0.1.8_aarch64.dmg`](https://github.com/JangHyun-bin/Rune/releases/download/v0.1.8/Rune_0.1.8_aarch64.dmg) |
-| **macOS** · Intel | [`Rune_0.1.8_x64.dmg`](https://github.com/JangHyun-bin/Rune/releases/download/v0.1.8/Rune_0.1.8_x64.dmg) |
-| **Windows** | [`.msi`](https://github.com/JangHyun-bin/Rune/releases/download/v0.1.8/Rune_0.1.8_x64_en-US.msi) · [`.exe`](https://github.com/JangHyun-bin/Rune/releases/download/v0.1.8/Rune_0.1.8_x64-setup.exe) |
-| **Linux** | [`.deb`](https://github.com/JangHyun-bin/Rune/releases/download/v0.1.8/Rune_0.1.8_amd64.deb) · [`.rpm`](https://github.com/JangHyun-bin/Rune/releases/download/v0.1.8/Rune-0.1.8-1.x86_64.rpm) · [`.AppImage`](https://github.com/JangHyun-bin/Rune/releases/download/v0.1.8/Rune_0.1.8_amd64.AppImage) |
+| **macOS** · Apple Silicon | [`Rune_0.1.9_aarch64.dmg`](https://github.com/JangHyun-bin/Rune/releases/download/v0.1.9/Rune_0.1.9_aarch64.dmg) |
+| **macOS** · Intel | [`Rune_0.1.9_x64.dmg`](https://github.com/JangHyun-bin/Rune/releases/download/v0.1.9/Rune_0.1.9_x64.dmg) |
+| **Windows** | [`.msi`](https://github.com/JangHyun-bin/Rune/releases/download/v0.1.9/Rune_0.1.9_x64_en-US.msi) · [`.exe`](https://github.com/JangHyun-bin/Rune/releases/download/v0.1.9/Rune_0.1.9_x64-setup.exe) |
+| **Linux** | [`.deb`](https://github.com/JangHyun-bin/Rune/releases/download/v0.1.9/Rune_0.1.9_amd64.deb) · [`.rpm`](https://github.com/JangHyun-bin/Rune/releases/download/v0.1.9/Rune-0.1.9-1.x86_64.rpm) · [`.AppImage`](https://github.com/JangHyun-bin/Rune/releases/download/v0.1.9/Rune_0.1.9_amd64.AppImage) |
 
 > **macOS:** CI builds signed DMGs. Notarization is currently a manual post-release step.
 
