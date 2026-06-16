@@ -401,6 +401,61 @@ export const DICT: Record<Locale, Dict> = {
   },
 };
 
+const FIND_REPLACE_DICT: Record<Locale, Dict> = {
+  en: {
+    "cmd.findReplace": "Find and replace",
+    "find.placeholder": "Find in document",
+    "find.replacePlaceholder": "Replace with",
+    "find.previous": "Previous",
+    "find.next": "Next",
+    "find.replace": "Replace",
+    "find.replaceAll": "Replace all",
+    "find.noResults": "No results",
+    "find.count": "{current} / {total}",
+    "find.caseSensitive": "Match case",
+  },
+  ko: {
+    "cmd.findReplace": "찾기 및 바꾸기",
+    "find.placeholder": "문서에서 찾기",
+    "find.replacePlaceholder": "바꿀 내용",
+    "find.previous": "이전",
+    "find.next": "다음",
+    "find.replace": "바꾸기",
+    "find.replaceAll": "모두 바꾸기",
+    "find.noResults": "결과 없음",
+    "find.count": "{current} / {total}",
+    "find.caseSensitive": "대/소문자 구분",
+  },
+  ja: {
+    "cmd.findReplace": "検索と置換",
+    "find.placeholder": "文書内を検索",
+    "find.replacePlaceholder": "置換後の文字列",
+    "find.previous": "前へ",
+    "find.next": "次へ",
+    "find.replace": "置換",
+    "find.replaceAll": "すべて置換",
+    "find.noResults": "結果なし",
+    "find.count": "{current} / {total}",
+    "find.caseSensitive": "大文字/小文字を区別",
+  },
+  "zh-Hans": {
+    "cmd.findReplace": "查找和替换",
+    "find.placeholder": "在文档中查找",
+    "find.replacePlaceholder": "替换为",
+    "find.previous": "上一个",
+    "find.next": "下一个",
+    "find.replace": "替换",
+    "find.replaceAll": "全部替换",
+    "find.noResults": "无结果",
+    "find.count": "{current} / {total}",
+    "find.caseSensitive": "区分大小写",
+  },
+};
+
+for (const locale of Object.keys(FIND_REPLACE_DICT) as Locale[]) {
+  Object.assign(DICT[locale], FIND_REPLACE_DICT[locale]);
+}
+
 let current: Locale = "en";
 
 export const LOCALES: { code: Locale; label: string }[] = [

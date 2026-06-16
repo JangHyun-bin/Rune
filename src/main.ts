@@ -22,6 +22,7 @@ import { mountErrorBanner } from "./workspace/errorBanner";
 import { mountCommandPalette, type PaletteItem } from "./workspace/commandPalette";
 import { exportHtml, exportPdf } from "./export/exportDoc";
 import { mountSearchPanel } from "./workspace/searchPanel";
+import { mountFindReplacePanel, type FindReplacePanel } from "./workspace/findReplacePanel";
 import { mountSettingsPanel } from "./workspace/settingsPanel";
 import { parseHeadings } from "./editor/outline";
 import { mountOutlinePanel } from "./workspace/outlinePanel";
@@ -44,6 +45,7 @@ const auto = autosave(800, () => void autoSave());
 let currentFolder: string | null = null;
 let workspaceFiles: { name: string; path: string }[] = [];
 let editorMode: EditorMode = "preview";
+let findReplacePanel: FindReplacePanel | null = null;
 const SIDEBAR_DEFAULT = 240;
 const SIDEBAR_MIN = 180;
 const SIDEBAR_MAX = 480;
@@ -191,7 +193,19 @@ function revealActive(): void {
   const t = activeTab(tabs);
   if (t?.path) void revealItemInDir(t.path);
 }
-function extraExts() { return [EditorView.updateListener.of((u) => { if (u.selectionSet || u.docChanged) { refreshStatus(); refreshOutline(); } }), auto.ext, Prec.highest(keymap.of([{ key: "Mod-k", run: () => { palette.toggle(); return true; }, preventDefault: true }]))]; }
+function extraExts() {
+  return [
+    EditorView.updateListener.of((u) => {
+      if (u.selectionSet || u.docChanged) {
+        refreshStatus();
+        refreshOutline();
+        findReplacePanel?.refresh();
+      }
+    }),
+    auto.ext,
+    Prec.highest(keymap.of([{ key: "Mod-k", run: () => { palette.toggle(); return true; }, preventDefault: true }])),
+  ];
+}
 function onChange(text: string) { tabs = updateActiveText(tabs, text); syncActiveUI(); }
 
 function refreshStatus(): void {
@@ -391,6 +405,7 @@ function paletteItems(): PaletteItem[] {
     { label: tr("cmd.closeTab"), run: () => { if (tabs.activeId) requestClose(tabs.activeId); } },
     { label: tr("cmd.exportHtml"), run: () => void exportHtml(view.state.doc.toString(), exportTitle()) },
     { label: tr("cmd.exportPdf"), run: () => void exportPdf(view.state.doc.toString(), exportTitle()) },
+    { label: tr("cmd.findReplace"), run: () => findReplacePanel?.open() },
     { label: tr("cmd.search"), run: () => searchPanel.toggle() },
     { label: tr("cmd.reveal"), run: () => revealActive() },
     { label: tr("settings.title"), run: () => settingsPanel.open() },
@@ -411,6 +426,35 @@ const searchPanel = mountSearchPanel(
   () => currentFolder,
   (path, line) => { void (async () => { await openPath(path); jumpToLine(line); })(); },
 );
+findReplacePanel = mountFindReplacePanel({
+  getText: () => view.state.doc.toString(),
+  getCursor: () => view.state.selection.main.head,
+  getSelectionText: () => {
+    const range = view.state.selection.main;
+    return range.empty ? "" : view.state.sliceDoc(range.from, range.to);
+  },
+  getSelectionRange: () => {
+    const range = view.state.selection.main;
+    return range.empty ? null : { from: range.from, to: range.to };
+  },
+  selectRange: (from, to, options) => {
+    view.dispatch({ selection: { anchor: from, head: to }, scrollIntoView: true });
+    if (options?.focus !== false) view.focus();
+  },
+  replaceRange: (from, to, insert) => {
+    view.dispatch({ changes: { from, to, insert }, selection: { anchor: from + insert.length }, scrollIntoView: true });
+    view.focus();
+  },
+  replaceRanges: (ranges, insert) => {
+    if (ranges.length === 0) return;
+    view.dispatch({
+      changes: ranges.map(({ from, to }) => ({ from, to, insert })),
+      selection: { anchor: ranges[0].from + insert.length },
+      scrollIntoView: true,
+    });
+    view.focus();
+  },
+});
 async function restore(): Promise<void> {
   const res = await commands.loadSettings();
   const s = res.status === "ok" ? res.data : { theme: null, lastFolder: null, openTabs: [], locale: null, editorWidth: null, editorMode: null, sidebarWidth: null };
@@ -523,6 +567,7 @@ window.addEventListener("keydown", (e) => {
   if (e.key === "F1") { e.preventDefault(); helpPanel.toggle(); return; }
   const mod = e.ctrlKey || e.metaKey;
   if (mod && e.shiftKey && e.key.toLowerCase() === "f") { e.preventDefault(); searchPanel.toggle(); return; }
+  if (mod && !e.shiftKey && e.key.toLowerCase() === "f") { e.preventDefault(); findReplacePanel?.open(); return; }
   if (mod && e.shiftKey && e.key.toLowerCase() === "o") { e.preventDefault(); void openFolder(); return; }
   if (mod && e.shiftKey && e.key.toLowerCase() === "l") { e.preventDefault(); flipEditorWidth(); return; }
   if (mod && e.shiftKey && e.key.toLowerCase() === "m") { e.preventDefault(); flipEditorMode(); return; }
