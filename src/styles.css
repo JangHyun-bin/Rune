@@ -172,6 +172,8 @@ body.resizing-sidebar { cursor:col-resize; user-select:none; }
 .btn:disabled { opacity:.45; cursor:default; }
 .btn-secondary:disabled:hover { border-color:var(--border); color:var(--text); background:var(--bg); }
 .btn-ghost:disabled:hover { color:var(--muted); background:none; }
+.cm-md-hr { padding: 10px 0; }
+.cm-md-hr hr { border: 0; border-top: 1px solid var(--border); margin: 0; }
 .cm-md-bullet { color: var(--muted); }
 .cm-md-task { margin: 0 0.4em 0 0; vertical-align: middle; cursor: pointer; accent-color: var(--accent); }
 .prompt-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.3); display: flex; justify-content: center; align-items: flex-start; padding-top: 16vh; z-index: 130; }

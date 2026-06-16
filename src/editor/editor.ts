@@ -9,6 +9,7 @@ import { editorTheme } from "../theme/editorTheme";
 import { livePreview } from "./livePreview";
 import { codeHighlightStyle } from "./highlightStyle";
 import { blockWidgets } from "./blockWidgets";
+import { horizontalRuleSpec } from "./horizontalRule";
 import { mermaidSpec } from "./mermaid";
 import { tableSpec } from "./table";
 import { mathField } from "./math";
@@ -22,7 +23,7 @@ function modeExtensions(mode: EditorMode): Extension[] {
   if (mode === "source") return [];
   return [
     livePreview,
-    blockWidgets([mermaidSpec, tableSpec]),
+    blockWidgets([horizontalRuleSpec, mermaidSpec, tableSpec]),
     mathField(),
     imagePreview(),
   ];
