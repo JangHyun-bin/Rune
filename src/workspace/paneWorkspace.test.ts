@@ -363,4 +363,69 @@ describe("pane workspace", () => {
 
     workspace.destroy();
   });
+
+  it("restores panes, tabs, active paths, and active pane from a snapshot", async () => {
+    const onActiveDocumentChange = vi.fn();
+    const onRequestSaveSettings = vi.fn();
+    const { host, workspace } = makeWorkspace({ onActiveDocumentChange, onRequestSaveSettings });
+
+    await workspace.restore({
+      version: 1,
+      root: {
+        type: "split",
+        direction: "row",
+        ratios: [0.35, 0.65],
+        children: [
+          { type: "pane", paneId: "pane-1" },
+          {
+            type: "split",
+            direction: "column",
+            ratios: [0.4, 0.6],
+            children: [
+              { type: "pane", paneId: "pane-2" },
+              { type: "pane", paneId: "pane-3" },
+            ],
+          },
+        ],
+      },
+      activePaneId: "pane-2",
+      panes: [
+        { id: "pane-1", openTabs: ["/w/a.md", "/w/b.md"], activePath: "/w/a.md" },
+        { id: "pane-2", openTabs: ["/w/c.md"], activePath: "/w/c.md" },
+        { id: "pane-3", openTabs: [], activePath: null },
+      ],
+    });
+
+    const snapshot = workspace.snapshot();
+    expect(workspace.activePane().id).toBe("pane-2");
+    expect(snapshot.root).toEqual({
+      type: "split",
+      direction: "row",
+      ratios: [0.35, 0.65],
+      children: [
+        { type: "pane", paneId: "pane-1" },
+        {
+          type: "split",
+          direction: "column",
+          ratios: [0.4, 0.6],
+          children: [
+            { type: "pane", paneId: "pane-2" },
+            { type: "pane", paneId: "pane-3" },
+          ],
+        },
+      ],
+    });
+    expect(snapshot.panes).toEqual([
+      { id: "pane-1", openTabs: ["/w/a.md", "/w/b.md"], activePath: "/w/a.md" },
+      { id: "pane-2", openTabs: ["/w/c.md"], activePath: "/w/c.md" },
+      { id: "pane-3", openTabs: [], activePath: null },
+    ]);
+    expect(host.querySelector(".pane-split[data-direction=\"row\"]")).not.toBeNull();
+    expect(host.querySelector(".pane-split[data-direction=\"column\"]")).not.toBeNull();
+    expect(onActiveDocumentChange).toHaveBeenCalledTimes(1);
+    expect(onRequestSaveSettings).not.toHaveBeenCalled();
+    await expect(workspace.splitActivePaneAndOpen("/w/d.md", "row", "after")).resolves.toBe("pane-4");
+
+    workspace.destroy();
+  });
 });

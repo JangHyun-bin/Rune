@@ -31,6 +31,7 @@ import { clearFindHighlights, findHighlightExtension, setFindHighlights } from "
 import { DEFAULT_LAYOUT, normalizeLayoutSettings, parseLayoutSettingsJson, serializeLayoutSettings, type LayoutSettings, type ResolvedLayoutSettings } from "./workspace/layoutSettings";
 import { createPaneWorkspace, type PaneWorkspace } from "./workspace/paneWorkspace";
 import { isTauri } from "@tauri-apps/api/core";
+import { normalizePaneWorkspaceSnapshot } from "./workspace/panePersistence";
 
 const chrome = mountChrome(document.getElementById("titlebar")!, document.getElementById("statusbar")!, {
   onOpenSettings: () => settingsPanel.open(),
@@ -64,10 +65,9 @@ function activeView(): EditorView { return activePane().view; }
 function settingsSnapshot() {
   const theme = document.documentElement.getAttribute("data-theme") === "dark" ? "dark" : "light";
   const layout = currentLayoutSettings();
-  const openTabs = typeof paneWorkspace === "undefined"
-    ? []
-    : paneWorkspace.snapshot().panes.flatMap((pane) => pane.openTabs);
-  return { theme, lastFolder: currentFolder, openTabs, locale: getLocale(), editorWidth: currentEditorWidth(), editorMode, sidebarWidth: layout.sidebarWidth, layout, paneLayout: null };
+  const paneLayout = typeof paneWorkspace === "undefined" ? null : paneWorkspace.snapshot();
+  const openTabs = paneLayout?.panes.flatMap((pane) => pane.openTabs) ?? [];
+  return { theme, lastFolder: currentFolder, openTabs, locale: getLocale(), editorWidth: currentEditorWidth(), editorMode, sidebarWidth: layout.sidebarWidth, layout, paneLayout };
 }
 function applyTheme(theme: "light" | "dark"): void {
   document.documentElement.setAttribute("data-theme", theme);
@@ -604,15 +604,23 @@ async function restore(): Promise<void> {
   layoutModeControl?.relabel();
 
   if (s.lastFolder) { await loadFolder(s.lastFolder).catch(() => {}); }
-  let opened = false;
-  for (const p of s.openTabs) {
-    opened = (await openPath(p)) || opened;
+  await paneWorkspace.restore(normalizePaneWorkspaceSnapshot(s.paneLayout, s.openTabs));
+  let loadedRestoredFolder = false;
+  if (!currentFolder) {
+    const firstRestoredPath = paneWorkspace.snapshot().panes.flatMap((pane) => pane.openTabs)[0];
+    const dir = firstRestoredPath ? parentDir(firstRestoredPath) : null;
+    if (dir) {
+      try {
+        await loadFolder(dir);
+        loadedRestoredFolder = true;
+      } catch {}
+    }
   }
-  if (!opened && !activePane().activeTabId()) newDoc();
+  if (!activePane().activeTabId()) newDoc();
   syncActiveUI();
 
-  // Persist the first-run language pick alongside the (now restored) session state.
-  if (firstRun) { void commands.saveSettings(settingsSnapshot()); }
+  // Persist startup-only migrations after folder fallback has stabilized lastFolder.
+  if (firstRun || !s.paneLayout || loadedRestoredFolder) { void commands.saveSettings(settingsSnapshot()); }
 
   // If Rune was launched by double-clicking a .md (file association), open it.
   const launch = await commands.takeLaunchFile();

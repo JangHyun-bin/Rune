@@ -49,6 +49,7 @@ export interface PaneWorkspace {
   setSplitRatio(ratio: number): void;
   splitRatio(): number;
   snapshot(): PaneWorkspaceSnapshot;
+  restore(snapshot: PaneWorkspaceSnapshot): Promise<void>;
   destroy(): void;
 }
 
@@ -85,12 +86,23 @@ function gridTracks(ratios: number[], count: number): string {
   return Array.from({ length: count }, (_, index) => `${ratios[index] ?? 1}fr`).join(" ");
 }
 
+function nextPaneNumberAfter(paneIds: PaneId[]): number {
+  let maxPaneNumber = 1;
+  for (const paneId of paneIds) {
+    const match = /^pane-(\d+)$/.exec(paneId);
+    if (!match) continue;
+    maxPaneNumber = Math.max(maxPaneNumber, Number(match[1]));
+  }
+  return maxPaneNumber + 1;
+}
+
 export function createPaneWorkspace(options: PaneWorkspaceOptions): PaneWorkspace {
   const panes = new Map<PaneId, EditorPane>();
   let root: LayoutNode = createSinglePaneLayout(INITIAL_PANE_ID);
   let activePaneId: PaneId = INITIAL_PANE_ID;
   let editorMode = options.editorMode;
   let nextPaneNumber = 2;
+  let restoring = false;
 
   options.host.className = "pane-workspace";
 
@@ -111,10 +123,15 @@ export function createPaneWorkspace(options: PaneWorkspaceOptions): PaneWorkspac
       readFile: options.readFile,
       writeFile: options.writeFile,
       onActiveChange: (id) => {
+        if (restoring) return;
         setActivePane(id);
       },
-      onDirtyChange: () => options.onActiveDocumentChange(),
-      onRequestSaveSettings: options.onRequestSaveSettings,
+      onDirtyChange: () => {
+        if (!restoring) options.onActiveDocumentChange();
+      },
+      onRequestSaveSettings: () => {
+        if (!restoring) options.onRequestSaveSettings();
+      },
       onReadError: options.onReadError,
       onSaveError: options.onSaveError,
       onSplitRatioChange: options.onSplitRatioChange,
@@ -249,6 +266,48 @@ export function createPaneWorkspace(options: PaneWorkspaceOptions): PaneWorkspac
     };
   }
 
+  async function restore(snapshot: PaneWorkspaceSnapshot): Promise<void> {
+    for (const pane of panes.values()) pane.destroy();
+    panes.clear();
+    options.host.replaceChildren();
+
+    root = cloneLayoutNode(snapshot.root);
+    let paneIds = [...new Set(flattenPaneIds(root))];
+    if (paneIds.length === 0) {
+      root = createSinglePaneLayout(INITIAL_PANE_ID);
+      paneIds = [INITIAL_PANE_ID];
+    }
+    for (const paneId of paneIds) createPane(paneId);
+    nextPaneNumber = nextPaneNumberAfter(paneIds);
+    render();
+
+    const paneSnapshots = new Map(snapshot.panes.map((pane) => [pane.id, pane]));
+    const targetActivePaneId = paneIds.includes(snapshot.activePaneId)
+      ? snapshot.activePaneId
+      : paneIds[0];
+
+    restoring = true;
+    try {
+      for (const paneId of paneIds) {
+        const pane = assertPane(panes, paneId);
+        const paneSnapshot = paneSnapshots.get(paneId);
+        if (!paneSnapshot) continue;
+
+        for (const path of paneSnapshot.openTabs) {
+          await tryOpenPath(pane, path);
+        }
+        if (paneSnapshot.activePath) {
+          await tryOpenPath(pane, paneSnapshot.activePath);
+        }
+      }
+    } finally {
+      restoring = false;
+    }
+
+    setActivePane(targetActivePaneId);
+    options.onActiveDocumentChange();
+  }
+
   function destroy(): void {
     for (const pane of panes.values()) pane.destroy();
     panes.clear();
@@ -276,6 +335,7 @@ export function createPaneWorkspace(options: PaneWorkspaceOptions): PaneWorkspac
     setSplitRatio,
     splitRatio,
     snapshot,
+    restore,
     destroy,
   };
 }

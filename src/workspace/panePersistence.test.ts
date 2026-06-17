@@ -120,4 +120,33 @@ describe("pane persistence", () => {
       ],
     });
   });
+
+  it("falls back to legacy tabs when a layout repeats a pane id", () => {
+    const snapshot = normalizePaneWorkspaceSnapshot(
+      {
+        version: 1,
+        root: {
+          type: "split",
+          direction: "row",
+          ratios: [0.5, 0.5],
+          children: [
+            { type: "pane", paneId: "pane-1" },
+            { type: "pane", paneId: "pane-1" },
+          ],
+        },
+        activePaneId: "pane-1",
+        panes: [{ id: "pane-1", openTabs: ["/w/a.md"], activePath: "/w/a.md" }],
+      },
+      ["/legacy.md"],
+    );
+
+    expect(snapshot).toEqual({
+      version: 1,
+      root: { type: "pane", paneId: "pane-1" },
+      activePaneId: "pane-1",
+      panes: [
+        { id: "pane-1", openTabs: ["/legacy.md"], activePath: "/legacy.md" },
+      ],
+    });
+  });
 });

@@ -101,6 +101,7 @@ export function normalizePaneWorkspaceSnapshot(
 
   const paneIds = flattenPaneIds(root);
   if (paneIds.length === 0) return singlePaneFromLegacy(legacyOpenTabs);
+  if (new Set(paneIds).size !== paneIds.length) return singlePaneFromLegacy(legacyOpenTabs);
 
   const paneIdSet = new Set(paneIds);
   const seenPaneIds = new Set<PaneId>();
