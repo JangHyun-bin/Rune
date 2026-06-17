@@ -13,11 +13,13 @@ import { horizontalRuleSpec } from "./horizontalRule";
 import { mermaidSpec } from "./mermaid";
 import { tableSpec } from "./table";
 import { mathField } from "./math";
-import { imagePaste } from "./paste";
+import { getDocPath as defaultGetDocPath } from "./docContext";
+import { imagePasteFor, type ImagePasteContext } from "./paste";
 import { imagePreview } from "./image";
 import { markdownShortcutKeymap } from "./markdownCommands";
 
 export type EditorMode = "preview" | "source" | "split";
+export type EditorDocPathProvider = ImagePasteContext["getDocPath"];
 
 function modeExtensions(mode: EditorMode): Extension[] {
   if (mode === "source" || mode === "split") return [];
@@ -35,7 +37,9 @@ export function editorState(
   onChange: (text: string) => void,
   extraExtensions: Extension[] = [],
   mode: EditorMode = "preview",
+  getDocPath: EditorDocPathProvider = defaultGetDocPath,
 ): EditorState {
+  const imagePasteExtension = imagePasteFor({ getDocPath });
   return EditorState.create({
     doc,
     extensions: [
@@ -48,7 +52,7 @@ export function editorState(
       EditorView.lineWrapping,
       syntaxHighlighting(codeHighlightStyle),
       ...modeExtensions(mode),
-      imagePaste,
+      imagePasteExtension,
       EditorView.updateListener.of((u) => {
         if (u.docChanged) onChange(u.state.doc.toString());
       }),
@@ -69,8 +73,9 @@ export function createEditor(
   onChange: (text: string) => void,
   extraExtensions: Extension[] = [],
   mode: EditorMode = "preview",
+  getDocPath: EditorDocPathProvider = defaultGetDocPath,
 ): EditorView {
-  return createEditorView(parent, editorState(doc, onChange, extraExtensions, mode));
+  return createEditorView(parent, editorState(doc, onChange, extraExtensions, mode, getDocPath));
 }
 
 /** 에디터 전체 내용을 text로 교체(파일 열기 시). */
