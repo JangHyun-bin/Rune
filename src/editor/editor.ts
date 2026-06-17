@@ -21,13 +21,13 @@ import { markdownShortcutKeymap } from "./markdownCommands";
 export type EditorMode = "preview" | "source" | "split";
 export type EditorDocPathProvider = ImagePasteContext["getDocPath"];
 
-function modeExtensions(mode: EditorMode): Extension[] {
+function modeExtensions(mode: EditorMode, getDocPath: EditorDocPathProvider): Extension[] {
   if (mode === "source" || mode === "split") return [];
   return [
     livePreview,
     blockWidgets([horizontalRuleSpec, mermaidSpec, tableSpec]),
     mathField(),
-    imagePreview(),
+    imagePreview({ getDocPath }),
   ];
 }
 
@@ -51,7 +51,7 @@ export function editorState(
       editorTheme(),
       EditorView.lineWrapping,
       syntaxHighlighting(codeHighlightStyle),
-      ...modeExtensions(mode),
+      ...modeExtensions(mode, getDocPath),
       imagePasteExtension,
       EditorView.updateListener.of((u) => {
         if (u.docChanged) onChange(u.state.doc.toString());

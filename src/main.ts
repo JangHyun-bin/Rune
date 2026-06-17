@@ -480,6 +480,11 @@ async function doSave(): Promise<void> {
   const t = pane.tabInfo(activeId);
   if (!t) return;
   let path = t.path;
+  if (path) {
+    await pane.saveActive();
+    syncActiveUI();
+    return;
+  }
   if (!path) {
     const chosen = await save({ filters: [{ name: "Markdown", extensions: ["md"] }] });
     if (typeof chosen !== "string") return;

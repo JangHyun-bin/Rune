@@ -7,7 +7,6 @@ import {
   activeTab,
   closeTab as closeTabModel,
   emptyTabs,
-  markActiveSaved,
   newUntitled,
   nextTabId as nextTabIdModel,
   nthTabId as nthTabIdModel,
@@ -91,14 +90,24 @@ function markTabSavedById(
   return { state: updated ? { ...state, tabs } : state, updated };
 }
 
-function clamp(value: number, min: number, max: number): number {
-  return Math.min(max, Math.max(min, value));
+function markTabSavedAsById(
+  state: TabsState,
+  tabId: string,
+  expectedPath: string | null,
+  path: string,
+  savedText: string,
+): { state: TabsState; updated: boolean } {
+  let updated = false;
+  const tabs = state.tabs.map((tab) => {
+    if (tab.id !== tabId || tab.path !== expectedPath) return tab;
+    updated = true;
+    return { ...tab, path, savedText };
+  });
+  return { state: updated ? { ...state, tabs } : state, updated };
 }
 
-interface SaveQueue {
-  inFlight: boolean;
-  pending: boolean;
-  waiters: Array<() => void>;
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value));
 }
 
 export function createEditorPane(options: EditorPaneOptions): EditorPane {
@@ -127,7 +136,7 @@ export function createEditorPane(options: EditorPaneOptions): EditorPane {
   let splitResizerCleanup: (() => void) | null = null;
   let splitSourceRatio = clamp(options.initialSplitRatio ?? 0.5, 0.12, 0.88);
   const autosaveTimers = new Map<string, number>();
-  const saveQueues = new Map<string, SaveQueue>();
+  const saveQueues = new Map<string, Promise<void>>();
 
   const tabBar = mountTabBar(tabbarHost, {
     paneId: id,
@@ -342,18 +351,22 @@ export function createEditorPane(options: EditorPaneOptions): EditorPane {
     autosaveTimers.clear();
   }
 
-  function saveQueue(tabId: string): SaveQueue {
-    let queue = saveQueues.get(tabId);
-    if (!queue) {
-      queue = { inFlight: false, pending: false, waiters: [] };
-      saveQueues.set(tabId, queue);
-    }
-    return queue;
-  }
+  async function enqueueTabSave<T>(tabId: string, task: () => Promise<T>): Promise<T> {
+    const previous = saveQueues.get(tabId);
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const next = (previous ?? Promise.resolve()).catch(() => {}).then(() => gate);
+    saveQueues.set(tabId, next);
 
-  function resolveSaveWaiters(queue: SaveQueue): void {
-    const waiters = queue.waiters.splice(0);
-    for (const resolve of waiters) resolve();
+    if (previous) await previous.catch(() => {});
+    try {
+      return await task();
+    } finally {
+      release();
+      if (saveQueues.get(tabId) === next) saveQueues.delete(tabId);
+    }
   }
 
   async function openPath(path: string): Promise<boolean> {
@@ -454,48 +467,33 @@ export function createEditorPane(options: EditorPaneOptions): EditorPane {
     return confirmClose("Close unsaved tab?");
   }
 
+  async function saveDirtyUntilClean(tabId: string): Promise<void> {
+    while (true) {
+      const tab = tabs.tabs.find((candidate) => candidate.id === tabId);
+      if (!tab?.path || !tabDirty(tab)) return;
+
+      const path = tab.path;
+      const text = tab.currentText;
+      const result = await options.writeFile(path, text);
+      if (result.status === "error") {
+        console.error(result.error);
+        options.onSaveError?.(result.error);
+        return;
+      }
+
+      const saved = markTabSavedById(tabs, tabId, path, text);
+      if (saved.updated) {
+        tabs = saved.state;
+        renderTabs();
+        options.onDirtyChange(id);
+        options.onRequestSaveSettings();
+      }
+    }
+  }
+
   async function saveTabIfDirty(tabId: string): Promise<void> {
     clearAutosave(tabId);
-    const queue = saveQueue(tabId);
-    if (queue.inFlight) {
-      queue.pending = true;
-      return new Promise((resolve) => queue.waiters.push(resolve));
-    }
-
-    queue.inFlight = true;
-    try {
-      while (true) {
-        queue.pending = false;
-        const tab = tabs.tabs.find((candidate) => candidate.id === tabId);
-        if (!tab?.path || !tabDirty(tab)) return;
-
-        const path = tab.path;
-        const text = tab.currentText;
-        const result = await options.writeFile(path, text);
-        if (result.status === "error") {
-          console.error(result.error);
-          options.onSaveError?.(result.error);
-          return;
-        }
-
-        const saved = markTabSavedById(tabs, tabId, path, text);
-        if (saved.updated) {
-          tabs = saved.state;
-          if (tabs.activeId === tabId && view) states.set(tabId, view.state);
-          renderTabs();
-          options.onDirtyChange(id);
-          options.onRequestSaveSettings();
-        }
-
-        const latest = tabs.tabs.find((candidate) => candidate.id === tabId);
-        if (!latest?.path || !tabDirty(latest)) return;
-      }
-    } finally {
-      queue.inFlight = false;
-      queue.pending = false;
-      resolveSaveWaiters(queue);
-      if (queue.waiters.length === 0) saveQueues.delete(tabId);
-    }
+    await enqueueTabSave(tabId, () => saveDirtyUntilClean(tabId));
   }
 
   async function saveActive(): Promise<void> {
@@ -513,19 +511,29 @@ export function createEditorPane(options: EditorPaneOptions): EditorPane {
     if (!tab) return null;
     clearAutosave(activeId);
 
+    const originalPath = tab.path;
     const text = tab.currentText;
-    const result = await options.writeFile(path, text);
-    if (result.status === "error") {
-      console.error(result.error);
-      options.onSaveError?.(result.error);
-      return result;
-    }
+    return enqueueTabSave(activeId, async () => {
+      const current = tabs.tabs.find((candidate) => candidate.id === activeId);
+      if (!current || current.path !== originalPath) return null;
 
-    tabs = markActiveSaved(tabs, path, text);
-    renderTabs();
-    options.onDirtyChange(id);
-    options.onRequestSaveSettings();
-    return result;
+      const result = await options.writeFile(path, text);
+      if (result.status === "error") {
+        console.error(result.error);
+        options.onSaveError?.(result.error);
+        return result;
+      }
+
+      const saved = markTabSavedAsById(tabs, activeId, originalPath, path, text);
+      if (saved.updated) {
+        tabs = saved.state;
+        renderTabs();
+        options.onDirtyChange(id);
+        options.onRequestSaveSettings();
+        await saveDirtyUntilClean(activeId);
+      }
+      return result;
+    });
   }
 
   function replaceActiveText(text: string, replaceOptions: { markSaved?: boolean } = {}): void {

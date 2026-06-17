@@ -223,6 +223,10 @@ function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
   return { promise, resolve };
 }
 
+async function flushPromises(times = 6): Promise<void> {
+  for (let i = 0; i < times; i += 1) await Promise.resolve();
+}
+
 describe("editor pane", () => {
   beforeEach(() => {
     vi.useFakeTimers();
@@ -574,6 +578,88 @@ describe("editor pane", () => {
     expect(pane.activePath()).toBe("/w/draft.md");
     expect(pane.activeDirty()).toBe(false);
     expect(pane.tabsSnapshot()).toEqual({ openTabs: ["/w/draft.md"], activePath: "/w/draft.md" });
+
+    pane.destroy();
+  });
+
+  it("keeps save-as completion bound to the captured tab after switching tabs", async () => {
+    const host = document.createElement("div");
+    const pendingWrite = deferred<{ status: "ok"; data: null }>();
+    const writeFile = vi.fn(() => pendingWrite.promise);
+    const pane = createEditorPane({
+      id: "pane-1",
+      host,
+      editorMode: "source",
+      readFile: vi.fn(async (path: string) => ({ status: "ok" as const, data: `# ${path}` })),
+      writeFile,
+      onActiveChange: vi.fn(),
+      onDirtyChange: vi.fn(),
+      onRequestSaveSettings: vi.fn(),
+    });
+
+    editActiveText(pane, "# Draft");
+    const saveAs = pane.saveActiveAs("/w/draft.md");
+    pane.newDoc();
+    editActiveText(pane, "# Other");
+
+    pendingWrite.resolve({ status: "ok", data: null });
+    await saveAs;
+
+    expect(writeFile).toHaveBeenCalledWith("/w/draft.md", "# Draft");
+    expect(pane.activePath()).toBeNull();
+    expect(pane.activeText()).toBe("# Other");
+
+    clickTab(host, 0);
+    expect(pane.activePath()).toBe("/w/draft.md");
+    expect(pane.activeText()).toBe("# Draft");
+    expect(pane.activeDirty()).toBe(false);
+
+    pane.destroy();
+  });
+
+  it("queues save-as behind an in-flight autosave for the same tab", async () => {
+    const host = document.createElement("div");
+    const autosaveWrite = deferred<{ status: "ok"; data: null }>();
+    const saveAsWrite = deferred<{ status: "ok"; data: null }>();
+    const writeFile = vi.fn((path: string, contents: string) => {
+      if (path === "/w/a.md" && contents === "# Autosave") return autosaveWrite.promise;
+      if (path === "/w/b.md" && contents === "# Autosave") return saveAsWrite.promise;
+      throw new Error(`Unexpected write: ${path} ${contents}`);
+    });
+    const pane = createEditorPane({
+      id: "pane-1",
+      host,
+      editorMode: "source",
+      readFile: vi.fn(async () => ({ status: "ok" as const, data: "# Old" })),
+      writeFile,
+      onActiveChange: vi.fn(),
+      onDirtyChange: vi.fn(),
+      onRequestSaveSettings: vi.fn(),
+    });
+
+    await pane.openPath("/w/a.md");
+    editActiveText(pane, "# Autosave");
+
+    await vi.advanceTimersByTimeAsync(800);
+    expect(writeFile).toHaveBeenCalledTimes(1);
+    expect(writeFile).toHaveBeenNthCalledWith(1, "/w/a.md", "# Autosave");
+
+    const saveAs = pane.saveActiveAs("/w/b.md");
+    await Promise.resolve();
+    expect(writeFile).toHaveBeenCalledTimes(1);
+
+    autosaveWrite.resolve({ status: "ok", data: null });
+    await flushPromises();
+
+    expect(writeFile).toHaveBeenCalledTimes(2);
+    expect(writeFile).toHaveBeenNthCalledWith(2, "/w/b.md", "# Autosave");
+
+    saveAsWrite.resolve({ status: "ok", data: null });
+    await saveAs;
+
+    expect(pane.activePath()).toBe("/w/b.md");
+    expect(pane.activeText()).toBe("# Autosave");
+    expect(pane.activeDirty()).toBe(false);
 
     pane.destroy();
   });
