@@ -40,7 +40,7 @@ describe("pane persistence", () => {
     expect(JSON.parse(serializePaneWorkspaceSnapshot(snapshot))).toEqual(snapshot);
   });
 
-  it("filters invalid pane rows and falls back activePath to the first tab", () => {
+  it("filters invalid pane rows and falls back activePaneId to the first normalized pane", () => {
     const snapshot = normalizePaneWorkspaceSnapshot(
       {
         version: 1,
@@ -55,16 +55,45 @@ describe("pane persistence", () => {
         },
         activePaneId: "missing",
         panes: [
-          { id: "pane-1", openTabs: ["/w/a.md", 12, "/w/b.md"], activePath: "/w/missing.md" },
-          { id: "missing", openTabs: ["/w/c.md"], activePath: "/w/c.md" },
+          { id: "missing", openTabs: ["/w/a.md"], activePath: "/w/a.md" },
+          { id: "pane-2", openTabs: ["/w/b.md", 12, "/w/c.md"], activePath: "/w/missing.md" },
         ],
       },
       [],
     );
 
-    expect(snapshot.activePaneId).toBe("pane-1");
+    expect(snapshot.activePaneId).toBe("pane-2");
     expect(snapshot.panes).toEqual([
-      { id: "pane-1", openTabs: ["/w/a.md", "/w/b.md"], activePath: "/w/a.md" },
+      { id: "pane-2", openTabs: ["/w/b.md", "/w/c.md"], activePath: "/w/b.md" },
     ]);
+  });
+
+  it("falls back to legacy tabs when a split has an invalid child", () => {
+    const snapshot = normalizePaneWorkspaceSnapshot(
+      {
+        version: 1,
+        root: {
+          type: "split",
+          direction: "row",
+          ratios: [0.5, 0.5],
+          children: [
+            { type: "pane", paneId: "pane-1" },
+            { type: "pane", paneId: 42 },
+          ],
+        },
+        activePaneId: "pane-1",
+        panes: [{ id: "pane-1", openTabs: ["/w/a.md"], activePath: "/w/a.md" }],
+      },
+      ["/legacy.md"],
+    );
+
+    expect(snapshot).toEqual({
+      version: 1,
+      root: { type: "pane", paneId: "pane-1" },
+      activePaneId: "pane-1",
+      panes: [
+        { id: "pane-1", openTabs: ["/legacy.md"], activePath: "/legacy.md" },
+      ],
+    });
   });
 });

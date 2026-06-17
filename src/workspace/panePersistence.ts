@@ -48,9 +48,15 @@ function normalizeLayoutNode(value: unknown, seen = new Set<object>()): LayoutNo
     return null;
   }
 
-  const children = value.children
-    .map((child) => normalizeLayoutNode(child, seen))
-    .filter((child): child is LayoutNode => child !== null);
+  const children: LayoutNode[] = [];
+  for (const child of value.children) {
+    const normalized = normalizeLayoutNode(child, seen);
+    if (!normalized) {
+      seen.delete(value);
+      return null;
+    }
+    children.push(normalized);
+  }
   seen.delete(value);
 
   if (children.length === 0) return null;
@@ -111,7 +117,7 @@ export function normalizePaneWorkspaceSnapshot(
   const activePaneId =
     typeof value.activePaneId === "string" && paneIdSet.has(value.activePaneId)
       ? value.activePaneId
-      : paneIds[0];
+      : panes[0].id;
 
   return { version: 1, root, activePaneId, panes };
 }
