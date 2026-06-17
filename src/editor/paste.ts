@@ -14,12 +14,14 @@ function extFromType(type: string): string {
 }
 
 async function handleFile(view: EditorView, file: File, getDocPath: ImagePasteContext["getDocPath"]) {
+  const originState = view.state;
+  const pos = originState.selection.main.head;
   const docPath = getDocPath();
   if (!docPath) { alert(t("image.saveFirst")); return; }
   const bytes = Array.from(new Uint8Array(await file.arrayBuffer()));
   const res = await commands.saveAsset(docPath, bytes, extFromType(file.type));
   if (res.status === "error") { console.error(res.error); return; }
-  const pos = view.state.selection.main.head;
+  if (view.state !== originState) return;
   view.dispatch({ changes: { from: pos, insert: `![](${res.data})` }, selection: { anchor: pos + 2 } });
 }
 
