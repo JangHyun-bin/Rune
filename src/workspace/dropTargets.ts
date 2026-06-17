@@ -28,7 +28,7 @@ export function firstMarkdownPath(paths: string[]): string | null {
   return paths.find(isMarkdownPath) ?? null;
 }
 
-export function physicalToCssPoint(position: Point, deviceScaleFactor = window.devicePixelRatio || 1): Point {
+export function physicalToCssPoint(position: Point, deviceScaleFactor = 1): Point {
   const scale = Number.isFinite(deviceScaleFactor) && deviceScaleFactor > 0 ? deviceScaleFactor : 1;
   return { x: position.x / scale, y: position.y / scale };
 }

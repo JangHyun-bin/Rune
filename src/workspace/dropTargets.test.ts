@@ -14,6 +14,10 @@ describe("drop targets", () => {
     expect(physicalToCssPoint({ x: 240, y: 120 }, 2)).toEqual({ x: 120, y: 60 });
   });
 
+  it("defaults physical to CSS conversion to a scale of 1", () => {
+    expect(physicalToCssPoint({ x: 240, y: 120 })).toEqual({ x: 240, y: 120 });
+  });
+
   it("targets the left edge as a row split before the pane", () => {
     const target = hitPaneDropZone({ left: 100, top: 50, width: 400, height: 300 }, { x: 130, y: 180 });
     expect(target).toEqual({ kind: "pane-edge", direction: "row", side: "before" });
