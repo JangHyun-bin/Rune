@@ -1,4 +1,5 @@
 import type { EditorMode } from "../editor/editor";
+import type { Extension } from "@codemirror/state";
 import { createEditorPane, type EditorPane, type EditorPaneOptions } from "./editorPane";
 import {
   createSinglePaneLayout,
@@ -13,11 +14,18 @@ import type { PaneWorkspaceSnapshot } from "./panePersistence";
 export interface PaneWorkspaceOptions {
   host: HTMLElement;
   editorMode: EditorMode;
+  extraExtensions?: () => Extension[];
+  initialSplitRatio?: number;
   readFile: EditorPaneOptions["readFile"];
   writeFile: EditorPaneOptions["writeFile"];
   onActivePaneChange: (paneId: PaneId) => void;
   onActiveDocumentChange: () => void;
   onRequestSaveSettings: () => void;
+  onReadError?: (message: string) => void;
+  onSaveError?: (message: string) => void;
+  onSplitRatioChange?: (ratio: number) => void;
+  onTabContextMenu?: (paneId: PaneId, tabId: string, x: number, y: number) => void;
+  canCloseDirtyTab?: (paneId: PaneId, tabId: string) => boolean;
 }
 
 export interface PaneWorkspace {
@@ -37,6 +45,9 @@ export interface PaneWorkspace {
   ): Promise<PaneId | null>;
   setActivePane(paneId: PaneId): void;
   setEditorMode(mode: EditorMode): void;
+  flushSaves(): Promise<void>;
+  setSplitRatio(ratio: number): void;
+  splitRatio(): number;
   snapshot(): PaneWorkspaceSnapshot;
   destroy(): void;
 }
@@ -95,6 +106,8 @@ export function createPaneWorkspace(options: PaneWorkspaceOptions): PaneWorkspac
       id: paneId,
       host,
       editorMode,
+      extraExtensions: options.extraExtensions,
+      initialSplitRatio: options.initialSplitRatio,
       readFile: options.readFile,
       writeFile: options.writeFile,
       onActiveChange: (id) => {
@@ -102,6 +115,11 @@ export function createPaneWorkspace(options: PaneWorkspaceOptions): PaneWorkspac
       },
       onDirtyChange: () => options.onActiveDocumentChange(),
       onRequestSaveSettings: options.onRequestSaveSettings,
+      onReadError: options.onReadError,
+      onSaveError: options.onSaveError,
+      onSplitRatioChange: options.onSplitRatioChange,
+      onTabContextMenu: options.onTabContextMenu,
+      canCloseDirtyTab: options.canCloseDirtyTab,
     });
     assignPaneId(pane.root, paneId);
     panes.set(paneId, pane);
@@ -207,6 +225,18 @@ export function createPaneWorkspace(options: PaneWorkspaceOptions): PaneWorkspac
     for (const pane of panes.values()) pane.setEditorMode(mode);
   }
 
+  async function flushSaves(): Promise<void> {
+    await Promise.all([...panes.values()].map((pane) => pane.flushSaves()));
+  }
+
+  function setSplitRatio(ratio: number): void {
+    for (const pane of panes.values()) pane.setSplitRatio(ratio);
+  }
+
+  function splitRatio(): number {
+    return assertPane(panes, activePaneId).splitRatio();
+  }
+
   function snapshot(): PaneWorkspaceSnapshot {
     return {
       version: 1,
@@ -242,6 +272,9 @@ export function createPaneWorkspace(options: PaneWorkspaceOptions): PaneWorkspac
     splitPaneAndOpen,
     setActivePane,
     setEditorMode,
+    flushSaves,
+    setSplitRatio,
+    splitRatio,
     snapshot,
     destroy,
   };

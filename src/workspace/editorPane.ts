@@ -1,4 +1,4 @@
-import type { EditorState } from "@codemirror/state";
+import type { EditorState, Extension } from "@codemirror/state";
 import type { EditorView } from "@codemirror/view";
 import { editorState, createEditorView, type EditorMode } from "../editor/editor";
 import { mountSplitPreview, type SplitPreview } from "../editor/splitPreview";
@@ -7,8 +7,12 @@ import {
   activeTab,
   closeTab as closeTabModel,
   emptyTabs,
+  markActiveSaved,
   newUntitled,
+  nextTabId as nextTabIdModel,
+  nthTabId as nthTabIdModel,
   openOrFocus,
+  prevTabId as prevTabIdModel,
   setActive,
   tabDirty,
   updateActiveText,
@@ -29,11 +33,17 @@ export interface EditorPaneOptions {
   id: string;
   host: HTMLElement;
   editorMode: EditorMode;
+  extraExtensions?: () => Extension[];
+  initialSplitRatio?: number;
   readFile: (path: string) => Promise<CommandResult<string> | CommandError>;
   writeFile: (path: string, contents: string) => Promise<CommandResult<null> | CommandError>;
   onActiveChange: (paneId: string) => void;
   onDirtyChange: (paneId: string) => void;
   onRequestSaveSettings: () => void;
+  onReadError?: (message: string) => void;
+  onSaveError?: (message: string) => void;
+  onSplitRatioChange?: (ratio: number) => void;
+  onTabContextMenu?: (paneId: string, tabId: string, x: number, y: number) => void;
   canCloseDirtyTab?: (paneId: string, tabId: string) => boolean;
 }
 
@@ -45,12 +55,23 @@ export interface EditorPane {
   newDoc(): void;
   switchTo(tabId: string): void;
   closeTab(tabId: string): void;
+  closeOtherTabs(keepId: string): void;
+  activeTabId(): string | null;
+  nextTabId(): string | null;
+  prevTabId(): string | null;
+  nthTabId(n: number): string | null;
+  tabInfo(tabId: string): { id: string; path: string | null; dirty: boolean; active: boolean } | null;
   activePath(): string | null;
   activeText(): string;
   activeDirty(): boolean;
   tabsSnapshot(): { openTabs: string[]; activePath: string | null };
   setEditorMode(mode: EditorMode): void;
   saveActive(): Promise<void>;
+  saveActiveAs(path: string): Promise<CommandResult<null> | CommandError | null>;
+  replaceActiveText(text: string, options?: { markSaved?: boolean }): void;
+  flushSaves(): Promise<void>;
+  setSplitRatio(ratio: number): void;
+  splitRatio(): number;
   destroy(): void;
 }
 
@@ -104,7 +125,7 @@ export function createEditorPane(options: EditorPaneOptions): EditorPane {
   let sourceHost = document.createElement("div");
   let splitPreview: SplitPreview | null = null;
   let splitResizerCleanup: (() => void) | null = null;
-  let splitSourceRatio = 0.5;
+  let splitSourceRatio = clamp(options.initialSplitRatio ?? 0.5, 0.12, 0.88);
   const autosaveTimers = new Map<string, number>();
   const saveQueues = new Map<string, SaveQueue>();
 
@@ -112,7 +133,7 @@ export function createEditorPane(options: EditorPaneOptions): EditorPane {
     paneId: id,
     onSelect: switchTo,
     onClose: closeTab,
-    onContextMenu: () => {},
+    onContextMenu: (tabId, x, y) => options.onTabContextMenu?.(id, tabId, x, y),
   });
 
   root.addEventListener("mousedown", () => options.onActiveChange(id));
@@ -135,13 +156,23 @@ export function createEditorPane(options: EditorPaneOptions): EditorPane {
     return tab ? tabDirty(tab) : false;
   }
 
+  function activeTabId(): string | null {
+    return tabs.activeId;
+  }
+
+  function tabInfo(tabId: string): { id: string; path: string | null; dirty: boolean; active: boolean } | null {
+    const tab = tabs.tabs.find((candidate) => candidate.id === tabId);
+    if (!tab) return null;
+    return { id: tab.id, path: tab.path, dirty: tabDirty(tab), active: tab.id === tabs.activeId };
+  }
+
   function hasOnlyCleanUntitledTab(): boolean {
     const tab = tabs.tabs[0];
     return tabs.tabs.length === 1 && !!tab && tab.path === null && !tabDirty(tab);
   }
 
   function createState(doc: string): EditorState {
-    return editorState(doc, onChange, [], editorMode, () => activeTab(tabs)?.path ?? null);
+    return editorState(doc, onChange, options.extraExtensions?.() ?? [], editorMode, () => activeTab(tabs)?.path ?? null);
   }
 
   function renderTabs(): void {
@@ -163,6 +194,15 @@ export function createEditorPane(options: EditorPaneOptions): EditorPane {
     editorHost.style.minHeight = "0";
   }
 
+  function setSplitRatio(ratio: number): void {
+    splitSourceRatio = clamp(ratio, 0.12, 0.88);
+    if (editorMode === "split") applySplitLayout();
+  }
+
+  function splitRatio(): number {
+    return splitSourceRatio;
+  }
+
   function clearSplitLayout(): void {
     splitResizerCleanup?.();
     splitResizerCleanup = null;
@@ -174,6 +214,7 @@ export function createEditorPane(options: EditorPaneOptions): EditorPane {
 
   function mountLocalSplitResizer(handle: HTMLElement): () => void {
     let dragging = false;
+    let moved = false;
 
     const removeDragListeners = () => {
       handle.removeEventListener("pointermove", onPointerMove);
@@ -185,7 +226,8 @@ export function createEditorPane(options: EditorPaneOptions): EditorPane {
       if (!dragging) return;
       const rect = editorHost.getBoundingClientRect();
       if (rect.width <= 0) return;
-      splitSourceRatio = clamp((event.clientX - rect.left) / rect.width, 0.2, 0.8);
+      moved = true;
+      splitSourceRatio = clamp((event.clientX - rect.left) / rect.width, 0.12, 0.88);
       applySplitLayout();
     };
 
@@ -194,11 +236,13 @@ export function createEditorPane(options: EditorPaneOptions): EditorPane {
       dragging = false;
       handle.releasePointerCapture?.(event.pointerId);
       removeDragListeners();
+      if (moved) options.onSplitRatioChange?.(splitSourceRatio);
     };
 
     const onPointerDown = (event: PointerEvent) => {
       event.preventDefault();
       dragging = true;
+      moved = false;
       handle.setPointerCapture?.(event.pointerId);
       handle.addEventListener("pointermove", onPointerMove);
       handle.addEventListener("pointerup", onPointerDone);
@@ -322,6 +366,7 @@ export function createEditorPane(options: EditorPaneOptions): EditorPane {
     const result = await options.readFile(path);
     if (result.status === "error") {
       console.error(result.error);
+      options.onReadError?.(result.error);
       return false;
     }
 
@@ -332,6 +377,7 @@ export function createEditorPane(options: EditorPaneOptions): EditorPane {
     }
     tabs = openOrFocus(tabs, path, result.data);
     showActive();
+    options.onDirtyChange(id);
     options.onRequestSaveSettings();
     return true;
   }
@@ -340,6 +386,7 @@ export function createEditorPane(options: EditorPaneOptions): EditorPane {
     stashActiveState();
     tabs = newUntitled(tabs);
     showActive();
+    options.onDirtyChange(id);
     options.onRequestSaveSettings();
   }
 
@@ -350,6 +397,7 @@ export function createEditorPane(options: EditorPaneOptions): EditorPane {
     stashActiveState();
     tabs = setActive(tabs, tabId);
     showActive();
+    options.onActiveChange(id);
     options.onRequestSaveSettings();
   }
 
@@ -365,7 +413,14 @@ export function createEditorPane(options: EditorPaneOptions): EditorPane {
     tabs = closeTabModel(tabs, tabId);
     if (!tabs.activeId) tabs = newUntitled(tabs);
     showActive();
+    options.onDirtyChange(id);
     options.onRequestSaveSettings();
+  }
+
+  function closeOtherTabs(keepId: string): void {
+    for (const tab of [...tabs.tabs]) {
+      if (tab.id !== keepId) closeTab(tab.id);
+    }
   }
 
   function tabsSnapshot(): { openTabs: string[]; activePath: string | null } {
@@ -389,6 +444,7 @@ export function createEditorPane(options: EditorPaneOptions): EditorPane {
     currentView().setState(state);
     rebuildEditorLayout();
     renderTabs();
+    options.onDirtyChange(id);
   }
 
   function canCloseDirtyTab(tabId: string): boolean {
@@ -418,6 +474,7 @@ export function createEditorPane(options: EditorPaneOptions): EditorPane {
         const result = await options.writeFile(path, text);
         if (result.status === "error") {
           console.error(result.error);
+          options.onSaveError?.(result.error);
           return;
         }
 
@@ -446,6 +503,61 @@ export function createEditorPane(options: EditorPaneOptions): EditorPane {
     if (!activeId) return;
     stashActiveState();
     await saveTabIfDirty(activeId);
+  }
+
+  async function saveActiveAs(path: string): Promise<CommandResult<null> | CommandError | null> {
+    const activeId = tabs.activeId;
+    if (!activeId) return null;
+    stashActiveState();
+    const tab = activeTab(tabs);
+    if (!tab) return null;
+    clearAutosave(activeId);
+
+    const text = tab.currentText;
+    const result = await options.writeFile(path, text);
+    if (result.status === "error") {
+      console.error(result.error);
+      options.onSaveError?.(result.error);
+      return result;
+    }
+
+    tabs = markActiveSaved(tabs, path, text);
+    renderTabs();
+    options.onDirtyChange(id);
+    options.onRequestSaveSettings();
+    return result;
+  }
+
+  function replaceActiveText(text: string, replaceOptions: { markSaved?: boolean } = {}): void {
+    const activeId = tabs.activeId;
+    if (!activeId || !view) return;
+    const tab = activeTab(tabs);
+    if (!tab) return;
+
+    const nextTab = {
+      ...tab,
+      currentText: text,
+      savedText: replaceOptions.markSaved ? text : tab.savedText,
+    };
+    tabs = {
+      ...tabs,
+      tabs: tabs.tabs.map((candidate) => (candidate.id === activeId ? nextTab : candidate)),
+    };
+    const state = createState(text);
+    states.set(activeId, state);
+    view.setState(state);
+    if (replaceOptions.markSaved) clearAutosave(activeId);
+    bindSplitPreviewScroll();
+    syncSplitPreview(text);
+    renderTabs();
+    options.onDirtyChange(id);
+    options.onRequestSaveSettings();
+  }
+
+  async function flushSaves(): Promise<void> {
+    const tabIds = tabs.tabs.map((tab) => tab.id);
+    for (const tabId of tabIds) clearAutosave(tabId);
+    await Promise.all(tabIds.map((tabId) => saveTabIfDirty(tabId)));
   }
 
   function destroy(): void {
@@ -477,12 +589,29 @@ export function createEditorPane(options: EditorPaneOptions): EditorPane {
     newDoc,
     switchTo,
     closeTab,
+    closeOtherTabs,
+    activeTabId,
+    nextTabId() {
+      return nextTabIdModel(tabs);
+    },
+    prevTabId() {
+      return prevTabIdModel(tabs);
+    },
+    nthTabId(n) {
+      return nthTabIdModel(tabs, n);
+    },
+    tabInfo,
     activePath,
     activeText,
     activeDirty,
     tabsSnapshot,
     setEditorMode,
     saveActive,
+    saveActiveAs,
+    replaceActiveText,
+    flushSaves,
+    setSplitRatio,
+    splitRatio,
     destroy,
   };
 }

@@ -1,7 +1,5 @@
 import "./styles.css";
-import { editorState, createEditorView, setEditorText, type EditorMode } from "./editor/editor";
-import { type TabsState, emptyTabs, activeTab, openOrFocus, newUntitled, setActive, updateActiveText, markActiveSaved, closeTab, tabDirty } from "./workspace/tabs";
-import { nextTabId, prevTabId, nthTabId } from "./workspace/tabs";
+import { type EditorMode } from "./editor/editor";
 import { commands } from "./ipc/bindings";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { revealItemInDir, openUrl } from "@tauri-apps/plugin-opener";
@@ -9,13 +7,10 @@ import { check } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { mountUpdateBanner } from "./workspace/updatePanel";
 import { EditorView, keymap } from "@codemirror/view";
-import { EditorState, Prec } from "@codemirror/state";
+import { Prec } from "@codemirror/state";
 import { mountChrome } from "./chrome/chrome";
-import { setDocPath } from "./editor/docContext";
 import { mountFileTree } from "./workspace/fileTree";
 import { parentDir } from "./workspace/paths";
-import { mountTabBar } from "./workspace/tabBar";
-import { autosave } from "./workspace/autosave";
 import { listen } from "@tauri-apps/api/event";
 import { mountConflictBanner } from "./workspace/conflictBanner";
 import { mountErrorBanner } from "./workspace/errorBanner";
@@ -33,8 +28,8 @@ import { t as tr, setLocale, getLocale, detectLocale, LOCALES, type Locale } fro
 import { showContextMenu, type MenuItem } from "./workspace/contextMenu";
 import { promptModal } from "./workspace/promptModal";
 import { clearFindHighlights, findHighlightExtension, setFindHighlights } from "./editor/findHighlights";
-import { mountSplitPreview, type SplitPreview } from "./editor/splitPreview";
 import { DEFAULT_LAYOUT, normalizeLayoutSettings, parseLayoutSettingsJson, serializeLayoutSettings, type LayoutSettings, type ResolvedLayoutSettings } from "./workspace/layoutSettings";
+import { createPaneWorkspace, type PaneWorkspace } from "./workspace/paneWorkspace";
 
 const chrome = mountChrome(document.getElementById("titlebar")!, document.getElementById("statusbar")!, {
   onOpenSettings: () => settingsPanel.open(),
@@ -45,18 +40,12 @@ const tree = mountFileTree(document.getElementById("filetree")!, (p) => void ope
   onNewFile: () => { if (currentFolder) void newFileIn(currentFolder); },
   onNewFolder: () => { if (currentFolder) void newFolderIn(currentFolder); },
 });
-const tabBar = mountTabBar(document.getElementById("tabbar")!, { onSelect: switchTo, onClose: requestClose, onContextMenu: tabMenu });
 
-let tabs: TabsState = emptyTabs();
-const states = new Map<string, EditorState>();
-let view: EditorView;
-const auto = autosave(800, () => void autoSave());
+let paneWorkspace: PaneWorkspace;
 let currentFolder: string | null = null;
 let workspaceFiles: { name: string; path: string }[] = [];
 let editorMode: EditorMode = "preview";
 let findReplacePanel: FindReplacePanel | null = null;
-let splitPreview: SplitPreview | null = null;
-let splitResizerCleanup: (() => void) | null = null;
 let layoutModeControl: LayoutModeControl | null = null;
 const SIDEBAR_DEFAULT = DEFAULT_LAYOUT.sidebarWidth;
 const SIDEBAR_MIN = 96;
@@ -69,10 +58,15 @@ const SPLIT_RATIO_MIN = 0.12;
 const SPLIT_RATIO_MAX = 0.88;
 
 function prefersDark(): boolean { return window.matchMedia("(prefers-color-scheme: dark)").matches; }
+function activePane() { return paneWorkspace.activePane(); }
+function activeView(): EditorView { return activePane().view; }
 function settingsSnapshot() {
   const theme = document.documentElement.getAttribute("data-theme") === "dark" ? "dark" : "light";
   const layout = currentLayoutSettings();
-  return { theme, lastFolder: currentFolder, openTabs: tabs.tabs.map((t) => t.path).filter((p): p is string => !!p), locale: getLocale(), editorWidth: currentEditorWidth(), editorMode, sidebarWidth: layout.sidebarWidth, layout, paneLayout: null };
+  const openTabs = typeof paneWorkspace === "undefined"
+    ? []
+    : paneWorkspace.snapshot().panes.flatMap((pane) => pane.openTabs);
+  return { theme, lastFolder: currentFolder, openTabs, locale: getLocale(), editorWidth: currentEditorWidth(), editorMode, sidebarWidth: layout.sidebarWidth, layout, paneLayout: null };
 }
 function applyTheme(theme: "light" | "dark"): void {
   document.documentElement.setAttribute("data-theme", theme);
@@ -145,7 +139,9 @@ function applyOutlineHeight(height: number, persist = true): void {
   if (persist) scheduleSaveSettings();
 }
 function applySplitRatio(ratio: number, persist = true): void {
-  document.documentElement.style.setProperty("--split-source-width", `${Math.round(clampRatio(ratio) * 1000) / 10}%`);
+  const clamped = clampRatio(ratio);
+  document.documentElement.style.setProperty("--split-source-width", `${Math.round(clamped * 1000) / 10}%`);
+  if (typeof paneWorkspace !== "undefined") paneWorkspace.setSplitRatio(clamped);
   if (persist) scheduleSaveSettings();
 }
 function applyLayoutSettings(layout: Partial<LayoutSettings>, persist = true): void {
@@ -173,59 +169,11 @@ function layoutSummary(): string {
   const layout = currentLayoutSettings();
   return `${layout.sidebarWidth}px / ${layout.outlineHeight}px / ${Math.round(layout.splitRatio * 100)}%`;
 }
-function syncEditorLayout(): HTMLElement {
-  splitPreview?.destroy();
-  splitPreview = null;
-  splitResizerCleanup?.();
-  splitResizerCleanup = null;
-  editorRoot.className = "";
-  editorRoot.replaceChildren();
-
-  const sourcePane = document.createElement("div");
-  sourcePane.className = editorMode === "split" ? "editor-pane split-source" : "editor-pane";
-  editorRoot.appendChild(sourcePane);
-
-  if (editorMode === "split") {
-    editorRoot.className = "editor-split";
-    const resizer = document.createElement("div");
-    resizer.className = "split-resizer";
-    resizer.setAttribute("role", "separator");
-    resizer.setAttribute("aria-orientation", "vertical");
-    resizer.setAttribute("aria-label", "Resize split preview");
-    editorRoot.appendChild(resizer);
-    splitResizerCleanup = mountSplitResizer(resizer);
-    splitPreview = mountSplitPreview(editorRoot);
-  }
-
-  if (view) sourcePane.appendChild(view.dom);
-  return sourcePane;
-}
-function syncSplitPreview(): void {
-  if (splitPreview && view) splitPreview.update(view.state.doc.toString());
-}
-function bindSplitPreviewScroll(): void {
-  if (splitPreview && view) splitPreview.bindSourceScroller(view.scrollDOM);
-}
 function applyEditorMode(mode: EditorMode, persist = true): void {
   if (editorMode === mode) return;
-  const text = view ? view.state.doc.toString() : (activeTab(tabs)?.currentText ?? "");
-  const selection = view?.state.selection;
-  const activeId = tabs.activeId;
-
   editorMode = mode;
   document.documentElement.setAttribute("data-editor-mode", mode);
-  states.clear();
-  syncEditorLayout();
-
-  if (view) {
-    view.setState(editorState(text, onChange, extraExts(), editorMode));
-    bindSplitPreviewScroll();
-    if (selection && selection.main.to <= view.state.doc.length) {
-      view.dispatch({ selection, scrollIntoView: true });
-    }
-    if (activeId) states.set(activeId, view.state);
-  }
-  syncSplitPreview();
+  if (typeof paneWorkspace !== "undefined") paneWorkspace.setEditorMode(mode);
   syncActiveUI();
   layoutModeControl?.setMode(editorMode);
   settingsPanel.refresh();
@@ -324,62 +272,6 @@ function mountOutlineResizer(handle: HTMLElement): void {
   window.addEventListener("pointercancel", finish);
   window.addEventListener("blur", finish);
 }
-function mountSplitResizer(handle: HTMLElement): () => void {
-  let dragging = false;
-  let activePointerId: number | null = null;
-  let startX = 0;
-  let startRatio = SPLIT_RATIO_DEFAULT;
-  let width = 1;
-  let moved = false;
-
-  const finish = () => {
-    if (!dragging) return;
-    if (activePointerId !== null && handle.hasPointerCapture(activePointerId)) {
-      handle.releasePointerCapture(activePointerId);
-    }
-    dragging = false;
-    activePointerId = null;
-    handle.classList.remove("dragging");
-    document.body.classList.remove("resizing-editor-split");
-    if (moved) applySplitRatio(currentSplitRatio());
-  };
-  const move = (e: PointerEvent) => {
-    if (!dragging) return;
-    moved = true;
-    applySplitRatio(startRatio + (e.clientX - startX) / width, false);
-  };
-  const down = (e: PointerEvent) => {
-    if (e.button !== 0) return;
-    dragging = true;
-    activePointerId = e.pointerId;
-    startX = e.clientX;
-    startRatio = currentSplitRatio();
-    width = Math.max(1, editorRoot.getBoundingClientRect().width);
-    moved = false;
-    handle.classList.add("dragging");
-    document.body.classList.add("resizing-editor-split");
-    try {
-      handle.setPointerCapture(e.pointerId);
-    } catch {
-      activePointerId = null;
-    }
-    e.preventDefault();
-  };
-
-  handle.addEventListener("pointerdown", down);
-  window.addEventListener("pointermove", move);
-  window.addEventListener("pointerup", finish);
-  window.addEventListener("pointercancel", finish);
-  window.addEventListener("blur", finish);
-  return () => {
-    finish();
-    handle.removeEventListener("pointerdown", down);
-    window.removeEventListener("pointermove", move);
-    window.removeEventListener("pointerup", finish);
-    window.removeEventListener("pointercancel", finish);
-    window.removeEventListener("blur", finish);
-  };
-}
 const helpPanel = mountHelpPanel();
 const settingsPanel = mountSettingsPanel({
   onLocale: (l) => applyLocale(l),
@@ -421,10 +313,13 @@ function saveSettingsNow(): void {
 }
 
 function baseName(p: string): string { const i = Math.max(p.lastIndexOf("/"), p.lastIndexOf("\\")); return i >= 0 ? p.slice(i + 1) : p; }
-function exportTitle(): string { const t = activeTab(tabs); return t?.path ? baseName(t.path).replace(/\.(md|markdown)$/i, "") : "untitled"; }
+function exportTitle(): string {
+  const path = activePane().activePath();
+  return path ? baseName(path).replace(/\.(md|markdown)$/i, "") : "untitled";
+}
 function revealActive(): void {
-  const t = activeTab(tabs);
-  if (t?.path) void revealItemInDir(t.path);
+  const path = activePane().activePath();
+  if (path) void revealItemInDir(path);
 }
 function extraExts() {
   return [
@@ -436,70 +331,46 @@ function extraExts() {
       }
     }),
     findHighlightExtension(),
-    auto.ext,
     Prec.highest(keymap.of([{ key: "Mod-k", run: () => { palette.toggle(); return true; }, preventDefault: true }])),
   ];
 }
-function onChange(text: string) {
-  tabs = updateActiveText(tabs, text);
-  splitPreview?.update(text);
-  syncActiveUI();
-}
 
 function refreshStatus(): void {
-  if (!view) return;
+  if (typeof paneWorkspace === "undefined") return;
+  const view = activeView();
   const text = view.state.doc.toString();
   const head = view.state.selection.main.head;
   const line = view.state.doc.lineAt(head);
   chrome.setStatus(text, line.number, head - line.from + 1);
 }
 function refreshOutline(): void {
-  if (!view) return;
+  if (typeof paneWorkspace === "undefined") return;
+  const view = activeView();
   outlinePanel.render(parseHeadings(view.state.doc.toString()));
   outlinePanel.setActiveLine(view.state.doc.lineAt(view.state.selection.main.head).number);
 }
 function syncActiveUI(): void {
-  const t = activeTab(tabs);
-  setDocPath(t?.path ?? null);
-  chrome.setTitle(t?.path ? baseName(t.path) : tr("doc.untitled"), t ? tabDirty(t) : false);
-  tabBar.render(tabs);
-  tree.setActive(t?.path ?? null);
+  if (typeof paneWorkspace === "undefined") return;
+  const pane = activePane();
+  const path = pane.activePath();
+  chrome.setTitle(path ? baseName(path) : tr("doc.untitled"), pane.activeDirty());
+  tree.setActive(path);
   refreshStatus();
   refreshOutline();
 }
-function showActive(): void {
-  const id = tabs.activeId!;
-  const t = activeTab(tabs);
-  let st = states.get(id);
-  if (!st) { st = editorState(t?.currentText ?? "", onChange, extraExts(), editorMode); states.set(id, st); }
-  view.setState(st);
-  bindSplitPreviewScroll();
-  syncSplitPreview();
-  syncActiveUI();
-}
-function switchTo(id: string): void {
-  if (tabs.activeId && view) states.set(tabs.activeId, view.state);
-  tabs = setActive(tabs, id);
-  showActive();
-  scheduleSaveSettings();
-}
-async function openPath(path: string): Promise<void> {
-  const existing = tabs.tabs.find((t) => t.path === path);
-  if (existing) { switchTo(existing.id); return; }
-  const res = await commands.readFile(path);
-  if (res.status === "error") { console.error(res.error); errorBanner.show(tr("error.readFile", { msg: res.error })); return; }
-  if (tabs.activeId && view) states.set(tabs.activeId, view.state);
-  tabs = openOrFocus(tabs, path, res.data);
-  showActive();
-  // Opened a loose file with no workspace open → load its folder into the tree.
+async function openPath(path: string): Promise<boolean> {
+  const opened = await paneWorkspace.openPathInActivePane(path);
+  if (!opened) return false;
+  // Opened a loose file with no workspace open; load its folder into the tree.
   // `await` is deliberate: currentFolder must be set before scheduleSaveSettings() captures lastFolder.
   if (!currentFolder) { const dir = parentDir(path); if (dir) await loadFolder(dir).catch(() => {}); }
   scheduleSaveSettings();
+  syncActiveUI();
+  return true;
 }
 function newDoc(): void {
-  if (tabs.activeId && view) states.set(tabs.activeId, view.state);
-  tabs = newUntitled(tabs);
-  showActive();
+  activePane().newDoc();
+  syncActiveUI();
   scheduleSaveSettings();
 }
 async function openFile(): Promise<void> {
@@ -580,10 +451,13 @@ function fileTreeMenu(node: import("./ipc/bindings").FileNode, x: number, y: num
   showContextMenu(x, y, items);
 }
 function closeOthers(keepId: string): void {
-  for (const t of [...tabs.tabs]) if (t.id !== keepId) requestClose(t.id);
+  activePane().closeOtherTabs(keepId);
+  syncActiveUI();
+  scheduleSaveSettings();
 }
-function tabMenu(id: string, x: number, y: number): void {
-  const t = tabs.tabs.find((x) => x.id === id);
+function tabMenu(paneId: string, id: string, x: number, y: number): void {
+  paneWorkspace.setActivePane(paneId);
+  const t = activePane().tabInfo(id);
   const items: MenuItem[] = [
     { label: tr("cmd.closeTab"), run: () => requestClose(id) },
     { label: tr("menu.closeOthers"), run: () => closeOthers(id) },
@@ -595,37 +469,27 @@ function tabMenu(id: string, x: number, y: number): void {
   showContextMenu(x, y, items);
 }
 function requestClose(id: string): void {
-  const t = tabs.tabs.find((x) => x.id === id);
-  if (t && tabDirty(t) && !confirm(tr("confirm.closeDirty"))) return;
-  if (tabs.activeId && view && tabs.activeId !== id) states.set(tabs.activeId, view.state);
-  states.delete(id);
-  tabs = closeTab(tabs, id);
-  if (!tabs.activeId) tabs = newUntitled(tabs);
-  showActive();
+  activePane().closeTab(id);
+  syncActiveUI();
   scheduleSaveSettings();
 }
 async function doSave(): Promise<void> {
-  const t = activeTab(tabs); if (!t) return;
+  const pane = activePane();
+  const activeId = pane.activeTabId();
+  if (!activeId) return;
+  const t = pane.tabInfo(activeId);
+  if (!t) return;
   let path = t.path;
   if (!path) {
     const chosen = await save({ filters: [{ name: "Markdown", extensions: ["md"] }] });
     if (typeof chosen !== "string") return;
     path = chosen;
   }
-  const text = view.state.doc.toString();
-  const res = await commands.writeFile(path, text);
+  const res = await pane.saveActiveAs(path);
+  if (!res) return;
   if (res.status === "error") { console.error(res.error); errorBanner.show(tr("error.save", { msg: res.error })); return; }
-  tabs = markActiveSaved(tabs, path, text);
   syncActiveUI();
-}
-async function autoSave(): Promise<void> {
-  const t = activeTab(tabs);
-  if (!t || !t.path || !tabDirty(t)) return;
-  const text = view.state.doc.toString();
-  const res = await commands.writeFile(t.path, text);
-  if (res.status === "error") { console.error(res.error); errorBanner.show(tr("error.save", { msg: res.error })); return; }
-  tabs = markActiveSaved(tabs, t.path, text);
-  syncActiveUI();
+  scheduleSaveSettings();
 }
 
 function flipTheme(): void {
@@ -644,9 +508,9 @@ function paletteItems(): PaletteItem[] {
     { label: tr("cmd.toggleTheme"), run: () => flipTheme() },
     { label: tr("cmd.toggleWidth"), run: () => flipEditorWidth() },
     { label: tr("cmd.toggleSourceMode"), run: () => flipEditorMode() },
-    { label: tr("cmd.closeTab"), run: () => { if (tabs.activeId) requestClose(tabs.activeId); } },
-    { label: tr("cmd.exportHtml"), run: () => void exportHtml(view.state.doc.toString(), exportTitle()) },
-    { label: tr("cmd.exportPdf"), run: () => void exportPdf(view.state.doc.toString(), exportTitle()) },
+    { label: tr("cmd.closeTab"), run: () => { const id = activePane().activeTabId(); if (id) requestClose(id); } },
+    { label: tr("cmd.exportHtml"), run: () => void exportHtml(activeView().state.doc.toString(), exportTitle()) },
+    { label: tr("cmd.exportPdf"), run: () => void exportPdf(activeView().state.doc.toString(), exportTitle()) },
     { label: tr("cmd.findReplace"), run: () => findReplacePanel?.open() },
     { label: tr("cmd.search"), run: () => searchPanel.toggle() },
     { label: tr("cmd.reveal"), run: () => revealActive() },
@@ -659,6 +523,7 @@ function paletteItems(): PaletteItem[] {
 }
 const palette = mountCommandPalette(paletteItems);
 function jumpToLine(n: number): void {
+  const view = activeView();
   const line = view.state.doc.line(Math.max(1, Math.min(n, view.state.doc.lines)));
   view.dispatch({ selection: { anchor: line.from }, scrollIntoView: true });
   view.focus();
@@ -666,29 +531,34 @@ function jumpToLine(n: number): void {
 const outlinePanel = mountOutlinePanel(document.getElementById("outline")!, jumpToLine);
 const searchPanel = mountSearchPanel(
   () => currentFolder,
-  (path, line) => { void (async () => { await openPath(path); jumpToLine(line); })(); },
+  (path, line) => { void (async () => { if (await openPath(path)) jumpToLine(line); })(); },
 );
 findReplacePanel = mountFindReplacePanel({
-  getText: () => view.state.doc.toString(),
-  getCursor: () => view.state.selection.main.head,
+  getText: () => activeView().state.doc.toString(),
+  getCursor: () => activeView().state.selection.main.head,
   getSelectionText: () => {
+    const view = activeView();
     const range = view.state.selection.main;
     return range.empty ? "" : view.state.sliceDoc(range.from, range.to);
   },
   getSelectionRange: () => {
+    const view = activeView();
     const range = view.state.selection.main;
     return range.empty ? null : { from: range.from, to: range.to };
   },
   selectRange: (from, to, options) => {
+    const view = activeView();
     view.dispatch({ selection: { anchor: from, head: to }, scrollIntoView: true });
     if (options?.focus !== false) view.focus();
   },
   replaceRange: (from, to, insert) => {
+    const view = activeView();
     view.dispatch({ changes: { from, to, insert }, selection: { anchor: from + insert.length }, scrollIntoView: true });
     view.focus();
   },
   replaceRanges: (ranges, insert) => {
     if (ranges.length === 0) return;
+    const view = activeView();
     view.dispatch({
       changes: ranges.map(({ from, to }) => ({ from, to, insert })),
       selection: { anchor: ranges[0].from + insert.length },
@@ -697,10 +567,10 @@ findReplacePanel = mountFindReplacePanel({
     view.focus();
   },
   setHighlights: (matches, activeIndex) => {
-    view.dispatch({ effects: setFindHighlights.of({ matches, activeIndex }) });
+    activeView().dispatch({ effects: setFindHighlights.of({ matches, activeIndex }) });
   },
   clearHighlights: () => {
-    view.dispatch({ effects: clearFindHighlights.of(undefined) });
+    activeView().dispatch({ effects: clearFindHighlights.of(undefined) });
   },
 });
 async function restore(): Promise<void> {
@@ -710,9 +580,8 @@ async function restore(): Promise<void> {
   document.documentElement.setAttribute("data-editor-width", s.editorWidth === "wide" ? "wide" : "readable");
   editorMode = normalizeEditorMode(s.editorMode);
   document.documentElement.setAttribute("data-editor-mode", editorMode);
+  paneWorkspace.setEditorMode(editorMode);
   layoutModeControl?.setMode(editorMode);
-  syncEditorLayout();
-  bindSplitPreviewScroll();
   applyLayoutSettings(s.layout ?? { sidebarWidth: s.sidebarWidth }, false);
 
   // Resolve the UI language BEFORE loading any content, so the app never flashes
@@ -730,8 +599,10 @@ async function restore(): Promise<void> {
 
   if (s.lastFolder) { await loadFolder(s.lastFolder).catch(() => {}); }
   let opened = false;
-  for (const p of s.openTabs) { await openPath(p); opened = true; }
-  if (!opened) newDoc();
+  for (const p of s.openTabs) {
+    opened = (await openPath(p)) || opened;
+  }
+  if (!opened && !activePane().activeTabId()) newDoc();
   syncActiveUI();
 
   // Persist the first-run language pick alongside the (now restored) session state.
@@ -785,12 +656,12 @@ function samePath(a: string, b: string): boolean {
   return norm(a) === norm(b);
 }
 async function reloadActive(): Promise<void> {
-  const t = activeTab(tabs);
-  if (!t?.path) return;
-  const res = await commands.readFile(t.path);
+  const pane = activePane();
+  const path = pane.activePath();
+  if (!path) return;
+  const res = await commands.readFile(path);
   if (res.status === "error") { console.error(res.error); return; }
-  setEditorText(view, res.data);
-  tabs = markActiveSaved(tabs, t.path, res.data);
+  pane.replaceActiveText(res.data, { markSaved: true });
   syncActiveUI();
 }
 let fsTimer: number | undefined;
@@ -798,9 +669,10 @@ function onFsChange(paths: string[]): void {
   if (fsTimer !== undefined) clearTimeout(fsTimer);
   fsTimer = window.setTimeout(async () => {
     if (currentFolder) await loadFolder(currentFolder).catch(() => {});
-    const t = activeTab(tabs);
-    if (t?.path && paths.some((p) => samePath(p, t.path!))) {
-      if (!tabDirty(t)) await reloadActive();
+    const pane = activePane();
+    const path = pane.activePath();
+    if (path && paths.some((p) => samePath(p, path))) {
+      if (!pane.activeDirty()) await reloadActive();
       else banner.show();
     }
   }, 250);
@@ -809,12 +681,25 @@ void listen<string[]>("fs-change", (e) => onFsChange(e.payload));
 // A .md opened via file association while Rune is already running (single-instance / macOS).
 void listen<string>("open-file", (e) => { void openPath(e.payload); });
 
-// init: create the editor view with a bare empty state; restore() opens tabs.
-view = createEditorView(syncEditorLayout(), editorState("", onChange, extraExts(), editorMode));
-bindSplitPreviewScroll();
+paneWorkspace = createPaneWorkspace({
+  host: editorRoot,
+  editorMode,
+  extraExtensions: extraExts,
+  initialSplitRatio: currentSplitRatio(),
+  readFile: commands.readFile,
+  writeFile: commands.writeFile,
+  onActivePaneChange: () => syncActiveUI(),
+  onActiveDocumentChange: () => syncActiveUI(),
+  onRequestSaveSettings: scheduleSaveSettings,
+  onReadError: (msg) => errorBanner.show(tr("error.readFile", { msg })),
+  onSaveError: (msg) => errorBanner.show(tr("error.save", { msg })),
+  onSplitRatioChange: (ratio) => applySplitRatio(ratio),
+  onTabContextMenu: tabMenu,
+  canCloseDirtyTab: () => confirm(tr("confirm.closeDirty")),
+});
 void restore();
 
-window.addEventListener("blur", () => auto.flush());
+window.addEventListener("blur", () => { void paneWorkspace.flushSaves(); });
 window.addEventListener("resize", () => applyLayoutSettings(currentLayoutSettings(), false));
 window.addEventListener("keydown", (e) => {
   if (e.key === "F1") { e.preventDefault(); helpPanel.toggle(); return; }
@@ -824,11 +709,11 @@ window.addEventListener("keydown", (e) => {
   if (mod && e.shiftKey && e.key.toLowerCase() === "o") { e.preventDefault(); void openFolder(); return; }
   if (mod && e.shiftKey && e.key.toLowerCase() === "l") { e.preventDefault(); flipEditorWidth(); return; }
   if (mod && e.shiftKey && e.key.toLowerCase() === "m") { e.preventDefault(); flipEditorMode(); return; }
-  if (mod && e.key === "Tab") { e.preventDefault(); const id = e.shiftKey ? prevTabId(tabs) : nextTabId(tabs); if (id) switchTo(id); return; }
-  if (mod && !e.shiftKey && /^[1-9]$/.test(e.key)) { e.preventDefault(); const id = nthTabId(tabs, Number(e.key)); if (id) switchTo(id); return; }
+  if (mod && e.key === "Tab") { e.preventDefault(); const id = e.shiftKey ? activePane().prevTabId() : activePane().nextTabId(); if (id) activePane().switchTo(id); return; }
+  if (mod && !e.shiftKey && /^[1-9]$/.test(e.key)) { e.preventDefault(); const id = activePane().nthTabId(Number(e.key)); if (id) activePane().switchTo(id); return; }
   if (mod && e.key.toLowerCase() === "o") { e.preventDefault(); void openFile(); return; }
   if (mod && e.key.toLowerCase() === "s") { e.preventDefault(); void doSave(); return; }
   if (mod && e.key.toLowerCase() === "n") { e.preventDefault(); newDoc(); return; }
-  if (mod && e.key.toLowerCase() === "w") { e.preventDefault(); if (tabs.activeId) requestClose(tabs.activeId); return; }
-  if (mod && e.key.toLowerCase() === "e") { e.preventDefault(); void exportHtml(view.state.doc.toString(), exportTitle()); return; }
+  if (mod && e.key.toLowerCase() === "w") { e.preventDefault(); const id = activePane().activeTabId(); if (id) requestClose(id); return; }
+  if (mod && e.key.toLowerCase() === "e") { e.preventDefault(); void exportHtml(activeView().state.doc.toString(), exportTitle()); return; }
 });

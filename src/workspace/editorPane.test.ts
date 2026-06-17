@@ -517,6 +517,96 @@ describe("editor pane", () => {
     pane.destroy();
   });
 
+  it("exposes pane-local tab navigation and close-other helpers", async () => {
+    const host = document.createElement("div");
+    const pane = createEditorPane({
+      id: "pane-1",
+      host,
+      editorMode: "source",
+      readFile: vi.fn(async (path: string) => ({ status: "ok" as const, data: `# ${path}` })),
+      writeFile: vi.fn(async () => ({ status: "ok" as const, data: null })),
+      onActiveChange: vi.fn(),
+      onDirtyChange: vi.fn(),
+      onRequestSaveSettings: vi.fn(),
+    });
+
+    await pane.openPath("/w/a.md");
+    const first = pane.activeTabId();
+    await pane.openPath("/w/b.md");
+    const second = pane.activeTabId();
+    await pane.openPath("/w/c.md");
+    const third = pane.activeTabId();
+
+    expect(pane.nthTabId(1)).toBe(first);
+    expect(pane.nthTabId(2)).toBe(second);
+    expect(pane.prevTabId()).toBe(second);
+    expect(pane.nextTabId()).toBe(first);
+    expect(pane.tabInfo(second!)).toMatchObject({ id: second, path: "/w/b.md", dirty: false, active: false });
+
+    pane.closeOtherTabs(second!);
+
+    expect(pane.tabsSnapshot()).toEqual({ openTabs: ["/w/b.md"], activePath: "/w/b.md" });
+    expect(pane.activeTabId()).toBe(second);
+    expect(pane.tabInfo(first!)).toBeNull();
+    expect(pane.tabInfo(third!)).toBeNull();
+
+    pane.destroy();
+  });
+
+  it("saves an untitled active tab to a chosen path", async () => {
+    const host = document.createElement("div");
+    const writeFile = vi.fn(async () => ({ status: "ok" as const, data: null }));
+    const pane = createEditorPane({
+      id: "pane-1",
+      host,
+      editorMode: "source",
+      readFile: vi.fn(async (path: string) => ({ status: "ok" as const, data: `# ${path}` })),
+      writeFile,
+      onActiveChange: vi.fn(),
+      onDirtyChange: vi.fn(),
+      onRequestSaveSettings: vi.fn(),
+    });
+
+    editActiveText(pane, "# Draft");
+    await expect(pane.saveActiveAs("/w/draft.md")).resolves.toEqual({ status: "ok", data: null });
+
+    expect(writeFile).toHaveBeenCalledWith("/w/draft.md", "# Draft");
+    expect(pane.activePath()).toBe("/w/draft.md");
+    expect(pane.activeDirty()).toBe(false);
+    expect(pane.tabsSnapshot()).toEqual({ openTabs: ["/w/draft.md"], activePath: "/w/draft.md" });
+
+    pane.destroy();
+  });
+
+  it("forwards pane-local tab context menus", async () => {
+    const host = document.createElement("div");
+    const onTabContextMenu = vi.fn();
+    const pane = createEditorPane({
+      id: "pane-1",
+      host,
+      editorMode: "source",
+      readFile: vi.fn(async (path: string) => ({ status: "ok" as const, data: `# ${path}` })),
+      writeFile: vi.fn(async () => ({ status: "ok" as const, data: null })),
+      onActiveChange: vi.fn(),
+      onDirtyChange: vi.fn(),
+      onRequestSaveSettings: vi.fn(),
+      onTabContextMenu,
+    });
+
+    await pane.openPath("/w/a.md");
+    const tabId = pane.activeTabId();
+    const event = new Event("contextmenu");
+    Object.defineProperty(event, "clientX", { value: 10 });
+    Object.defineProperty(event, "clientY", { value: 20 });
+    const tab = host.querySelector(".tab");
+    if (!tab) throw new Error("Missing tab");
+    tab.dispatchEvent(event);
+
+    expect(onTabContextMenu).toHaveBeenCalledWith("pane-1", tabId, 10, 20);
+
+    pane.destroy();
+  });
+
   it("vetoes closing dirty tabs", async () => {
     const host = document.createElement("div");
     const canCloseDirtyTab = vi.fn(() => false);
