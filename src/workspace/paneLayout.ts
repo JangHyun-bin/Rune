@@ -1,0 +1,68 @@
+export type PaneId = string;
+export type SplitDirection = "row" | "column";
+
+export type LayoutNode =
+  | { type: "pane"; paneId: PaneId }
+  | { type: "split"; direction: SplitDirection; children: LayoutNode[]; ratios: number[] };
+
+export interface SplitPaneRequest {
+  sourcePaneId: PaneId;
+  direction: SplitDirection;
+  side: "before" | "after";
+  newPaneId: PaneId;
+}
+
+export function createSinglePaneLayout(paneId: PaneId): LayoutNode {
+  return { type: "pane", paneId };
+}
+
+export function flattenPaneIds(node: LayoutNode): PaneId[] {
+  if (node.type === "pane") return [node.paneId];
+  return node.children.flatMap(flattenPaneIds);
+}
+
+function evenRatios(count: number): number[] {
+  return Array.from({ length: count }, () => 1 / count);
+}
+
+function normalizeRatios(ratios: number[], count: number): number[] {
+  if (ratios.length !== count) return evenRatios(count);
+  if (!ratios.every((ratio) => Number.isFinite(ratio) && ratio > 0)) return evenRatios(count);
+  return ratios;
+}
+
+function normalizeSplit(node: Extract<LayoutNode, { type: "split" }>): LayoutNode {
+  const children = node.children;
+  if (children.length === 1) return children[0];
+  return { ...node, children, ratios: normalizeRatios(node.ratios, children.length) };
+}
+
+export function splitPane(node: LayoutNode, request: SplitPaneRequest): LayoutNode {
+  if (node.type === "pane") {
+    if (node.paneId !== request.sourcePaneId) return node;
+    const current: LayoutNode = { type: "pane", paneId: node.paneId };
+    const next: LayoutNode = { type: "pane", paneId: request.newPaneId };
+    const children = request.side === "before" ? [next, current] : [current, next];
+    return { type: "split", direction: request.direction, children, ratios: [0.5, 0.5] };
+  }
+
+  const children = node.children.map((child) => splitPane(child, request));
+  const childChanged = children.some((child, index) => child !== node.children[index]);
+  if (!childChanged) return node;
+  if (children.length === node.children.length) return { ...node, children, ratios: node.ratios };
+  return normalizeSplit({ ...node, children });
+}
+
+export function removePane(node: LayoutNode, paneId: PaneId): LayoutNode | null {
+  if (node.type === "pane") return node.paneId === paneId ? null : node;
+  const children: LayoutNode[] = [];
+  const ratios: number[] = [];
+  node.children.forEach((child, index) => {
+    const nextChild = removePane(child, paneId);
+    if (!nextChild) return;
+    children.push(nextChild);
+    ratios.push(node.ratios[index] ?? 1);
+  });
+  if (children.length === 0) return null;
+  return normalizeSplit({ ...node, children, ratios });
+}

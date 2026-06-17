@@ -1,24 +1,35 @@
 import { syntaxTree } from "@codemirror/language";
 import { type EditorState, type Extension, RangeSetBuilder, StateField } from "@codemirror/state";
 import { Decoration, type DecorationSet, EditorView, WidgetType } from "@codemirror/view";
-import { makePreviewWidgetInert, selectionInsideSource, unwatchPreviewWidgetSize, watchPreviewWidgetSize } from "./previewWidget";
+import {
+  bindPreviewWidgetEdit,
+  makePreviewWidgetInert,
+  selectionInsideSource,
+  unwatchPreviewWidgetSize,
+  watchPreviewWidgetSize,
+} from "./previewWidget";
 
 export interface BlockSpec {
   match(state: EditorState, nodeName: string, from: number, to: number): boolean;
   render(source: string): HTMLElement;
   key(source: string): string;
+  editOffset?(source: string, target: EventTarget | null): number | null | undefined;
 }
 
 class BlockWidget extends WidgetType {
-  constructor(readonly spec: BlockSpec, readonly source: string) { super(); }
+  constructor(readonly spec: BlockSpec, readonly source: string, readonly from: number, readonly to: number) { super(); }
   eq(other: BlockWidget) {
-    return other.spec === this.spec && this.spec.key(this.source) === other.spec.key(other.source);
+    return other.spec === this.spec
+      && other.from === this.from
+      && other.to === this.to
+      && this.spec.key(this.source) === other.spec.key(other.source);
   }
   toDOM(view: EditorView) {
     const wrap = document.createElement("div");
     wrap.className = "cm-block-widget";
     wrap.appendChild(this.spec.render(this.source));
     makePreviewWidgetInert(wrap);
+    bindPreviewWidgetEdit(wrap, view, this.from, this.to, (event) => this.spec.editOffset?.(this.source, event.target));
     watchPreviewWidgetSize(wrap, view);
     return wrap;
   }
@@ -36,7 +47,7 @@ function buildFor(state: EditorState, specs: BlockSpec[]): DecorationSet {
         if (spec.match(state, node.name, node.from, node.to)) {
           if (selectionInsideSource(state, node.from, node.to)) return;
           const source = state.doc.sliceString(node.from, node.to);
-          b.add(node.from, node.to, Decoration.replace({ widget: new BlockWidget(spec, source), block: true }));
+          b.add(node.from, node.to, Decoration.replace({ widget: new BlockWidget(spec, source, node.from, node.to), block: true }));
           return;
         }
       }

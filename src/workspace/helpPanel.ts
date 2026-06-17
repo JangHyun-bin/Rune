@@ -25,6 +25,10 @@ const GROUPS: Group[] = [
   { titleKey: "help.editing", rows: [
     { keys: [MOD, "Z"], labelKey: "help.undo" },
     { keys: [MOD, SHIFT, "Z"], labelKey: "help.redo" },
+    { keys: [MOD, "B"], labelKey: "help.bold" },
+    { keys: [MOD, "I"], labelKey: "help.italic" },
+    { keys: ["Tab"], labelKey: "help.indent" },
+    { keys: [SHIFT, "Tab"], labelKey: "help.outdent" },
     { keys: [MOD, "F"], labelKey: "cmd.findReplace" },
   ] },
   { titleKey: "help.tools", rows: [

@@ -14,8 +14,8 @@ export function mountChrome(
   statusbar: HTMLElement,
   opts?: { onOpenSettings?: () => void },
 ): Chrome {
-  const title = document.createElement("span");
-  title.className = "doc-title";
+  const spacer = document.createElement("span");
+  spacer.className = "tb-spacer";
   const settingsBtn = document.createElement("button");
   settingsBtn.textContent = "⚙";
   settingsBtn.title = t("settings.title");
@@ -24,7 +24,7 @@ export function mountChrome(
   const brand = document.createElement("span");
   brand.className = "tb-brand";
   brand.innerHTML = sparkleSvg(18);
-  titlebar.replaceChildren(brand, title, settingsBtn);
+  titlebar.replaceChildren(brand, spacer, settingsBtn);
 
   const left = document.createElement("span");
   const right = document.createElement("span");
@@ -38,14 +38,7 @@ export function mountChrome(
 
   return {
     setTitle(name, dirty) {
-      title.replaceChildren();
-      if (dirty) {
-        const dot = document.createElement("span");
-        dot.className = "dirty";
-        dot.textContent = "● ";
-        title.appendChild(dot);
-      }
-      title.appendChild(document.createTextNode(name));
+      document.title = dirty ? `${name} *` : name;
     },
     setStatus(text, line, col) {
       left.textContent = t("status.words", { n: countWords(text) });

@@ -62,6 +62,7 @@ export const DICT: Record<Locale, Dict> = {
     "tree.emptyHint": "Only .md / .markdown files are shown.",
     "tree.noFolder": "No folder open.",
     "tree.openFolder": "Open Folder…",
+    "tree.changeFolder": "Change Folder...",
     "tree.error": "Couldn't open this folder.",
     "error.openFolder": "Couldn't open folder: {msg}",
     "error.readFile": "Couldn't open file: {msg}",
@@ -161,6 +162,7 @@ export const DICT: Record<Locale, Dict> = {
     "tree.emptyHint": ".md · .markdown 파일만 표시됩니다.",
     "tree.noFolder": "열린 폴더가 없습니다.",
     "tree.openFolder": "폴더 열기…",
+    "tree.changeFolder": "폴더 변경…",
     "tree.error": "이 폴더를 열 수 없습니다.",
     "error.openFolder": "폴더를 열 수 없습니다: {msg}",
     "error.readFile": "파일을 열 수 없습니다: {msg}",
@@ -260,6 +262,7 @@ export const DICT: Record<Locale, Dict> = {
     "tree.emptyHint": ".md・.markdown のみ表示されます。",
     "tree.noFolder": "フォルダーが開かれていません。",
     "tree.openFolder": "フォルダーを開く…",
+    "tree.changeFolder": "フォルダーを変更…",
     "tree.error": "このフォルダーを開けませんでした。",
     "error.openFolder": "フォルダーを開けません: {msg}",
     "error.readFile": "ファイルを開けません: {msg}",
@@ -359,6 +362,7 @@ export const DICT: Record<Locale, Dict> = {
     "tree.emptyHint": "仅显示 .md / .markdown 文件。",
     "tree.noFolder": "未打开文件夹。",
     "tree.openFolder": "打开文件夹…",
+    "tree.changeFolder": "更改文件夹…",
     "tree.error": "无法打开此文件夹。",
     "error.openFolder": "无法打开文件夹：{msg}",
     "error.readFile": "无法打开文件：{msg}",
@@ -452,8 +456,102 @@ const FIND_REPLACE_DICT: Record<Locale, Dict> = {
   },
 };
 
+const MARKDOWN_SHORTCUT_DICT: Record<Locale, Dict> = {
+  en: {
+    "help.bold": "Bold",
+    "help.italic": "Italic",
+    "help.indent": "Indent",
+    "help.outdent": "Outdent",
+  },
+  ko: {
+    "help.bold": "\uAD75\uAC8C",
+    "help.italic": "\uAE30\uC6B8\uC784",
+    "help.indent": "\uB4E4\uC5EC\uC4F0\uAE30",
+    "help.outdent": "\uB0B4\uC5B4\uC4F0\uAE30",
+  },
+  ja: {
+    "help.bold": "\u592A\u5B57",
+    "help.italic": "\u659C\u4F53",
+    "help.indent": "\u30A4\u30F3\u30C7\u30F3\u30C8",
+    "help.outdent": "\u30A2\u30A6\u30C8\u30C7\u30F3\u30C8",
+  },
+  "zh-Hans": {
+    "help.bold": "\u52A0\u7C97",
+    "help.italic": "\u659C\u4F53",
+    "help.indent": "\u7F29\u8FDB",
+    "help.outdent": "\u51CF\u5C11\u7F29\u8FDB",
+  },
+};
+
+const LAYOUT_MODE_DICT: Record<Locale, Dict> = {
+  en: {
+    "editorMode.split": "Split",
+    "layout.mode": "Layout",
+    "settings.layout": "Layout",
+    "layout.save": "Save",
+    "layout.export": "Export",
+    "layout.import": "Import",
+    "layout.reset": "Reset",
+    "layout.saved": "Layout saved.",
+    "layout.exported": "Layout exported.",
+    "layout.imported": "Layout imported.",
+    "layout.importFailed": "Couldn't import layout.",
+    "layout.resetDone": "Layout reset.",
+  },
+  ko: {
+    "editorMode.split": "\uBD84\uD560",
+    "layout.mode": "\uB808\uC774\uC544\uC6C3",
+    "settings.layout": "\uB808\uC774\uC544\uC6C3",
+    "layout.save": "\uC800\uC7A5",
+    "layout.export": "\uB0B4\uBCF4\uB0B4\uAE30",
+    "layout.import": "\uAC00\uC838\uC624\uAE30",
+    "layout.reset": "\uCD08\uAE30\uD654",
+    "layout.saved": "\uB808\uC774\uC544\uC6C3\uC744 \uC800\uC7A5\uD588\uC2B5\uB2C8\uB2E4.",
+    "layout.exported": "\uB808\uC774\uC544\uC6C3\uC744 \uB0B4\uBCF4\uB0C8\uC2B5\uB2C8\uB2E4.",
+    "layout.imported": "\uB808\uC774\uC544\uC6C3\uC744 \uAC00\uC838\uC654\uC2B5\uB2C8\uB2E4.",
+    "layout.importFailed": "\uB808\uC774\uC544\uC6C3\uC744 \uAC00\uC838\uC62C \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.",
+    "layout.resetDone": "\uB808\uC774\uC544\uC6C3\uC744 \uCD08\uAE30\uD654\uD588\uC2B5\uB2C8\uB2E4.",
+  },
+  ja: {
+    "editorMode.split": "\u5206\u5272",
+    "layout.mode": "\u30EC\u30A4\u30A2\u30A6\u30C8",
+    "settings.layout": "\u30EC\u30A4\u30A2\u30A6\u30C8",
+    "layout.save": "\u4FDD\u5B58",
+    "layout.export": "\u30A8\u30AF\u30B9\u30DD\u30FC\u30C8",
+    "layout.import": "\u30A4\u30F3\u30DD\u30FC\u30C8",
+    "layout.reset": "\u30EA\u30BB\u30C3\u30C8",
+    "layout.saved": "\u30EC\u30A4\u30A2\u30A6\u30C8\u3092\u4FDD\u5B58\u3057\u307E\u3057\u305F\u3002",
+    "layout.exported": "\u30EC\u30A4\u30A2\u30A6\u30C8\u3092\u30A8\u30AF\u30B9\u30DD\u30FC\u30C8\u3057\u307E\u3057\u305F\u3002",
+    "layout.imported": "\u30EC\u30A4\u30A2\u30A6\u30C8\u3092\u30A4\u30F3\u30DD\u30FC\u30C8\u3057\u307E\u3057\u305F\u3002",
+    "layout.importFailed": "\u30EC\u30A4\u30A2\u30A6\u30C8\u3092\u30A4\u30F3\u30DD\u30FC\u30C8\u3067\u304D\u307E\u305B\u3093\u3002",
+    "layout.resetDone": "\u30EC\u30A4\u30A2\u30A6\u30C8\u3092\u30EA\u30BB\u30C3\u30C8\u3057\u307E\u3057\u305F\u3002",
+  },
+  "zh-Hans": {
+    "editorMode.split": "\u5206\u5C4F",
+    "layout.mode": "\u5E03\u5C40",
+    "settings.layout": "\u5E03\u5C40",
+    "layout.save": "\u4FDD\u5B58",
+    "layout.export": "\u5BFC\u51FA",
+    "layout.import": "\u5BFC\u5165",
+    "layout.reset": "\u91CD\u7F6E",
+    "layout.saved": "\u5E03\u5C40\u5DF2\u4FDD\u5B58\u3002",
+    "layout.exported": "\u5E03\u5C40\u5DF2\u5BFC\u51FA\u3002",
+    "layout.imported": "\u5E03\u5C40\u5DF2\u5BFC\u5165\u3002",
+    "layout.importFailed": "\u65E0\u6CD5\u5BFC\u5165\u5E03\u5C40\u3002",
+    "layout.resetDone": "\u5E03\u5C40\u5DF2\u91CD\u7F6E\u3002",
+  },
+};
+
 for (const locale of Object.keys(FIND_REPLACE_DICT) as Locale[]) {
   Object.assign(DICT[locale], FIND_REPLACE_DICT[locale]);
+}
+
+for (const locale of Object.keys(MARKDOWN_SHORTCUT_DICT) as Locale[]) {
+  Object.assign(DICT[locale], MARKDOWN_SHORTCUT_DICT[locale]);
+}
+
+for (const locale of Object.keys(LAYOUT_MODE_DICT) as Locale[]) {
+  Object.assign(DICT[locale], LAYOUT_MODE_DICT[locale]);
 }
 
 let current: Locale = "en";

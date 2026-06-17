@@ -5,7 +5,13 @@ export type Result<T> =
   | { status: "error"; error: string };
 
 export interface FileNode { name: string; path: string; isDir: boolean; children: FileNode[]; }
-export interface Settings { theme: string | null; lastFolder: string | null; openTabs: string[]; locale: string | null; editorWidth: string | null; editorMode: string | null; sidebarWidth: number | null; }
+export interface LayoutSettings { sidebarWidth: number | null; outlineHeight: number | null; splitRatio: number | null; }
+export type PaneLayoutNode =
+  | { type: "pane"; paneId: string }
+  | { type: "split"; direction: "row" | "column"; children: PaneLayoutNode[]; ratios: number[] };
+export interface PaneSnapshot { id: string; openTabs: string[]; activePath: string | null; }
+export interface PaneWorkspaceSnapshot { version: 1; root: PaneLayoutNode; activePaneId: string; panes: PaneSnapshot[]; }
+export interface Settings { theme: string | null; lastFolder: string | null; openTabs: string[]; locale: string | null; editorWidth: string | null; editorMode: string | null; sidebarWidth: number | null; layout: LayoutSettings | null; paneLayout: PaneWorkspaceSnapshot | null; }
 export interface SearchHit { path: string; line: number; snippet: string; }
 
 async function call<T>(cmd: string, args: Record<string, unknown>): Promise<Result<T>> {

@@ -14,6 +14,11 @@ export function mountSettingsPanel(handlers: {
   onHelp: () => void;
   onSetDefault: () => void;
   onCheckUpdates: () => void;
+  onSaveLayout: () => void;
+  onExportLayout: () => string;
+  onImportLayout: (text: string) => boolean;
+  onResetLayout: () => void;
+  getLayoutSummary: () => string;
 }): SettingsPanel {
   const backdrop = document.createElement("div"); backdrop.className = "settings-backdrop hidden";
   const card = document.createElement("div"); card.className = "settings-card";
@@ -21,6 +26,24 @@ export function mountSettingsPanel(handlers: {
   document.body.appendChild(backdrop);
 
   let updateStatusEl: HTMLElement | null = null;
+  let layoutStatusEl: HTMLElement | null = null;
+
+  function setLayoutStatus(key: string): void {
+    if (layoutStatusEl) layoutStatusEl.textContent = t(key);
+  }
+
+  function exportLayoutFile(): void {
+    const blob = new Blob([handlers.onExportLayout()], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "rune-layout.json";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    setLayoutStatus("layout.exported");
+  }
 
   function build() {
     card.replaceChildren();
@@ -67,13 +90,50 @@ export function mountSettingsPanel(handlers: {
     const modeRow = document.createElement("div"); modeRow.className = "settings-row";
     const modeLabel = document.createElement("label"); modeLabel.textContent = t("settings.editorMode");
     const modeSel = document.createElement("select");
-    for (const v of ["preview", "source"] as const) {
-      const o = document.createElement("option"); o.value = v; o.textContent = t(v === "preview" ? "editorMode.preview" : "editorMode.source");
+    for (const v of ["preview", "source", "split"] as const) {
+      const o = document.createElement("option"); o.value = v; o.textContent = t(`editorMode.${v}`);
       if (v === handlers.getEditorMode()) o.selected = true;
       modeSel.appendChild(o);
     }
     modeSel.addEventListener("change", () => handlers.onEditorMode(modeSel.value as EditorMode));
     modeRow.append(modeLabel, modeSel); card.appendChild(modeRow);
+
+    // Layout
+    const layoutRow = document.createElement("div"); layoutRow.className = "settings-row settings-row-layout";
+    const layoutLabel = document.createElement("label"); layoutLabel.textContent = t("settings.layout");
+    const layoutWrap = document.createElement("div"); layoutWrap.className = "settings-layout";
+    const layoutSummary = document.createElement("div"); layoutSummary.className = "settings-layout-summary"; layoutSummary.textContent = handlers.getLayoutSummary();
+    const layoutActions = document.createElement("div"); layoutActions.className = "settings-layout-actions";
+    const saveLayoutBtn = document.createElement("button"); saveLayoutBtn.type = "button"; saveLayoutBtn.className = "btn btn-secondary"; saveLayoutBtn.textContent = t("layout.save");
+    saveLayoutBtn.addEventListener("click", () => { handlers.onSaveLayout(); setLayoutStatus("layout.saved"); });
+    const exportLayoutBtn = document.createElement("button"); exportLayoutBtn.type = "button"; exportLayoutBtn.className = "btn btn-secondary"; exportLayoutBtn.textContent = t("layout.export");
+    exportLayoutBtn.addEventListener("click", exportLayoutFile);
+    const importLayoutBtn = document.createElement("button"); importLayoutBtn.type = "button"; importLayoutBtn.className = "btn btn-secondary"; importLayoutBtn.textContent = t("layout.import");
+    const importInput = document.createElement("input"); importInput.type = "file"; importInput.accept = "application/json,.json"; importInput.className = "settings-file-input";
+    importInput.addEventListener("change", () => {
+      const file = importInput.files?.[0];
+      if (!file) return;
+      void file.text().then((text) => {
+        if (handlers.onImportLayout(text)) {
+          layoutSummary.textContent = handlers.getLayoutSummary();
+          setLayoutStatus("layout.imported");
+        } else {
+          setLayoutStatus("layout.importFailed");
+        }
+        importInput.value = "";
+      });
+    });
+    importLayoutBtn.addEventListener("click", () => importInput.click());
+    const resetLayoutBtn = document.createElement("button"); resetLayoutBtn.type = "button"; resetLayoutBtn.className = "btn btn-secondary"; resetLayoutBtn.textContent = t("layout.reset");
+    resetLayoutBtn.addEventListener("click", () => {
+      handlers.onResetLayout();
+      layoutSummary.textContent = handlers.getLayoutSummary();
+      setLayoutStatus("layout.resetDone");
+    });
+    layoutStatusEl = document.createElement("div"); layoutStatusEl.className = "settings-status";
+    layoutActions.append(saveLayoutBtn, exportLayoutBtn, importLayoutBtn, resetLayoutBtn, importInput);
+    layoutWrap.append(layoutSummary, layoutActions, layoutStatusEl);
+    layoutRow.append(layoutLabel, layoutWrap); card.appendChild(layoutRow);
 
     // Shortcuts & help
     const helpRow = document.createElement("div"); helpRow.className = "settings-row";

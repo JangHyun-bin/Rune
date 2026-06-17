@@ -20,15 +20,50 @@ export function selectionInsideSource(state: EditorState, from: number, to: numb
   return selectionIntersectsSourceRange(state.selection.ranges, from, to);
 }
 
+export function preventPreviewWidgetEvent(event: Event): void {
+  event.preventDefault();
+  event.stopPropagation();
+}
+
+export function previewWidgetEditAnchor(from: number, to: number, relativeOffset = 1): number {
+  if (to - from <= 1) return from;
+  const offset = Math.max(1, Math.min(relativeOffset, to - from - 1));
+  return from + offset;
+}
+
+export function editPreviewWidgetSource(
+  view: EditorView,
+  from: number,
+  to: number,
+  relativeOffset = 1,
+): void {
+  const anchor = previewWidgetEditAnchor(from, to, relativeOffset);
+  view.dispatch({ selection: { anchor }, scrollIntoView: true });
+  view.focus();
+}
+
+export function bindPreviewWidgetEdit(
+  element: HTMLElement,
+  view: EditorView,
+  from: number,
+  to: number,
+  getRelativeOffset?: (event: PointerEvent) => number | null | undefined,
+): void {
+  element.addEventListener("pointerdown", (event) => {
+    preventPreviewWidgetEvent(event);
+    editPreviewWidgetSource(view, from, to, getRelativeOffset?.(event) ?? 1);
+  });
+}
+
 export function makePreviewWidgetInert(element: HTMLElement): HTMLElement {
   element.contentEditable = "false";
   element.draggable = false;
   element.setAttribute("data-rune-preview-widget", "true");
 
-  const prevent = (event: Event) => event.preventDefault();
-  element.addEventListener("mousedown", prevent);
-  element.addEventListener("dragstart", prevent);
-  element.addEventListener("selectstart", prevent);
+  element.addEventListener("pointerdown", preventPreviewWidgetEvent);
+  element.addEventListener("mousedown", preventPreviewWidgetEvent);
+  element.addEventListener("dragstart", preventPreviewWidgetEvent);
+  element.addEventListener("selectstart", preventPreviewWidgetEvent);
   return element;
 }
 

@@ -22,6 +22,14 @@ describe("export markdown render", () => {
     expect(html).not.toContain("<hr");
   });
 
+  it("renders a body horizontal rule as hr", () => {
+    const html = mdRender("# A\n\n---\n\nB");
+
+    expect(html).toContain("<hr");
+    expect(html).toContain("<h1>A</h1>");
+    expect(html).toContain("<p>B</p>");
+  });
+
   it("renders Markdown callouts without showing the callout marker", () => {
     const html = mdRender("> [!NOTE]\n> Keep this in mind.");
 
