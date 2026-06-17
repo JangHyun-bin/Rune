@@ -9,6 +9,37 @@ pub struct LayoutSettings {
     pub split_ratio: Option<f32>,
 }
 
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(tag = "type", rename_all = "camelCase")]
+pub enum PaneLayoutNode {
+    Pane {
+        #[serde(rename = "paneId")]
+        pane_id: String,
+    },
+    Split {
+        direction: String,
+        children: Vec<PaneLayoutNode>,
+        ratios: Vec<f32>,
+    },
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PaneSnapshot {
+    pub id: String,
+    pub open_tabs: Vec<String>,
+    pub active_path: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct PaneWorkspaceSnapshot {
+    pub version: u8,
+    pub root: PaneLayoutNode,
+    pub active_pane_id: String,
+    pub panes: Vec<PaneSnapshot>,
+}
+
 #[derive(Serialize, Deserialize, Debug, Default)]
 #[serde(rename_all = "camelCase", default)]
 pub struct Settings {
@@ -20,6 +51,7 @@ pub struct Settings {
     pub editor_mode: Option<String>,
     pub sidebar_width: Option<u16>,
     pub layout: Option<LayoutSettings>,
+    pub pane_layout: Option<PaneWorkspaceSnapshot>,
 }
 
 pub fn load(path: &PathBuf) -> Settings {
@@ -49,6 +81,15 @@ mod tests {
         assert_eq!(load(&p).editor_width, None);
         assert_eq!(load(&p).sidebar_width, None);
         assert!(load(&p).layout.is_none());
+        assert!(load(&p).pane_layout.is_none());
+        std::fs::write(
+            &p,
+            r#"{"theme":"light","openTabs":["/w/legacy.md"],"layout":{"sidebarWidth":280}}"#,
+        )
+        .unwrap();
+        let legacy = load(&p);
+        assert_eq!(legacy.open_tabs, vec!["/w/legacy.md".to_string()]);
+        assert!(legacy.pane_layout.is_none());
         let s = Settings {
             theme: Some("dark".into()),
             last_folder: Some("/w".into()),
@@ -62,8 +103,47 @@ mod tests {
                 outline_height: Some(180),
                 split_ratio: Some(0.6),
             }),
+            pane_layout: Some(PaneWorkspaceSnapshot {
+                version: 1,
+                root: PaneLayoutNode::Split {
+                    direction: "row".into(),
+                    children: vec![
+                        PaneLayoutNode::Pane {
+                            pane_id: "pane-1".into(),
+                        },
+                        PaneLayoutNode::Pane {
+                            pane_id: "pane-2".into(),
+                        },
+                    ],
+                    ratios: vec![0.4, 0.6],
+                },
+                active_pane_id: "pane-2".into(),
+                panes: vec![
+                    PaneSnapshot {
+                        id: "pane-1".into(),
+                        open_tabs: vec!["/w/a.md".into()],
+                        active_path: Some("/w/a.md".into()),
+                    },
+                    PaneSnapshot {
+                        id: "pane-2".into(),
+                        open_tabs: vec!["/w/b.md".into()],
+                        active_path: Some("/w/b.md".into()),
+                    },
+                ],
+            }),
         };
         save(&p, &s).unwrap();
+        let raw_json: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&p).unwrap()).unwrap();
+        assert_eq!(
+            raw_json["paneLayout"]["root"]["children"][0]["paneId"],
+            serde_json::json!("pane-1")
+        );
+        assert_eq!(raw_json["paneLayout"]["activePaneId"], serde_json::json!("pane-2"));
+        assert_eq!(
+            raw_json["paneLayout"]["panes"][0]["openTabs"][0],
+            serde_json::json!("/w/a.md")
+        );
         let got = load(&p);
         assert_eq!(got.theme.as_deref(), Some("dark"));
         assert_eq!(got.open_tabs, vec!["/w/a.md".to_string()]);
@@ -74,5 +154,21 @@ mod tests {
         assert_eq!(layout.sidebar_width, Some(330));
         assert_eq!(layout.outline_height, Some(180));
         assert_eq!(layout.split_ratio, Some(0.6));
+        let pane_layout = got.pane_layout.unwrap();
+        assert_eq!(pane_layout.version, 1);
+        assert_eq!(pane_layout.active_pane_id, "pane-2");
+        assert_eq!(pane_layout.panes.len(), 2);
+        match pane_layout.root {
+            PaneLayoutNode::Split {
+                direction,
+                children,
+                ratios,
+            } => {
+                assert_eq!(direction, "row");
+                assert_eq!(children.len(), 2);
+                assert_eq!(ratios, vec![0.4, 0.6]);
+            }
+            PaneLayoutNode::Pane { .. } => panic!("expected split pane layout"),
+        }
     }
 }
