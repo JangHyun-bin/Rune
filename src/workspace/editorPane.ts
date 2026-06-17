@@ -74,6 +74,12 @@ function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
 
+interface SaveQueue {
+  inFlight: boolean;
+  pending: boolean;
+  waiters: Array<() => void>;
+}
+
 export function createEditorPane(options: EditorPaneOptions): EditorPane {
   const { id } = options;
   let editorMode = options.editorMode;
@@ -100,7 +106,7 @@ export function createEditorPane(options: EditorPaneOptions): EditorPane {
   let splitResizerCleanup: (() => void) | null = null;
   let splitSourceRatio = 0.5;
   const autosaveTimers = new Map<string, number>();
-  const saveGenerations = new Map<string, number>();
+  const saveQueues = new Map<string, SaveQueue>();
 
   const tabBar = mountTabBar(tabbarHost, {
     paneId: id,
@@ -292,14 +298,18 @@ export function createEditorPane(options: EditorPaneOptions): EditorPane {
     autosaveTimers.clear();
   }
 
-  function nextSaveGeneration(tabId: string): number {
-    const generation = (saveGenerations.get(tabId) ?? 0) + 1;
-    saveGenerations.set(tabId, generation);
-    return generation;
+  function saveQueue(tabId: string): SaveQueue {
+    let queue = saveQueues.get(tabId);
+    if (!queue) {
+      queue = { inFlight: false, pending: false, waiters: [] };
+      saveQueues.set(tabId, queue);
+    }
+    return queue;
   }
 
-  function currentSaveGeneration(tabId: string): number {
-    return saveGenerations.get(tabId) ?? 0;
+  function resolveSaveWaiters(queue: SaveQueue): void {
+    const waiters = queue.waiters.splice(0);
+    for (const resolve of waiters) resolve();
   }
 
   async function openPath(path: string): Promise<void> {
@@ -389,29 +399,45 @@ export function createEditorPane(options: EditorPaneOptions): EditorPane {
 
   async function saveTabIfDirty(tabId: string): Promise<void> {
     clearAutosave(tabId);
-
-    const tab = tabs.tabs.find((candidate) => candidate.id === tabId);
-    if (!tab?.path || !tabDirty(tab)) return;
-
-    const path = tab.path;
-    const text = tab.currentText;
-    const generation = nextSaveGeneration(tabId);
-    const result = await options.writeFile(path, text);
-    if (result.status === "error") {
-      console.error(result.error);
-      return;
+    const queue = saveQueue(tabId);
+    if (queue.inFlight) {
+      queue.pending = true;
+      return new Promise((resolve) => queue.waiters.push(resolve));
     }
 
-    if (currentSaveGeneration(tabId) !== generation) return;
+    queue.inFlight = true;
+    try {
+      while (true) {
+        queue.pending = false;
+        const tab = tabs.tabs.find((candidate) => candidate.id === tabId);
+        if (!tab?.path || !tabDirty(tab)) return;
 
-    const saved = markTabSavedById(tabs, tabId, path, text);
-    if (!saved.updated) return;
+        const path = tab.path;
+        const text = tab.currentText;
+        const result = await options.writeFile(path, text);
+        if (result.status === "error") {
+          console.error(result.error);
+          return;
+        }
 
-    tabs = saved.state;
-    if (tabs.activeId === tabId && view) states.set(tabId, view.state);
-    renderTabs();
-    options.onDirtyChange(id);
-    options.onRequestSaveSettings();
+        const saved = markTabSavedById(tabs, tabId, path, text);
+        if (saved.updated) {
+          tabs = saved.state;
+          if (tabs.activeId === tabId && view) states.set(tabId, view.state);
+          renderTabs();
+          options.onDirtyChange(id);
+          options.onRequestSaveSettings();
+        }
+
+        const latest = tabs.tabs.find((candidate) => candidate.id === tabId);
+        if (!latest?.path || !tabDirty(latest)) return;
+      }
+    } finally {
+      queue.inFlight = false;
+      queue.pending = false;
+      resolveSaveWaiters(queue);
+      if (queue.waiters.length === 0) saveQueues.delete(tabId);
+    }
   }
 
   async function saveActive(): Promise<void> {

@@ -379,7 +379,7 @@ describe("editor pane", () => {
     pane.destroy();
   });
 
-  it("ignores stale overlapping save completions for the same tab", async () => {
+  it("serializes overlapping saves for the same tab", async () => {
     const host = document.createElement("div");
     const firstWrite = deferred<{ status: "ok"; data: null }>();
     const secondWrite = deferred<{ status: "ok"; data: null }>();
@@ -409,17 +409,19 @@ describe("editor pane", () => {
     const secondSave = pane.saveActive();
 
     expect(writeFile).toHaveBeenNthCalledWith(1, "/w/a.md", "# v1");
-    expect(writeFile).toHaveBeenNthCalledWith(2, "/w/a.md", "# v2");
-
-    secondWrite.resolve({ status: "ok", data: null });
-    await secondSave;
-
-    expect(pane.activeText()).toBe("# v2");
-    expect(pane.activeDirty()).toBe(false);
-    expect(onRequestSaveSettings).toHaveBeenCalledTimes(1);
+    expect(writeFile).toHaveBeenCalledTimes(1);
+    expect(pane.activeDirty()).toBe(true);
 
     firstWrite.resolve({ status: "ok", data: null });
-    await firstSave;
+    await Promise.resolve();
+
+    expect(writeFile).toHaveBeenNthCalledWith(2, "/w/a.md", "# v2");
+    expect(pane.activeText()).toBe("# v2");
+    expect(pane.activeDirty()).toBe(true);
+    expect(onRequestSaveSettings).not.toHaveBeenCalled();
+
+    secondWrite.resolve({ status: "ok", data: null });
+    await Promise.all([firstSave, secondSave]);
 
     expect(pane.activeText()).toBe("# v2");
     expect(pane.activeDirty()).toBe(false);
