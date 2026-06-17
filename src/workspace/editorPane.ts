@@ -41,7 +41,7 @@ export interface EditorPane {
   id: string;
   root: HTMLElement;
   view: EditorView;
-  openPath(path: string): Promise<void>;
+  openPath(path: string): Promise<boolean>;
   newDoc(): void;
   switchTo(tabId: string): void;
   closeTab(tabId: string): void;
@@ -312,17 +312,17 @@ export function createEditorPane(options: EditorPaneOptions): EditorPane {
     for (const resolve of waiters) resolve();
   }
 
-  async function openPath(path: string): Promise<void> {
+  async function openPath(path: string): Promise<boolean> {
     const existing = tabs.tabs.find((tab) => tab.path === path);
     if (existing) {
       switchTo(existing.id);
-      return;
+      return true;
     }
 
     const result = await options.readFile(path);
     if (result.status === "error") {
       console.error(result.error);
-      return;
+      return false;
     }
 
     stashActiveState();
@@ -333,6 +333,7 @@ export function createEditorPane(options: EditorPaneOptions): EditorPane {
     tabs = openOrFocus(tabs, path, result.data);
     showActive();
     options.onRequestSaveSettings();
+    return true;
   }
 
   function newDoc(): void {

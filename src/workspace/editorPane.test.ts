@@ -254,12 +254,44 @@ describe("editor pane", () => {
       onRequestSaveSettings: vi.fn(),
     });
 
-    await pane.openPath("/w/a.md");
+    await expect(pane.openPath("/w/a.md")).resolves.toBe(true);
 
     expect(pane.activePath()).toBe("/w/a.md");
     expect(host.querySelector(".pane-tabbar")).not.toBeNull();
     expect(host.querySelector(".pane-editor")).not.toBeNull();
 
+    pane.destroy();
+  });
+
+  it("returns false on read errors without changing the active tab", async () => {
+    const host = document.createElement("div");
+    const onRequestSaveSettings = vi.fn();
+    const readFile = vi.fn(async (path: string) => {
+      if (path === "/w/missing.md") return { status: "error" as const, error: "missing" };
+      return { status: "ok" as const, data: `# ${path}` };
+    });
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    const pane = createEditorPane({
+      id: "pane-1",
+      host,
+      editorMode: "source",
+      readFile,
+      writeFile: vi.fn(async () => ({ status: "ok" as const, data: null })),
+      onActiveChange: vi.fn(),
+      onDirtyChange: vi.fn(),
+      onRequestSaveSettings,
+    });
+
+    await pane.openPath("/w/a.md");
+    onRequestSaveSettings.mockClear();
+
+    await expect(pane.openPath("/w/missing.md")).resolves.toBe(false);
+
+    expect(pane.activePath()).toBe("/w/a.md");
+    expect(pane.tabsSnapshot()).toEqual({ openTabs: ["/w/a.md"], activePath: "/w/a.md" });
+    expect(onRequestSaveSettings).not.toHaveBeenCalled();
+
+    consoleError.mockRestore();
     pane.destroy();
   });
 

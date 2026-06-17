@@ -22,19 +22,19 @@ export interface PaneWorkspaceOptions {
 
 export interface PaneWorkspace {
   activePane(): EditorPane;
-  openPathInActivePane(path: string): Promise<void>;
-  openPathInPane(paneId: PaneId, path: string): Promise<void>;
+  openPathInActivePane(path: string): Promise<boolean>;
+  openPathInPane(paneId: PaneId, path: string): Promise<boolean>;
   splitActivePaneAndOpen(
     path: string,
     direction: SplitDirection,
     side: "before" | "after",
-  ): Promise<PaneId>;
+  ): Promise<PaneId | null>;
   splitPaneAndOpen(
     paneId: PaneId,
     path: string,
     direction: SplitDirection,
     side: "before" | "after",
-  ): Promise<PaneId>;
+  ): Promise<PaneId | null>;
   setActivePane(paneId: PaneId): void;
   setEditorMode(mode: EditorMode): void;
   snapshot(): PaneWorkspaceSnapshot;
@@ -90,10 +90,10 @@ export function createPaneWorkspace(options: PaneWorkspaceOptions): PaneWorkspac
     }
   }
 
-  function createPane(paneId: PaneId): EditorPane {
+  function createPane(paneId: PaneId, host: HTMLElement = options.host): EditorPane {
     const pane = createEditorPane({
       id: paneId,
-      host: options.host,
+      host,
       editorMode,
       readFile: options.readFile,
       writeFile: options.writeFile,
@@ -145,6 +145,10 @@ export function createPaneWorkspace(options: PaneWorkspaceOptions): PaneWorkspac
     return paneId;
   }
 
+  function restoreNextPaneNumber(value: number): void {
+    nextPaneNumber = value;
+  }
+
   function setActivePane(paneId: PaneId): void {
     assertPane(panes, paneId);
     activePaneId = paneId;
@@ -152,11 +156,23 @@ export function createPaneWorkspace(options: PaneWorkspaceOptions): PaneWorkspac
     options.onActivePaneChange(paneId);
   }
 
-  async function openPathInPane(paneId: PaneId, path: string): Promise<void> {
+  async function tryOpenPath(pane: EditorPane, path: string): Promise<boolean> {
+    try {
+      return await pane.openPath(path);
+    } catch (error) {
+      console.error(error);
+      return false;
+    }
+  }
+
+  async function openPathInPane(paneId: PaneId, path: string): Promise<boolean> {
     const pane = assertPane(panes, paneId);
+    const opened = await tryOpenPath(pane, path);
+    if (!opened) return false;
     setActivePane(paneId);
-    await pane.openPath(path);
     options.onActiveDocumentChange();
+    options.onRequestSaveSettings();
+    return true;
   }
 
   async function splitPaneAndOpen(
@@ -164,13 +180,25 @@ export function createPaneWorkspace(options: PaneWorkspaceOptions): PaneWorkspac
     path: string,
     direction: SplitDirection,
     side: "before" | "after",
-  ): Promise<PaneId> {
+  ): Promise<PaneId | null> {
     assertPane(panes, paneId);
+    const previousNextPaneNumber = nextPaneNumber;
     const newId = newPaneId();
-    createPane(newId);
+    const stagingHost = document.createElement("div");
+    const pane = createPane(newId, stagingHost);
+    const opened = await tryOpenPath(pane, path);
+    if (!opened) {
+      pane.destroy();
+      panes.delete(newId);
+      restoreNextPaneNumber(previousNextPaneNumber);
+      return null;
+    }
+
     root = splitPane(root, { sourcePaneId: paneId, direction, side, newPaneId: newId });
     render();
-    await openPathInPane(newId, path);
+    setActivePane(newId);
+    options.onActiveDocumentChange();
+    options.onRequestSaveSettings();
     return newId;
   }
 

@@ -142,6 +142,7 @@ interface MockEditorPaneOptions {
   id: string;
   host: HTMLElement;
   editorMode: string;
+  readFile: (path: string) => Promise<{ status: "ok"; data: string } | { status: "error"; error: string }>;
   onRequestSaveSettings?: () => void;
 }
 
@@ -160,9 +161,12 @@ const editorPaneMock = vi.hoisted(() => {
       root,
       view: {},
       openPath: vi.fn(async (path: string) => {
+        const result = await options.readFile(path);
+        if (result.status === "error") return false;
         if (!openTabs.includes(path)) openTabs.push(path);
         activePath = path;
         options.onRequestSaveSettings?.();
+        return true;
       }),
       newDoc: vi.fn(),
       switchTo: vi.fn(),
@@ -173,7 +177,10 @@ const editorPaneMock = vi.hoisted(() => {
       tabsSnapshot: vi.fn(() => ({ openTabs: [...openTabs], activePath })),
       setEditorMode: vi.fn(),
       saveActive: vi.fn(async () => {}),
-      destroy: vi.fn(() => root.remove()),
+      destroy: vi.fn(() => {
+        root.remove();
+        panes.delete(options.id);
+      }),
     };
 
     panes.set(options.id, pane);
@@ -187,18 +194,28 @@ vi.mock("./editorPane", () => ({
   createEditorPane: editorPaneMock.createEditorPane,
 }));
 
-function makeWorkspace() {
+interface WorkspaceOverrides {
+  readFile?: (path: string) => Promise<{ status: "ok"; data: string } | { status: "error"; error: string }>;
+  onActivePaneChange?: ReturnType<typeof vi.fn>;
+  onActiveDocumentChange?: ReturnType<typeof vi.fn>;
+  onRequestSaveSettings?: ReturnType<typeof vi.fn>;
+}
+
+function makeWorkspace(overrides: WorkspaceOverrides = {}) {
   const host = document.createElement("div");
+  const onActivePaneChange = overrides.onActivePaneChange ?? vi.fn();
+  const onActiveDocumentChange = overrides.onActiveDocumentChange ?? vi.fn();
+  const onRequestSaveSettings = overrides.onRequestSaveSettings ?? vi.fn();
   const workspace = createPaneWorkspace({
     host,
     editorMode: "source",
-    readFile: vi.fn(async (path: string) => ({ status: "ok" as const, data: `# ${path}` })),
+    readFile: overrides.readFile ?? vi.fn(async (path: string) => ({ status: "ok" as const, data: `# ${path}` })),
     writeFile: vi.fn(async () => ({ status: "ok" as const, data: null })),
-    onActivePaneChange: vi.fn(),
-    onActiveDocumentChange: vi.fn(),
-    onRequestSaveSettings: vi.fn(),
+    onActivePaneChange,
+    onActiveDocumentChange,
+    onRequestSaveSettings,
   });
-  return { host, workspace };
+  return { host, workspace, onActivePaneChange, onActiveDocumentChange, onRequestSaveSettings };
 }
 
 function paneRoot(host: HTMLElement, paneId: string): HTMLElement {
@@ -235,6 +252,31 @@ describe("pane workspace", () => {
     workspace.destroy();
   });
 
+  it("openPathInPane failure does not change the active pane or notify document changes", async () => {
+    const onActiveDocumentChange = vi.fn();
+    const { workspace } = makeWorkspace({
+      onActiveDocumentChange,
+      readFile: vi.fn(async (path: string) =>
+        path === "/w/missing.md"
+          ? { status: "error" as const, error: "missing" }
+          : { status: "ok" as const, data: `# ${path}` },
+      ),
+    });
+    await workspace.openPathInActivePane("/w/a.md");
+    const pane2 = await workspace.splitActivePaneAndOpen("/w/b.md", "row", "after");
+    if (!pane2) throw new Error("Expected split pane");
+    workspace.setActivePane("pane-1");
+    onActiveDocumentChange.mockClear();
+
+    await expect(workspace.openPathInPane(pane2, "/w/missing.md")).resolves.toBe(false);
+
+    expect(workspace.activePane().id).toBe("pane-1");
+    expect(workspace.activePane().activePath()).toBe("/w/a.md");
+    expect(onActiveDocumentChange).not.toHaveBeenCalled();
+
+    workspace.destroy();
+  });
+
   it("splits the active pane and opens a path into the new pane", async () => {
     const { host, workspace } = makeWorkspace();
     await workspace.openPathInActivePane("/w/a.md");
@@ -253,10 +295,36 @@ describe("pane workspace", () => {
     workspace.destroy();
   });
 
+  it("splitActivePaneAndOpen failure rolls back the new pane and keeps the original active pane", async () => {
+    const onActiveDocumentChange = vi.fn();
+    const { workspace } = makeWorkspace({
+      onActiveDocumentChange,
+      readFile: vi.fn(async (path: string) =>
+        path === "/w/missing.md"
+          ? { status: "error" as const, error: "missing" }
+          : { status: "ok" as const, data: `# ${path}` },
+      ),
+    });
+    await workspace.openPathInActivePane("/w/a.md");
+    onActiveDocumentChange.mockClear();
+
+    await expect(workspace.splitActivePaneAndOpen("/w/missing.md", "row", "after")).resolves.toBeNull();
+
+    expect(workspace.snapshot().root).toEqual({ type: "pane", paneId: "pane-1" });
+    expect(workspace.snapshot().panes.map((pane) => pane.id)).toEqual(["pane-1"]);
+    expect(workspace.activePane().id).toBe("pane-1");
+    expect(workspace.activePane().activePath()).toBe("/w/a.md");
+    expect(onActiveDocumentChange).not.toHaveBeenCalled();
+    expect(editorPaneMock.panes.has("pane-2")).toBe(false);
+
+    workspace.destroy();
+  });
+
   it("setActivePane toggles the active class on pane roots", async () => {
     const { host, workspace } = makeWorkspace();
 
     const pane2 = await workspace.splitActivePaneAndOpen("/w/b.md", "row", "after");
+    if (!pane2) throw new Error("Expected split pane");
 
     expect(classTokens(paneRoot(host, "pane-1"))).not.toContain("active");
     expect(classTokens(paneRoot(host, pane2))).toContain("active");
@@ -272,6 +340,7 @@ describe("pane workspace", () => {
   it("setEditorMode propagates to all panes", async () => {
     const { workspace } = makeWorkspace();
     const pane2 = await workspace.splitActivePaneAndOpen("/w/b.md", "row", "after");
+    if (!pane2) throw new Error("Expected split pane");
 
     workspace.setEditorMode("split");
 
@@ -285,6 +354,7 @@ describe("pane workspace", () => {
     const { workspace } = makeWorkspace();
 
     const pane2 = await workspace.splitActivePaneAndOpen("/w/b.md", "row", "after");
+    if (!pane2) throw new Error("Expected split pane");
     await workspace.splitPaneAndOpen("pane-1", "/w/c.md", "column", "before");
     const snapshot = workspace.snapshot();
 
