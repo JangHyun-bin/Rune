@@ -33,7 +33,7 @@ import { DEFAULT_LAYOUT, normalizeLayoutSettings, parseLayoutSettingsJson, seria
 import { createPaneWorkspace, type PaneWorkspace } from "./workspace/paneWorkspace";
 import { isTauri } from "@tauri-apps/api/core";
 import { normalizePaneWorkspaceSnapshot } from "./workspace/panePersistence";
-import { firstMarkdownPath, hitPaneDropZone, physicalToCssPoint } from "./workspace/dropTargets";
+import { dropZoneRect, firstMarkdownPath, hitPaneDropZone, physicalToCssPoint } from "./workspace/dropTargets";
 import { handleNativeFileDrop, type ResolvedDropTarget } from "./workspace/fileDrop";
 
 const chrome = mountChrome(document.getElementById("titlebar")!, document.getElementById("statusbar")!, {
@@ -712,6 +712,7 @@ async function reloadActive(): Promise<void> {
 }
 let fsTimer: number | undefined;
 let nativeDragHasMarkdown = false;
+let nativeDragPreviousTarget: ResolvedDropTarget | null = null;
 function onFsChange(paths: string[]): void {
   if (fsTimer !== undefined) clearTimeout(fsTimer);
   fsTimer = window.setTimeout(async () => {
@@ -735,7 +736,14 @@ function resolveDropTarget(point: { x: number; y: number }): ResolvedDropTarget 
 
   const pane = element?.closest<HTMLElement>(".editor-pane-root");
   if (!pane?.dataset.paneId) return { kind: "none", paneId: null };
-  return { paneId: pane.dataset.paneId, ...hitPaneDropZone(pane.getBoundingClientRect(), point) };
+  const previous = nativeDragPreviousTarget?.kind === "pane-edge" && nativeDragPreviousTarget.paneId === pane.dataset.paneId
+    ? {
+        kind: "pane-edge" as const,
+        direction: nativeDragPreviousTarget.direction,
+        side: nativeDragPreviousTarget.side,
+      }
+    : null;
+  return { paneId: pane.dataset.paneId, ...hitPaneDropZone(pane.getBoundingClientRect(), point, { previous }) };
 }
 function setDropOverlayRect(rect: { left: number; top: number; width: number; height: number }, kind: string): void {
   dropOverlay.dataset.kind = kind;
@@ -747,9 +755,6 @@ function setDropOverlayRect(rect: { left: number; top: number; width: number; he
 }
 function hideDropOverlay(): void {
   dropOverlay.classList.add("hidden");
-}
-function dropEdgeSize(length: number): number {
-  return Math.min(96, Math.max(42, length * 0.22));
 }
 function showDropOverlay(target: ResolvedDropTarget): void {
   if (target.kind === "none") {
@@ -767,16 +772,7 @@ function showDropOverlay(target: ResolvedDropTarget): void {
   const pane = elementForPane(".editor-pane-root", target.paneId);
   if (!pane) { hideDropOverlay(); return; }
   const rect = pane.getBoundingClientRect();
-  if (target.kind === "pane-center") {
-    setDropOverlayRect(rect, "pane-center");
-    return;
-  }
-
-  const width = target.direction === "row" ? dropEdgeSize(rect.width) : rect.width;
-  const height = target.direction === "column" ? dropEdgeSize(rect.height) : rect.height;
-  const left = target.direction === "row" && target.side === "after" ? rect.right - width : rect.left;
-  const top = target.direction === "column" && target.side === "after" ? rect.bottom - height : rect.top;
-  setDropOverlayRect({ left, top, width, height }, "pane-edge");
+  setDropOverlayRect(dropZoneRect(rect, target), target.kind);
 }
 function safeListen<T>(event: string, handler: (event: Event<T>) => void): void {
   if (!isTauri()) return;
@@ -796,6 +792,7 @@ function bindNativeFileDrop(): void {
       const payload = event.payload;
       if (payload.type === "leave") {
         nativeDragHasMarkdown = false;
+        nativeDragPreviousTarget = null;
         hideDropOverlay();
         return;
       }
@@ -804,6 +801,7 @@ function bindNativeFileDrop(): void {
         nativeDragHasMarkdown = firstMarkdownPath(payload.paths) !== null;
       }
       if (!nativeDragHasMarkdown) {
+        nativeDragPreviousTarget = null;
         hideDropOverlay();
         return;
       }
@@ -812,6 +810,7 @@ function bindNativeFileDrop(): void {
       const target = resolveDropTarget(point);
       if (payload.type === "drop") {
         nativeDragHasMarkdown = false;
+        nativeDragPreviousTarget = null;
         hideDropOverlay();
         void handleNativeFileDrop({
           paths: payload.paths,
@@ -821,6 +820,7 @@ function bindNativeFileDrop(): void {
         });
         return;
       }
+      nativeDragPreviousTarget = target;
       showDropOverlay(target);
     }).catch((error) => console.warn(error));
   } catch (error) {
