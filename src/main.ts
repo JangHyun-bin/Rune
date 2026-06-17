@@ -12,6 +12,7 @@ import { mountChrome } from "./chrome/chrome";
 import { mountFileTree } from "./workspace/fileTree";
 import { parentDir } from "./workspace/paths";
 import { listen, type Event } from "@tauri-apps/api/event";
+import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { mountConflictBanner } from "./workspace/conflictBanner";
 import { mountErrorBanner } from "./workspace/errorBanner";
 import { mountCommandPalette, type PaletteItem } from "./workspace/commandPalette";
@@ -32,12 +33,17 @@ import { DEFAULT_LAYOUT, normalizeLayoutSettings, parseLayoutSettingsJson, seria
 import { createPaneWorkspace, type PaneWorkspace } from "./workspace/paneWorkspace";
 import { isTauri } from "@tauri-apps/api/core";
 import { normalizePaneWorkspaceSnapshot } from "./workspace/panePersistence";
+import { firstMarkdownPath, hitPaneDropZone, physicalToCssPoint } from "./workspace/dropTargets";
+import { handleNativeFileDrop, type ResolvedDropTarget } from "./workspace/fileDrop";
 
 const chrome = mountChrome(document.getElementById("titlebar")!, document.getElementById("statusbar")!, {
   onOpenSettings: () => settingsPanel.open(),
 });
 const editorRoot = document.getElementById("editor")!;
 const editorToolbar = document.getElementById("editor-toolbar")!;
+const dropOverlay = document.createElement("div");
+dropOverlay.className = "drop-overlay hidden";
+document.body.appendChild(dropOverlay);
 const tree = mountFileTree(document.getElementById("filetree")!, (p) => void openPath(p), () => void openFolder(), fileTreeMenu, {
   onNewFile: () => { if (currentFolder) void newFileIn(currentFolder); },
   onNewFolder: () => { if (currentFolder) void newFolderIn(currentFolder); },
@@ -369,6 +375,32 @@ async function openPath(path: string): Promise<boolean> {
   syncActiveUI();
   return true;
 }
+async function loadDroppedFileFolder(path: string): Promise<void> {
+  if (currentFolder) return;
+  const dir = parentDir(path);
+  if (dir) await loadFolder(dir).catch(() => {});
+}
+async function openDroppedPathInPane(paneId: string, path: string): Promise<boolean> {
+  const opened = await paneWorkspace.openPathInPane(paneId, path);
+  if (!opened) return false;
+  await loadDroppedFileFolder(path);
+  scheduleSaveSettings();
+  syncActiveUI();
+  return true;
+}
+async function splitDroppedPathInPane(
+  paneId: string,
+  path: string,
+  direction: "row" | "column",
+  side: "before" | "after",
+): Promise<boolean> {
+  const createdPaneId = await paneWorkspace.splitPaneAndOpen(paneId, path, direction, side);
+  if (!createdPaneId) return false;
+  await loadDroppedFileFolder(path);
+  scheduleSaveSettings();
+  syncActiveUI();
+  return true;
+}
 function newDoc(): void {
   activePane().newDoc();
   syncActiveUI();
@@ -679,6 +711,7 @@ async function reloadActive(): Promise<void> {
   syncActiveUI();
 }
 let fsTimer: number | undefined;
+let nativeDragHasMarkdown = false;
 function onFsChange(paths: string[]): void {
   if (fsTimer !== undefined) clearTimeout(fsTimer);
   fsTimer = window.setTimeout(async () => {
@@ -691,6 +724,60 @@ function onFsChange(paths: string[]): void {
     }
   }, 250);
 }
+function elementForPane(selector: string, paneId: string): HTMLElement | null {
+  return Array.from(document.querySelectorAll<HTMLElement>(selector))
+    .find((element) => element.dataset.paneId === paneId) ?? null;
+}
+function resolveDropTarget(point: { x: number; y: number }): ResolvedDropTarget {
+  const element = document.elementFromPoint(point.x, point.y);
+  const tabbar = element?.closest<HTMLElement>(".pane-tabbar");
+  if (tabbar?.dataset.paneId) return { kind: "tabbar", paneId: tabbar.dataset.paneId };
+
+  const pane = element?.closest<HTMLElement>(".editor-pane-root");
+  if (!pane?.dataset.paneId) return { kind: "none", paneId: null };
+  return { paneId: pane.dataset.paneId, ...hitPaneDropZone(pane.getBoundingClientRect(), point) };
+}
+function setDropOverlayRect(rect: { left: number; top: number; width: number; height: number }, kind: string): void {
+  dropOverlay.dataset.kind = kind;
+  dropOverlay.style.left = `${rect.left}px`;
+  dropOverlay.style.top = `${rect.top}px`;
+  dropOverlay.style.width = `${rect.width}px`;
+  dropOverlay.style.height = `${rect.height}px`;
+  dropOverlay.classList.remove("hidden");
+}
+function hideDropOverlay(): void {
+  dropOverlay.classList.add("hidden");
+}
+function dropEdgeSize(length: number): number {
+  return Math.min(96, Math.max(42, length * 0.22));
+}
+function showDropOverlay(target: ResolvedDropTarget): void {
+  if (target.kind === "none") {
+    hideDropOverlay();
+    return;
+  }
+
+  if (target.kind === "tabbar") {
+    const tabbar = elementForPane(".pane-tabbar", target.paneId);
+    if (!tabbar) { hideDropOverlay(); return; }
+    setDropOverlayRect(tabbar.getBoundingClientRect(), "tabbar");
+    return;
+  }
+
+  const pane = elementForPane(".editor-pane-root", target.paneId);
+  if (!pane) { hideDropOverlay(); return; }
+  const rect = pane.getBoundingClientRect();
+  if (target.kind === "pane-center") {
+    setDropOverlayRect(rect, "pane-center");
+    return;
+  }
+
+  const width = target.direction === "row" ? dropEdgeSize(rect.width) : rect.width;
+  const height = target.direction === "column" ? dropEdgeSize(rect.height) : rect.height;
+  const left = target.direction === "row" && target.side === "after" ? rect.right - width : rect.left;
+  const top = target.direction === "column" && target.side === "after" ? rect.bottom - height : rect.top;
+  setDropOverlayRect({ left, top, width, height }, "pane-edge");
+}
 function safeListen<T>(event: string, handler: (event: Event<T>) => void): void {
   if (!isTauri()) return;
   try {
@@ -702,6 +789,44 @@ function safeListen<T>(event: string, handler: (event: Event<T>) => void): void 
 safeListen<string[]>("fs-change", (e) => onFsChange(e.payload));
 // A .md opened via file association while Rune is already running (single-instance / macOS).
 safeListen<string>("open-file", (e) => { void openPath(e.payload); });
+function bindNativeFileDrop(): void {
+  if (!isTauri()) return;
+  try {
+    void getCurrentWebview().onDragDropEvent((event) => {
+      const payload = event.payload;
+      if (payload.type === "leave") {
+        nativeDragHasMarkdown = false;
+        hideDropOverlay();
+        return;
+      }
+
+      if (payload.type === "enter") {
+        nativeDragHasMarkdown = firstMarkdownPath(payload.paths) !== null;
+      }
+      if (!nativeDragHasMarkdown) {
+        hideDropOverlay();
+        return;
+      }
+
+      const point = physicalToCssPoint(payload.position, window.devicePixelRatio);
+      const target = resolveDropTarget(point);
+      if (payload.type === "drop") {
+        nativeDragHasMarkdown = false;
+        hideDropOverlay();
+        void handleNativeFileDrop({
+          paths: payload.paths,
+          target,
+          openInPane: openDroppedPathInPane,
+          splitInPane: splitDroppedPathInPane,
+        });
+        return;
+      }
+      showDropOverlay(target);
+    }).catch((error) => console.warn(error));
+  } catch (error) {
+    console.warn(error);
+  }
+}
 
 paneWorkspace = createPaneWorkspace({
   host: editorRoot,
@@ -719,6 +844,7 @@ paneWorkspace = createPaneWorkspace({
   onTabContextMenu: tabMenu,
   canCloseDirtyTab: () => confirm(tr("confirm.closeDirty")),
 });
+bindNativeFileDrop();
 void restore();
 
 window.addEventListener("blur", () => { void paneWorkspace.flushSaves(); });
