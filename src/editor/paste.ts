@@ -13,16 +13,24 @@ function extFromType(type: string): string {
   return m ? (m[1] === "jpeg" ? "jpg" : m[1]) : "png";
 }
 
-async function handleFile(view: EditorView, file: File, getDocPath: ImagePasteContext["getDocPath"]) {
+async function handleFiles(view: EditorView, files: File[], getDocPath: ImagePasteContext["getDocPath"]) {
   const originState = view.state;
-  const pos = originState.selection.main.head;
+  let expectedState = originState;
+  let insertPos = originState.selection.main.head;
   const docPath = getDocPath();
   if (!docPath) { alert(t("image.saveFirst")); return; }
-  const bytes = Array.from(new Uint8Array(await file.arrayBuffer()));
-  const res = await commands.saveAsset(docPath, bytes, extFromType(file.type));
-  if (res.status === "error") { console.error(res.error); return; }
-  if (view.state !== originState) return;
-  view.dispatch({ changes: { from: pos, insert: `![](${res.data})` }, selection: { anchor: pos + 2 } });
+
+  for (const file of files) {
+    const bytes = Array.from(new Uint8Array(await file.arrayBuffer()));
+    const res = await commands.saveAsset(docPath, bytes, extFromType(file.type));
+    if (res.status === "error") { console.error(res.error); continue; }
+    if (view.state !== expectedState) return;
+
+    const markdown = `![](${res.data})`;
+    view.dispatch({ changes: { from: insertPos, insert: markdown }, selection: { anchor: insertPos + 2 } });
+    insertPos += markdown.length;
+    expectedState = view.state;
+  }
 }
 
 export function imagePasteFor(context: ImagePasteContext): Extension {
@@ -34,7 +42,7 @@ export function imagePasteFor(context: ImagePasteContext): Extension {
         const it = items[i];
         if (it.kind === "file" && it.type.startsWith("image/")) {
           const f = it.getAsFile();
-          if (f) { e.preventDefault(); void handleFile(view, f, context.getDocPath); return true; }
+          if (f) { e.preventDefault(); void handleFiles(view, [f], context.getDocPath); return true; }
         }
       }
       return false;
@@ -45,7 +53,7 @@ export function imagePasteFor(context: ImagePasteContext): Extension {
       const imgs = Array.from(files).filter((f) => f.type.startsWith("image/"));
       if (imgs.length === 0) return false;
       e.preventDefault();
-      for (const f of imgs) void handleFile(view, f, context.getDocPath);
+      void handleFiles(view, imgs, context.getDocPath);
       return true;
     },
   });
