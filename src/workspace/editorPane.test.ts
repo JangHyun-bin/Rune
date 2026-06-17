@@ -9,6 +9,7 @@ class TestElement {
   dataset: Record<string, string> = {};
   draggable = false;
   parentElement: TestElement | null = null;
+  style: Record<string, string> = {};
   tagName: string;
   private attributes = new Map<string, string>();
   private listeners = new Map<string, Listener[]>();
@@ -59,6 +60,11 @@ class TestElement {
     this.listeners.set(type, listeners);
   }
 
+  removeEventListener(type: string, listener: Listener): void {
+    const listeners = this.listeners.get(type) ?? [];
+    this.listeners.set(type, listeners.filter((candidate) => candidate !== listener));
+  }
+
   dispatchEvent(event: Event): boolean {
     Object.defineProperty(event, "target", { value: this, configurable: true });
     for (const listener of this.listeners.get(event.type) ?? []) listener(event);
@@ -87,6 +93,14 @@ class TestElement {
     walk(this);
     return found;
   }
+
+  getBoundingClientRect(): Pick<DOMRect, "left" | "width"> {
+    return { left: 0, width: 400 };
+  }
+
+  setPointerCapture(): void {}
+
+  releasePointerCapture(): void {}
 
   private matches(selector: string): boolean {
     if (selector.startsWith(".")) {
@@ -183,29 +197,47 @@ function dispatch(element: HTMLElement, type: string): void {
   element.dispatchEvent(new Event(type));
 }
 
+function clickTab(host: HTMLElement, index: number): void {
+  const tab = Array.from(host.querySelectorAll(".tab"))[index];
+  if (!tab) throw new Error(`Missing tab at index ${index}`);
+  dispatch(tab as HTMLElement, "click");
+}
+
+function clickTabClose(host: HTMLElement, index: number): void {
+  const close = Array.from(host.querySelectorAll(".close"))[index];
+  if (!close) throw new Error(`Missing close button at index ${index}`);
+  dispatch(close as HTMLElement, "click");
+}
+
 function editActiveText(pane: ReturnType<typeof createEditorPane>, text: string): void {
   pane.view.dispatch({
     changes: { from: 0, to: pane.view.state.doc.length, insert: text },
   });
 }
 
+function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((res) => {
+    resolve = res;
+  });
+  return { promise, resolve };
+}
+
 describe("editor pane", () => {
   beforeEach(() => {
+    vi.useFakeTimers();
     vi.stubGlobal("document", createTestDocument());
     vi.stubGlobal("window", {
-      setTimeout: vi.fn((fn: () => void) => {
-        fn();
-        return 1;
-      }),
-      clearTimeout: vi.fn(),
-      requestAnimationFrame: vi.fn((fn: () => void) => {
-        fn();
-        return 1;
-      }),
+      setTimeout: globalThis.setTimeout,
+      clearTimeout: globalThis.clearTimeout,
+      requestAnimationFrame: (fn: () => void) => globalThis.setTimeout(fn, 0),
+      confirm: vi.fn(() => false),
     });
   });
 
   afterEach(() => {
+    vi.clearAllTimers();
+    vi.useRealTimers();
     vi.unstubAllGlobals();
   });
 
@@ -305,6 +337,156 @@ describe("editor pane", () => {
 
     expect(writeFile).toHaveBeenCalledWith("/w/a.md", "# Edited");
     expect(pane.activeDirty()).toBe(false);
+
+    pane.destroy();
+  });
+
+  it("keeps a delayed save bound to the tab that started it", async () => {
+    const host = document.createElement("div");
+    const pendingWrite = deferred<{ status: "ok"; data: null }>();
+    const writeFile = vi.fn(() => pendingWrite.promise);
+    const pane = createEditorPane({
+      id: "pane-1",
+      host,
+      editorMode: "source",
+      readFile: vi.fn(async (path: string) => ({ status: "ok" as const, data: `# ${path}` })),
+      writeFile,
+      onActiveChange: vi.fn(),
+      onDirtyChange: vi.fn(),
+      onRequestSaveSettings: vi.fn(),
+    });
+
+    await pane.openPath("/w/a.md");
+    await pane.openPath("/w/b.md");
+    clickTab(host, 0);
+    editActiveText(pane, "# A edited");
+
+    const save = pane.saveActive();
+    clickTab(host, 1);
+    pendingWrite.resolve({ status: "ok", data: null });
+    await save;
+
+    expect(writeFile).toHaveBeenCalledWith("/w/a.md", "# A edited");
+    expect(pane.activePath()).toBe("/w/b.md");
+    expect(pane.activeText()).toBe("# /w/b.md");
+    expect(pane.activeDirty()).toBe(false);
+
+    clickTab(host, 0);
+    expect(pane.activePath()).toBe("/w/a.md");
+    expect(pane.activeText()).toBe("# A edited");
+    expect(pane.activeDirty()).toBe(false);
+
+    pane.destroy();
+  });
+
+  it("autosaves the tab that changed after switching away", async () => {
+    const host = document.createElement("div");
+    const writeFile = vi.fn(async () => ({ status: "ok" as const, data: null }));
+    const pane = createEditorPane({
+      id: "pane-1",
+      host,
+      editorMode: "source",
+      readFile: vi.fn(async (path: string) => ({ status: "ok" as const, data: `# ${path}` })),
+      writeFile,
+      onActiveChange: vi.fn(),
+      onDirtyChange: vi.fn(),
+      onRequestSaveSettings: vi.fn(),
+    });
+
+    await pane.openPath("/w/a.md");
+    await pane.openPath("/w/b.md");
+    clickTab(host, 0);
+    editActiveText(pane, "# A autosaved");
+    clickTab(host, 1);
+
+    await vi.advanceTimersByTimeAsync(800);
+    await Promise.resolve();
+
+    expect(writeFile).toHaveBeenCalledTimes(1);
+    expect(writeFile).toHaveBeenCalledWith("/w/a.md", "# A autosaved");
+    expect(pane.activePath()).toBe("/w/b.md");
+
+    clickTab(host, 0);
+    expect(pane.activeDirty()).toBe(false);
+
+    pane.destroy();
+  });
+
+  it("does not write clean tabs on save", async () => {
+    const host = document.createElement("div");
+    const writeFile = vi.fn(async () => ({ status: "ok" as const, data: null }));
+    const pane = createEditorPane({
+      id: "pane-1",
+      host,
+      editorMode: "source",
+      readFile: vi.fn(async () => ({ status: "ok" as const, data: "# Clean" })),
+      writeFile,
+      onActiveChange: vi.fn(),
+      onDirtyChange: vi.fn(),
+      onRequestSaveSettings: vi.fn(),
+    });
+
+    await pane.openPath("/w/a.md");
+    await pane.saveActive();
+
+    expect(writeFile).not.toHaveBeenCalled();
+
+    pane.destroy();
+  });
+
+  it("vetoes closing dirty tabs", async () => {
+    const host = document.createElement("div");
+    const canCloseDirtyTab = vi.fn(() => false);
+    const onRequestSaveSettings = vi.fn();
+    const pane = createEditorPane({
+      id: "pane-1",
+      host,
+      editorMode: "source",
+      readFile: vi.fn(async () => ({ status: "ok" as const, data: "# Old" })),
+      writeFile: vi.fn(async () => ({ status: "ok" as const, data: null })),
+      onActiveChange: vi.fn(),
+      onDirtyChange: vi.fn(),
+      onRequestSaveSettings,
+      canCloseDirtyTab,
+    });
+
+    await pane.openPath("/w/a.md");
+    onRequestSaveSettings.mockClear();
+    editActiveText(pane, "# Dirty");
+    clickTabClose(host, 0);
+
+    expect(canCloseDirtyTab).toHaveBeenCalledWith("pane-1", expect.any(String));
+    expect(pane.activePath()).toBe("/w/a.md");
+    expect(pane.activeText()).toBe("# Dirty");
+    expect(pane.activeDirty()).toBe(true);
+    expect(host.querySelectorAll(".tab")).toHaveLength(1);
+    expect(onRequestSaveSettings).not.toHaveBeenCalled();
+
+    pane.destroy();
+  });
+
+  it("uses pane-local split layout instead of relying on global editor CSS", () => {
+    const host = document.createElement("div");
+    const pane = createEditorPane({
+      id: "pane-1",
+      host,
+      editorMode: "split",
+      readFile: vi.fn(async (path: string) => ({ status: "ok" as const, data: path })),
+      writeFile: vi.fn(async () => ({ status: "ok" as const, data: null })),
+      onActiveChange: vi.fn(),
+      onDirtyChange: vi.fn(),
+      onRequestSaveSettings: vi.fn(),
+    });
+    const editorHost = host.querySelector(".pane-editor") as unknown as TestElement;
+
+    expect(editorHost.style.display).toBe("grid");
+    expect(editorHost.style.gridTemplateColumns).toContain("6px");
+    expect(host.querySelector(".split-resizer")).not.toBeNull();
+
+    pane.setEditorMode("source");
+
+    expect(editorHost.style.display).toBe("");
+    expect(host.querySelector(".split-resizer")).toBeNull();
 
     pane.destroy();
   });
