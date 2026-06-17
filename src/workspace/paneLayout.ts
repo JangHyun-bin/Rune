@@ -26,7 +26,7 @@ function evenRatios(count: number): number[] {
 }
 
 function normalizeSplit(node: Extract<LayoutNode, { type: "split" }>): LayoutNode {
-  const children = node.children.filter(Boolean);
+  const children = node.children;
   if (children.length === 1) return children[0];
   return { ...node, children, ratios: evenRatios(children.length) };
 }
@@ -41,6 +41,9 @@ export function splitPane(node: LayoutNode, request: SplitPaneRequest): LayoutNo
   }
 
   const children = node.children.map((child) => splitPane(child, request));
+  const childChanged = children.some((child, index) => child !== node.children[index]);
+  if (!childChanged) return node;
+  if (children.length === node.children.length) return { ...node, children, ratios: node.ratios };
   return normalizeSplit({ ...node, children });
 }
 
