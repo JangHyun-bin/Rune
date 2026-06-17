@@ -68,6 +68,30 @@ describe("pane persistence", () => {
     ]);
   });
 
+  it("falls back activePaneId when the active pane snapshot is missing", () => {
+    const snapshot = normalizePaneWorkspaceSnapshot(
+      {
+        version: 1,
+        root: {
+          type: "split",
+          direction: "row",
+          ratios: [0.5, 0.5],
+          children: [
+            { type: "pane", paneId: "pane-1" },
+            { type: "pane", paneId: "pane-2" },
+          ],
+        },
+        activePaneId: "pane-1",
+        panes: [
+          { id: "pane-2", openTabs: ["/w/b.md"], activePath: "/w/b.md" },
+        ],
+      },
+      [],
+    );
+
+    expect(snapshot.activePaneId).toBe("pane-2");
+  });
+
   it("falls back to legacy tabs when a split has an invalid child", () => {
     const snapshot = normalizePaneWorkspaceSnapshot(
       {

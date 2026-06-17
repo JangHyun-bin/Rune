@@ -40,6 +40,16 @@ pub struct PaneWorkspaceSnapshot {
     pub panes: Vec<PaneSnapshot>,
 }
 
+fn deserialize_pane_layout_lossy<'de, D>(
+    deserializer: D,
+) -> Result<Option<PaneWorkspaceSnapshot>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let value = Option::<serde_json::Value>::deserialize(deserializer)?;
+    Ok(value.and_then(|value| serde_json::from_value(value).ok()))
+}
+
 #[derive(Serialize, Deserialize, Debug, Default)]
 #[serde(rename_all = "camelCase", default)]
 pub struct Settings {
@@ -51,6 +61,7 @@ pub struct Settings {
     pub editor_mode: Option<String>,
     pub sidebar_width: Option<u16>,
     pub layout: Option<LayoutSettings>,
+    #[serde(default, deserialize_with = "deserialize_pane_layout_lossy")]
     pub pane_layout: Option<PaneWorkspaceSnapshot>,
 }
 
@@ -170,5 +181,34 @@ mod tests {
             }
             PaneLayoutNode::Pane { .. } => panic!("expected split pane layout"),
         }
+    }
+
+    #[test]
+    fn malformed_pane_layout_preserves_other_settings() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join("settings.json");
+        std::fs::write(
+            &p,
+            r#"{
+                "theme": "dark",
+                "openTabs": ["/w/a.md"],
+                "layout": { "sidebarWidth": 280, "splitRatio": 0.6 },
+                "paneLayout": {
+                    "version": 1,
+                    "root": { "type": "pane", "paneId": 42 },
+                    "activePaneId": "pane-1",
+                    "panes": []
+                }
+            }"#,
+        )
+        .unwrap();
+
+        let got = load(&p);
+        assert_eq!(got.theme.as_deref(), Some("dark"));
+        assert_eq!(got.open_tabs, vec!["/w/a.md".to_string()]);
+        let layout = got.layout.unwrap();
+        assert_eq!(layout.sidebar_width, Some(280));
+        assert_eq!(layout.split_ratio, Some(0.6));
+        assert!(got.pane_layout.is_none());
     }
 }

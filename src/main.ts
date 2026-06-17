@@ -72,7 +72,7 @@ function prefersDark(): boolean { return window.matchMedia("(prefers-color-schem
 function settingsSnapshot() {
   const theme = document.documentElement.getAttribute("data-theme") === "dark" ? "dark" : "light";
   const layout = currentLayoutSettings();
-  return { theme, lastFolder: currentFolder, openTabs: tabs.tabs.map((t) => t.path).filter((p): p is string => !!p), locale: getLocale(), editorWidth: currentEditorWidth(), editorMode, sidebarWidth: layout.sidebarWidth, layout };
+  return { theme, lastFolder: currentFolder, openTabs: tabs.tabs.map((t) => t.path).filter((p): p is string => !!p), locale: getLocale(), editorWidth: currentEditorWidth(), editorMode, sidebarWidth: layout.sidebarWidth, layout, paneLayout: null };
 }
 function applyTheme(theme: "light" | "dark"): void {
   document.documentElement.setAttribute("data-theme", theme);
@@ -705,7 +705,7 @@ findReplacePanel = mountFindReplacePanel({
 });
 async function restore(): Promise<void> {
   const res = await commands.loadSettings();
-  const s = res.status === "ok" ? res.data : { theme: null, lastFolder: null, openTabs: [], locale: null, editorWidth: null, editorMode: null, sidebarWidth: null, layout: null };
+  const s = res.status === "ok" ? res.data : { theme: null, lastFolder: null, openTabs: [], locale: null, editorWidth: null, editorMode: null, sidebarWidth: null, layout: null, paneLayout: null };
   document.documentElement.setAttribute("data-theme", s.theme === "light" || s.theme === "dark" ? s.theme : (prefersDark() ? "dark" : "light"));
   document.documentElement.setAttribute("data-editor-width", s.editorWidth === "wide" ? "wide" : "readable");
   editorMode = normalizeEditorMode(s.editorMode);

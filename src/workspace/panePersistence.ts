@@ -114,8 +114,9 @@ export function normalizePaneWorkspaceSnapshot(
 
   if (panes.length === 0) return singlePaneFromLegacy(legacyOpenTabs);
 
+  const normalizedPaneIds = new Set(panes.map((pane) => pane.id));
   const activePaneId =
-    typeof value.activePaneId === "string" && paneIdSet.has(value.activePaneId)
+    typeof value.activePaneId === "string" && normalizedPaneIds.has(value.activePaneId)
       ? value.activePaneId
       : panes[0].id;
 
