@@ -168,4 +168,27 @@ describe("pane layout model", () => {
     });
     expect(removePane(layout, "pane-2")).toEqual({ type: "pane", paneId: "pane-1" });
   });
+
+  it("preserves sibling split ratios when removing a pane", () => {
+    const layout: LayoutNode = {
+      type: "split",
+      direction: "row",
+      ratios: [0.25, 0.5, 0.25],
+      children: [
+        { type: "pane", paneId: "pane-1" },
+        { type: "pane", paneId: "pane-2" },
+        { type: "pane", paneId: "pane-3" },
+      ],
+    };
+
+    expect(removePane(layout, "pane-2")).toEqual({
+      type: "split",
+      direction: "row",
+      ratios: [0.25, 0.25],
+      children: [
+        { type: "pane", paneId: "pane-1" },
+        { type: "pane", paneId: "pane-3" },
+      ],
+    });
+  });
 });

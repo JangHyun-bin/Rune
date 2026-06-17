@@ -12,9 +12,22 @@ class TestElement {
   parentElement: TestElement | null = null;
   style: Record<string, string> = {};
   tagName: string;
+  rect = { left: 0, top: 0, width: 1000, height: 800 };
   private attributes = new Map<string, string>();
   private listeners = new Map<string, Listener[]>();
   private text = "";
+  classList = {
+    add: (...tokens: string[]) => {
+      const current = new Set(this.className.split(/\s+/).filter(Boolean));
+      for (const token of tokens) current.add(token);
+      this.className = [...current].join(" ");
+    },
+    remove: (...tokens: string[]) => {
+      const remove = new Set(tokens);
+      this.className = this.className.split(/\s+/).filter((token) => token && !remove.has(token)).join(" ");
+    },
+    contains: (token: string) => this.className.split(/\s+/).includes(token),
+  };
 
   constructor(tagName: string) {
     this.tagName = tagName.toLowerCase();
@@ -79,6 +92,13 @@ class TestElement {
     return true;
   }
 
+  getBoundingClientRect(): DOMRect {
+    return this.rect as DOMRect;
+  }
+
+  setPointerCapture(): void {}
+  releasePointerCapture(): void {}
+
   closest(selector: string): TestElement | null {
     let node: TestElement | null = this;
     while (node) {
@@ -123,7 +143,9 @@ class TestElement {
 }
 
 function createTestDocument() {
+  const body = new TestElement("body");
   return {
+    body,
     createElement: (tagName: string) => new TestElement(tagName),
   };
 }
@@ -144,6 +166,7 @@ interface MockEditorPaneOptions {
   editorMode: string;
   readFile: (path: string) => Promise<{ status: "ok"; data: string } | { status: "error"; error: string }>;
   onRequestSaveSettings?: () => void;
+  onEmptyPane?: (paneId: string) => boolean;
 }
 
 const editorPaneMock = vi.hoisted(() => {
@@ -170,7 +193,11 @@ const editorPaneMock = vi.hoisted(() => {
       }),
       newDoc: vi.fn(),
       switchTo: vi.fn(),
-      closeTab: vi.fn(),
+      closeTab: vi.fn(() => {
+        openTabs.splice(0, openTabs.length);
+        activePath = null;
+        options.onEmptyPane?.(options.id);
+      }),
       activePath: vi.fn(() => activePath),
       activeText: vi.fn(() => ""),
       activeDirty: vi.fn(() => false),
@@ -226,6 +253,16 @@ function paneRoot(host: HTMLElement, paneId: string): HTMLElement {
 
 function classTokens(element: HTMLElement): string[] {
   return element.className.split(/\s+/).filter((token) => token.length > 0);
+}
+
+function dispatchPointer(element: HTMLElement, type: string, init: { clientX?: number; clientY?: number; pointerId?: number } = {}): void {
+  const event = new Event(type);
+  Object.defineProperties(event, {
+    clientX: { value: init.clientX ?? 0 },
+    clientY: { value: init.clientY ?? 0 },
+    pointerId: { value: init.pointerId ?? 1 },
+  });
+  element.dispatchEvent(event);
 }
 
 describe("pane workspace", () => {
@@ -288,9 +325,50 @@ describe("pane workspace", () => {
     expect(snapshot.root.type).toBe("split");
     expect(split).not.toBeNull();
     expect(split.style.display).toBe("grid");
-    expect(split.style.gridTemplateColumns).toBe("0.5fr 0.5fr");
+    expect(split.style.gridTemplateColumns).toBe("0.5fr 6px 0.5fr");
     expect(workspace.activePane().id).toBe(paneId);
     expect(workspace.activePane().activePath()).toBe("/w/b.md");
+
+    workspace.destroy();
+  });
+
+  it("resizes split pane ratios by dragging the split handle", async () => {
+    const { host, workspace, onRequestSaveSettings } = makeWorkspace();
+    await workspace.openPathInActivePane("/w/a.md");
+    await workspace.splitActivePaneAndOpen("/w/b.md", "row", "after");
+    onRequestSaveSettings.mockClear();
+
+    const split = host.querySelector(".pane-split[data-direction=\"row\"]") as unknown as TestElement;
+    const handle = host.querySelector(".pane-split-resizer[data-direction=\"row\"]");
+    if (!split || !handle) throw new Error("Expected split and handle");
+    split.rect = { left: 0, top: 0, width: 1006, height: 600 };
+
+    dispatchPointer(handle as HTMLElement, "pointerdown", { clientX: 500 });
+    dispatchPointer(handle as HTMLElement, "pointermove", { clientX: 700 });
+    dispatchPointer(handle as HTMLElement, "pointerup", { clientX: 700 });
+
+    const root = workspace.snapshot().root;
+    if (root.type !== "split") throw new Error("Expected split root");
+    expect(root.ratios[0]).toBeCloseTo(0.7, 2);
+    expect(root.ratios[1]).toBeCloseTo(0.3, 2);
+    expect(split.style.gridTemplateColumns).toContain("6px");
+    expect(onRequestSaveSettings).toHaveBeenCalledTimes(1);
+
+    workspace.destroy();
+  });
+
+  it("removes a split pane instead of leaving an empty untitled pane when its last tab closes", async () => {
+    const { workspace } = makeWorkspace();
+    await workspace.openPathInActivePane("/w/a.md");
+    const pane2 = await workspace.splitActivePaneAndOpen("/w/b.md", "row", "after");
+    if (!pane2) throw new Error("Expected split pane");
+
+    workspace.activePane().closeTab("active-tab");
+
+    expect(workspace.snapshot().root).toEqual({ type: "pane", paneId: "pane-1" });
+    expect(workspace.snapshot().panes.map((pane) => pane.id)).toEqual(["pane-1"]);
+    expect(workspace.activePane().id).toBe("pane-1");
+    expect(editorPaneMock.panes.has(pane2)).toBe(false);
 
     workspace.destroy();
   });

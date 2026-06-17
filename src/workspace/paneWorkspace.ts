@@ -4,6 +4,7 @@ import { createEditorPane, type EditorPane, type EditorPaneOptions } from "./edi
 import {
   createSinglePaneLayout,
   flattenPaneIds,
+  removePane,
   splitPane,
   type LayoutNode,
   type PaneId,
@@ -82,8 +83,13 @@ function setTokenClass(element: HTMLElement, token: string, enabled: boolean): v
   element.className = tokens.join(" ");
 }
 
-function gridTracks(ratios: number[], count: number): string {
-  return Array.from({ length: count }, (_, index) => `${ratios[index] ?? 1}fr`).join(" ");
+function gridTracksWithResizers(ratios: number[], count: number): string {
+  const tracks: string[] = [];
+  for (let index = 0; index < count; index++) {
+    if (index > 0) tracks.push("6px");
+    tracks.push(`${ratios[index] ?? 1}fr`);
+  }
+  return tracks.join(" ");
 }
 
 function nextPaneNumberAfter(paneIds: PaneId[]): number {
@@ -137,10 +143,116 @@ export function createPaneWorkspace(options: PaneWorkspaceOptions): PaneWorkspac
       onSplitRatioChange: options.onSplitRatioChange,
       onTabContextMenu: options.onTabContextMenu,
       canCloseDirtyTab: options.canCloseDirtyTab,
+      onEmptyPane: removePaneIfAllowed,
     });
     assignPaneId(pane.root, paneId);
     panes.set(paneId, pane);
     return pane;
+  }
+
+  function removePaneIfAllowed(paneId: PaneId): boolean {
+    const paneIds = flattenPaneIds(root);
+    if (paneIds.length <= 1 || !paneIds.includes(paneId)) return false;
+    const nextRoot = removePane(root, paneId);
+    if (!nextRoot) return false;
+
+    const removedIndex = paneIds.indexOf(paneId);
+    const nextActivePaneId = paneIds[removedIndex + 1] ?? paneIds[removedIndex - 1] ?? paneIds[0];
+    const pane = panes.get(paneId);
+    pane?.destroy();
+    panes.delete(paneId);
+    root = nextRoot;
+    activePaneId = nextActivePaneId === paneId ? flattenPaneIds(root)[0] : nextActivePaneId;
+    render();
+    setActivePane(activePaneId);
+    options.onActiveDocumentChange();
+    options.onRequestSaveSettings();
+    return true;
+  }
+
+  function mountSplitResizer(
+    split: HTMLElement,
+    node: Extract<LayoutNode, { type: "split" }>,
+    index: number,
+  ): HTMLElement {
+    const handle = document.createElement("div");
+    handle.className = "pane-split-resizer";
+    handle.dataset.direction = node.direction;
+    handle.setAttribute("data-direction", node.direction);
+    handle.setAttribute("role", "separator");
+    handle.setAttribute("aria-orientation", node.direction === "row" ? "vertical" : "horizontal");
+    handle.setAttribute("aria-label", "Resize editor panes");
+
+    let dragging = false;
+    let moved = false;
+    let startClient = 0;
+    let startRatios: number[] = [];
+    let pairSize = 1;
+    const minRatio = 0.08;
+
+    const applyRatios = () => {
+      if (node.direction === "row") {
+        split.style.gridTemplateColumns = gridTracksWithResizers(node.ratios, node.children.length);
+      } else {
+        split.style.gridTemplateRows = gridTracksWithResizers(node.ratios, node.children.length);
+      }
+    };
+
+    const removeDragListeners = () => {
+      handle.removeEventListener("pointermove", onPointerMove);
+      handle.removeEventListener("pointerup", onPointerDone);
+      handle.removeEventListener("pointercancel", onPointerDone);
+    };
+
+    const onPointerMove = (event: PointerEvent) => {
+      if (!dragging) return;
+      const pairTotal = (startRatios[index] ?? 1) + (startRatios[index + 1] ?? 1);
+      if (pairTotal <= 0 || pairSize <= 0) return;
+      const client = node.direction === "row" ? event.clientX : event.clientY;
+      const deltaRatio = ((client - startClient) / pairSize) * pairTotal;
+      const maxFirst = Math.max(minRatio, pairTotal - minRatio);
+      const first = Math.min(maxFirst, Math.max(minRatio, (startRatios[index] ?? 1) + deltaRatio));
+      node.ratios = [...startRatios];
+      node.ratios[index] = first;
+      node.ratios[index + 1] = pairTotal - first;
+      moved = true;
+      applyRatios();
+    };
+
+    const onPointerDone = (event: PointerEvent) => {
+      if (!dragging) return;
+      dragging = false;
+      handle.releasePointerCapture?.(event.pointerId);
+      removeDragListeners();
+      handle.classList.remove("dragging");
+      document.body.classList.remove("resizing-pane-split-row", "resizing-pane-split-column");
+      if (moved) options.onRequestSaveSettings();
+    };
+
+    const onPointerDown = (event: PointerEvent) => {
+      event.preventDefault();
+      const rect = split.getBoundingClientRect();
+      const axisSize = node.direction === "row" ? rect.width : rect.height;
+      if (axisSize <= 0) return;
+
+      const totalRatio = node.ratios.reduce((sum, ratio) => sum + ratio, 0);
+      const pairTotal = (node.ratios[index] ?? 1) + (node.ratios[index + 1] ?? 1);
+      const flexibleSize = Math.max(1, axisSize - Math.max(0, node.children.length - 1) * 6);
+      pairSize = Math.max(1, flexibleSize * (pairTotal / Math.max(totalRatio, 0.001)));
+      startClient = node.direction === "row" ? event.clientX : event.clientY;
+      startRatios = [...node.ratios];
+      dragging = true;
+      moved = false;
+      handle.classList.add("dragging");
+      document.body.classList.add(node.direction === "row" ? "resizing-pane-split-row" : "resizing-pane-split-column");
+      handle.setPointerCapture?.(event.pointerId);
+      handle.addEventListener("pointermove", onPointerMove);
+      handle.addEventListener("pointerup", onPointerDone);
+      handle.addEventListener("pointercancel", onPointerDone);
+    };
+
+    handle.addEventListener("pointerdown", onPointerDown);
+    return handle;
   }
 
   function renderNode(node: LayoutNode): HTMLElement {
@@ -156,16 +268,17 @@ export function createPaneWorkspace(options: PaneWorkspaceOptions): PaneWorkspac
     split.style.minWidth = "0";
     split.style.minHeight = "0";
     if (node.direction === "row") {
-      split.style.gridTemplateColumns = gridTracks(node.ratios, node.children.length);
+      split.style.gridTemplateColumns = gridTracksWithResizers(node.ratios, node.children.length);
       split.style.gridTemplateRows = "";
     } else {
       split.style.gridTemplateColumns = "";
-      split.style.gridTemplateRows = gridTracks(node.ratios, node.children.length);
+      split.style.gridTemplateRows = gridTracksWithResizers(node.ratios, node.children.length);
     }
 
-    for (const child of node.children) {
+    node.children.forEach((child, index) => {
+      if (index > 0) split.appendChild(mountSplitResizer(split, node, index - 1));
       split.appendChild(renderNode(child));
-    }
+    });
     return split;
   }
 

@@ -44,6 +44,7 @@ export interface EditorPaneOptions {
   onSplitRatioChange?: (ratio: number) => void;
   onTabContextMenu?: (paneId: string, tabId: string, x: number, y: number) => void;
   canCloseDirtyTab?: (paneId: string, tabId: string) => boolean;
+  onEmptyPane?: (paneId: string) => boolean;
 }
 
 export interface EditorPane {
@@ -424,7 +425,10 @@ export function createEditorPane(options: EditorPaneOptions): EditorPane {
     clearAutosave(tabId);
     states.delete(tabId);
     tabs = closeTabModel(tabs, tabId);
-    if (!tabs.activeId) tabs = newUntitled(tabs);
+    if (!tabs.activeId) {
+      if (options.onEmptyPane?.(id)) return;
+      tabs = newUntitled(tabs);
+    }
     showActive();
     options.onDirtyChange(id);
     options.onRequestSaveSettings();

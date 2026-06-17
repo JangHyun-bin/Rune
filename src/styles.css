@@ -45,8 +45,8 @@ body { background: var(--bg); color: var(--text); font-family: var(--sans); }
 #sidebar-resizer { width:6px; flex:0 0 6px; cursor:col-resize; background:var(--faint); border-left:1px solid var(--border);
   border-right:1px solid var(--border); touch-action:none; transition:background var(--dur) var(--ease), border-color var(--dur) var(--ease); }
 #sidebar-resizer:hover, #sidebar-resizer.dragging { background:var(--accent-soft); border-right-color:var(--accent); }
-body.resizing-sidebar, body.resizing-editor-split { cursor:col-resize; user-select:none; }
-body.resizing-outline { cursor:row-resize; user-select:none; }
+body.resizing-sidebar, body.resizing-editor-split, body.resizing-pane-split-row { cursor:col-resize; user-select:none; }
+body.resizing-outline, body.resizing-pane-split-column { cursor:row-resize; user-select:none; }
 #filetree { flex:1 1 auto; overflow:auto; padding:8px 6px; min-height:120px; }
 #outline-resizer { height:6px; flex:0 0 6px; cursor:row-resize; background:var(--faint); border-top:1px solid var(--border);
   border-bottom:1px solid var(--border); touch-action:none; transition:background var(--dur) var(--ease), border-color var(--dur) var(--ease); }
@@ -73,6 +73,11 @@ body.resizing-outline { cursor:row-resize; user-select:none; }
 .pane-split { min-width:0; min-height:0; display:grid; }
 .pane-split[data-direction="row"] { grid-auto-flow:column; }
 .pane-split[data-direction="column"] { grid-auto-flow:row; }
+.pane-split-resizer { min-width:0; min-height:0; background:var(--faint); touch-action:none;
+  transition:background var(--dur) var(--ease), border-color var(--dur) var(--ease); }
+.pane-split-resizer[data-direction="row"] { cursor:col-resize; border-left:1px solid var(--border); border-right:1px solid var(--border); }
+.pane-split-resizer[data-direction="column"] { cursor:row-resize; border-top:1px solid var(--border); border-bottom:1px solid var(--border); }
+.pane-split-resizer:hover, .pane-split-resizer.dragging { background:var(--accent-soft); border-color:var(--accent); }
 .pane-tabbar .tab { display:flex; align-items:center; gap:6px; padding:0 12px; max-width:200px; border-right:1px solid var(--border);
   cursor:pointer; font-size:12.5px; color:var(--muted); white-space:nowrap;
   border-top:2px solid transparent; transition:background var(--dur) var(--ease), color var(--dur) var(--ease); }

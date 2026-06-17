@@ -25,10 +25,16 @@ function evenRatios(count: number): number[] {
   return Array.from({ length: count }, () => 1 / count);
 }
 
+function normalizeRatios(ratios: number[], count: number): number[] {
+  if (ratios.length !== count) return evenRatios(count);
+  if (!ratios.every((ratio) => Number.isFinite(ratio) && ratio > 0)) return evenRatios(count);
+  return ratios;
+}
+
 function normalizeSplit(node: Extract<LayoutNode, { type: "split" }>): LayoutNode {
   const children = node.children;
   if (children.length === 1) return children[0];
-  return { ...node, children, ratios: evenRatios(children.length) };
+  return { ...node, children, ratios: normalizeRatios(node.ratios, children.length) };
 }
 
 export function splitPane(node: LayoutNode, request: SplitPaneRequest): LayoutNode {
@@ -49,9 +55,14 @@ export function splitPane(node: LayoutNode, request: SplitPaneRequest): LayoutNo
 
 export function removePane(node: LayoutNode, paneId: PaneId): LayoutNode | null {
   if (node.type === "pane") return node.paneId === paneId ? null : node;
-  const children = node.children
-    .map((child) => removePane(child, paneId))
-    .filter((child): child is LayoutNode => child !== null);
+  const children: LayoutNode[] = [];
+  const ratios: number[] = [];
+  node.children.forEach((child, index) => {
+    const nextChild = removePane(child, paneId);
+    if (!nextChild) return;
+    children.push(nextChild);
+    ratios.push(node.ratios[index] ?? 1);
+  });
   if (children.length === 0) return null;
-  return normalizeSplit({ ...node, children });
+  return normalizeSplit({ ...node, children, ratios });
 }
