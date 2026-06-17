@@ -379,6 +379,55 @@ describe("editor pane", () => {
     pane.destroy();
   });
 
+  it("ignores stale overlapping save completions for the same tab", async () => {
+    const host = document.createElement("div");
+    const firstWrite = deferred<{ status: "ok"; data: null }>();
+    const secondWrite = deferred<{ status: "ok"; data: null }>();
+    const onRequestSaveSettings = vi.fn();
+    const writeFile = vi.fn((_path: string, contents: string) => {
+      if (contents === "# v1") return firstWrite.promise;
+      if (contents === "# v2") return secondWrite.promise;
+      throw new Error(`Unexpected save text: ${contents}`);
+    });
+    const pane = createEditorPane({
+      id: "pane-1",
+      host,
+      editorMode: "source",
+      readFile: vi.fn(async () => ({ status: "ok" as const, data: "# Old" })),
+      writeFile,
+      onActiveChange: vi.fn(),
+      onDirtyChange: vi.fn(),
+      onRequestSaveSettings,
+    });
+
+    await pane.openPath("/w/a.md");
+    onRequestSaveSettings.mockClear();
+
+    editActiveText(pane, "# v1");
+    const firstSave = pane.saveActive();
+    editActiveText(pane, "# v2");
+    const secondSave = pane.saveActive();
+
+    expect(writeFile).toHaveBeenNthCalledWith(1, "/w/a.md", "# v1");
+    expect(writeFile).toHaveBeenNthCalledWith(2, "/w/a.md", "# v2");
+
+    secondWrite.resolve({ status: "ok", data: null });
+    await secondSave;
+
+    expect(pane.activeText()).toBe("# v2");
+    expect(pane.activeDirty()).toBe(false);
+    expect(onRequestSaveSettings).toHaveBeenCalledTimes(1);
+
+    firstWrite.resolve({ status: "ok", data: null });
+    await firstSave;
+
+    expect(pane.activeText()).toBe("# v2");
+    expect(pane.activeDirty()).toBe(false);
+    expect(onRequestSaveSettings).toHaveBeenCalledTimes(1);
+
+    pane.destroy();
+  });
+
   it("autosaves the tab that changed after switching away", async () => {
     const host = document.createElement("div");
     const writeFile = vi.fn(async () => ({ status: "ok" as const, data: null }));

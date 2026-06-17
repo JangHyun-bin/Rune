@@ -63,6 +63,7 @@ function markTabSavedById(
   let updated = false;
   const tabs = state.tabs.map((tab) => {
     if (tab.id !== tabId || tab.path !== path) return tab;
+    if (tab.currentText !== savedText) return tab;
     updated = true;
     return { ...tab, savedText };
   });
@@ -99,6 +100,7 @@ export function createEditorPane(options: EditorPaneOptions): EditorPane {
   let splitResizerCleanup: (() => void) | null = null;
   let splitSourceRatio = 0.5;
   const autosaveTimers = new Map<string, number>();
+  const saveGenerations = new Map<string, number>();
 
   const tabBar = mountTabBar(tabbarHost, {
     paneId: id,
@@ -290,6 +292,16 @@ export function createEditorPane(options: EditorPaneOptions): EditorPane {
     autosaveTimers.clear();
   }
 
+  function nextSaveGeneration(tabId: string): number {
+    const generation = (saveGenerations.get(tabId) ?? 0) + 1;
+    saveGenerations.set(tabId, generation);
+    return generation;
+  }
+
+  function currentSaveGeneration(tabId: string): number {
+    return saveGenerations.get(tabId) ?? 0;
+  }
+
   async function openPath(path: string): Promise<void> {
     const existing = tabs.tabs.find((tab) => tab.path === path);
     if (existing) {
@@ -383,11 +395,14 @@ export function createEditorPane(options: EditorPaneOptions): EditorPane {
 
     const path = tab.path;
     const text = tab.currentText;
+    const generation = nextSaveGeneration(tabId);
     const result = await options.writeFile(path, text);
     if (result.status === "error") {
       console.error(result.error);
       return;
     }
+
+    if (currentSaveGeneration(tabId) !== generation) return;
 
     const saved = markTabSavedById(tabs, tabId, path, text);
     if (!saved.updated) return;
