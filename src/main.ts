@@ -11,7 +11,7 @@ import { Prec } from "@codemirror/state";
 import { mountChrome } from "./chrome/chrome";
 import { mountFileTree } from "./workspace/fileTree";
 import { parentDir } from "./workspace/paths";
-import { listen } from "@tauri-apps/api/event";
+import { listen, type Event } from "@tauri-apps/api/event";
 import { mountConflictBanner } from "./workspace/conflictBanner";
 import { mountErrorBanner } from "./workspace/errorBanner";
 import { mountCommandPalette, type PaletteItem } from "./workspace/commandPalette";
@@ -30,6 +30,7 @@ import { promptModal } from "./workspace/promptModal";
 import { clearFindHighlights, findHighlightExtension, setFindHighlights } from "./editor/findHighlights";
 import { DEFAULT_LAYOUT, normalizeLayoutSettings, parseLayoutSettingsJson, serializeLayoutSettings, type LayoutSettings, type ResolvedLayoutSettings } from "./workspace/layoutSettings";
 import { createPaneWorkspace, type PaneWorkspace } from "./workspace/paneWorkspace";
+import { isTauri } from "@tauri-apps/api/core";
 
 const chrome = mountChrome(document.getElementById("titlebar")!, document.getElementById("statusbar")!, {
   onOpenSettings: () => settingsPanel.open(),
@@ -682,9 +683,17 @@ function onFsChange(paths: string[]): void {
     }
   }, 250);
 }
-void listen<string[]>("fs-change", (e) => onFsChange(e.payload));
+function safeListen<T>(event: string, handler: (event: Event<T>) => void): void {
+  if (!isTauri()) return;
+  try {
+    void listen<T>(event, handler).catch((error) => console.warn(error));
+  } catch (error) {
+    console.warn(error);
+  }
+}
+safeListen<string[]>("fs-change", (e) => onFsChange(e.payload));
 // A .md opened via file association while Rune is already running (single-instance / macOS).
-void listen<string>("open-file", (e) => { void openPath(e.payload); });
+safeListen<string>("open-file", (e) => { void openPath(e.payload); });
 
 paneWorkspace = createPaneWorkspace({
   host: editorRoot,
