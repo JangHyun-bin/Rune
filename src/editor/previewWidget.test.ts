@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { preventPreviewWidgetEvent, selectionIntersectsSourceRange } from "./previewWidget";
+import { preventPreviewWidgetEvent, previewWidgetEditAnchor, selectionIntersectsSourceRange } from "./previewWidget";
 
 describe("selectionIntersectsSourceRange", () => {
   it("does not treat boundary cursors as inside a preview source range", () => {
@@ -31,5 +31,13 @@ describe("preventPreviewWidgetEvent", () => {
     } as Event);
 
     expect(calls).toEqual(["preventDefault", "stopPropagation"]);
+  });
+});
+
+describe("previewWidgetEditAnchor", () => {
+  it("keeps widget edit selections strictly inside the source range", () => {
+    expect(previewWidgetEditAnchor(10, 20, 0)).toBe(11);
+    expect(previewWidgetEditAnchor(10, 20, 5)).toBe(15);
+    expect(previewWidgetEditAnchor(10, 20, 99)).toBe(19);
   });
 });
