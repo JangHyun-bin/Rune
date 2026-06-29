@@ -74,7 +74,7 @@ function settingsSnapshot() {
   const layout = currentLayoutSettings();
   const paneLayout = typeof paneWorkspace === "undefined" ? null : paneWorkspace.snapshot();
   const openTabs = paneLayout?.panes.flatMap((pane) => pane.openTabs) ?? [];
-  return { theme, lastFolder: currentFolder, openTabs, locale: getLocale(), editorWidth: currentEditorWidth(), editorMode, sidebarWidth: layout.sidebarWidth, layout, paneLayout };
+  return { theme, lastFolder: currentFolder, openTabs, locale: getLocale(), editorWidth: currentEditorWidth(), editorMode, sidebarWidth: layout.sidebarWidth, layout, paneLayout, uiScale: currentUiScale(), editorFontScale: currentEditorFontScale() };
 }
 function applyTheme(theme: "light" | "dark"): void {
   document.documentElement.setAttribute("data-theme", theme);
@@ -635,7 +635,7 @@ findReplacePanel = mountFindReplacePanel({
 });
 async function restore(): Promise<void> {
   const res = await commands.loadSettings();
-  const s = res.status === "ok" ? res.data : { theme: null, lastFolder: null, openTabs: [], locale: null, editorWidth: null, editorMode: null, sidebarWidth: null, layout: null, paneLayout: null };
+  const s = res.status === "ok" ? res.data : { theme: null, lastFolder: null, openTabs: [], locale: null, editorWidth: null, editorMode: null, sidebarWidth: null, layout: null, paneLayout: null, uiScale: null, editorFontScale: null };
   document.documentElement.setAttribute("data-theme", s.theme === "light" || s.theme === "dark" ? s.theme : (prefersDark() ? "dark" : "light"));
   document.documentElement.setAttribute("data-editor-width", s.editorWidth === "wide" ? "wide" : "readable");
   editorMode = normalizeEditorMode(s.editorMode);
@@ -643,7 +643,8 @@ async function restore(): Promise<void> {
   paneWorkspace.setEditorMode(editorMode);
   layoutModeControl?.setMode(editorMode);
   applyLayoutSettings(s.layout ?? { sidebarWidth: s.sidebarWidth }, false);
-  applyUiScale(currentUiScale(), false); // clamp and reapply on startup (persisted scale loaded in future settings extension)
+  applyUiScale(s.uiScale ?? UI_SCALE_DEFAULT, false);
+  applyEditorFontScale(s.editorFontScale ?? EDITOR_FONT_DEFAULT, false);
 
   // Resolve the UI language BEFORE loading any content, so the app never flashes
   // a language the user didn't choose. On first run (no saved locale) we ask once
