@@ -60,6 +60,8 @@ pub struct Settings {
     pub editor_width: Option<String>,
     pub editor_mode: Option<String>,
     pub sidebar_width: Option<u16>,
+    pub ui_scale: Option<f32>,
+    pub editor_font_scale: Option<f32>,
     pub layout: Option<LayoutSettings>,
     #[serde(default, deserialize_with = "deserialize_pane_layout_lossy")]
     pub pane_layout: Option<PaneWorkspaceSnapshot>,
@@ -109,6 +111,8 @@ mod tests {
             editor_width: Some("wide".into()),
             editor_mode: Some("source".into()),
             sidebar_width: Some(320),
+            ui_scale: Some(1.25),
+            editor_font_scale: Some(1.1),
             layout: Some(LayoutSettings {
                 sidebar_width: Some(330),
                 outline_height: Some(180),
@@ -161,6 +165,8 @@ mod tests {
         assert_eq!(got.editor_width.as_deref(), Some("wide"));
         assert_eq!(got.editor_mode.as_deref(), Some("source"));
         assert_eq!(got.sidebar_width, Some(320));
+        assert_eq!(got.ui_scale, Some(1.25));
+        assert_eq!(got.editor_font_scale, Some(1.1));
         let layout = got.layout.unwrap();
         assert_eq!(layout.sidebar_width, Some(330));
         assert_eq!(layout.outline_height, Some(180));
@@ -210,5 +216,7 @@ mod tests {
         assert_eq!(layout.sidebar_width, Some(280));
         assert_eq!(layout.split_ratio, Some(0.6));
         assert!(got.pane_layout.is_none());
+        assert!(got.ui_scale.is_none());
+        assert!(got.editor_font_scale.is_none());
     }
 }
