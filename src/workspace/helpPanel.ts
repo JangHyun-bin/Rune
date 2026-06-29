@@ -38,6 +38,9 @@ const GROUPS: Group[] = [
     { keys: ["F1"], labelKey: "cmd.help" },
     { keys: [MOD, SHIFT, "L"], labelKey: "help.toggleWidth" },
     { keys: [MOD, SHIFT, "M"], labelKey: "cmd.toggleSourceMode" },
+    { keys: [MOD, "−"], labelKey: "cmd.zoomOut" },
+    { keys: [MOD, "+"], labelKey: "cmd.zoomIn" },
+    { keys: [MOD, "0"], labelKey: "cmd.zoomReset" },
   ] },
 ];
 

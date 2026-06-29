@@ -310,6 +310,8 @@ const settingsPanel = mountSettingsPanel({
   getEditorWidth: currentEditorWidth,
   onEditorMode: (mode) => applyEditorMode(mode),
   getEditorMode: currentEditorMode,
+  onUiScale: (scale) => { applyUiScale(scale); settingsPanel.refresh(); },
+  getUiScale: currentUiScale,
   onHelp: () => helpPanel.open(),
   onSetDefault: () => void commands.openDefaultAppsSettings(),
   onCheckUpdates: () => void checkForUpdates(true),

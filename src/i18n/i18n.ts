@@ -102,6 +102,10 @@ export const DICT: Record<Locale, Dict> = {
     "aria.taskTodo": "To-do task",
     "error.save": "Couldn't save: {msg}",
     "error.mermaid": "Mermaid error: {msg}",
+    "settings.uiScale": "UI size",
+    "cmd.zoomIn": "Increase editor font",
+    "cmd.zoomOut": "Decrease editor font",
+    "cmd.zoomReset": "Reset editor font",
   },
   ko: {
     "doc.untitled": "제목 없음",
@@ -202,6 +206,10 @@ export const DICT: Record<Locale, Dict> = {
     "aria.taskTodo": "할 일",
     "error.save": "저장할 수 없습니다: {msg}",
     "error.mermaid": "Mermaid 오류: {msg}",
+    "settings.uiScale": "UI 크기",
+    "cmd.zoomIn": "에디터 글자 키우기",
+    "cmd.zoomOut": "에디터 글자 줄이기",
+    "cmd.zoomReset": "에디터 글자 기본값",
   },
   ja: {
     "doc.untitled": "無題",
@@ -302,6 +310,10 @@ export const DICT: Record<Locale, Dict> = {
     "aria.taskTodo": "未完了のタスク",
     "error.save": "保存できません: {msg}",
     "error.mermaid": "Mermaid エラー: {msg}",
+    "settings.uiScale": "UI サイズ",
+    "cmd.zoomIn": "エディタの文字を大きく",
+    "cmd.zoomOut": "エディタの文字を小さく",
+    "cmd.zoomReset": "エディタの文字をリセット",
   },
   "zh-Hans": {
     "doc.untitled": "无标题",
@@ -402,6 +414,10 @@ export const DICT: Record<Locale, Dict> = {
     "aria.taskTodo": "待办任务",
     "error.save": "无法保存：{msg}",
     "error.mermaid": "Mermaid 错误: {msg}",
+    "settings.uiScale": "界面大小",
+    "cmd.zoomIn": "增大编辑器字体",
+    "cmd.zoomOut": "减小编辑器字体",
+    "cmd.zoomReset": "重置编辑器字体",
   },
 };
 

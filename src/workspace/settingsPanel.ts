@@ -1,5 +1,6 @@
 import { t, getLocale, LOCALES, type Locale } from "../i18n/i18n";
 import type { EditorMode } from "../editor/editor";
+import { UI_SCALE_STEPS } from "../theme/scale";
 
 export interface SettingsPanel { open: () => void; close: () => void; refresh: () => void; setUpdateStatus: (text: string) => void; }
 
@@ -11,6 +12,8 @@ export function mountSettingsPanel(handlers: {
   getEditorWidth: () => "readable" | "wide";
   onEditorMode: (mode: EditorMode) => void;
   getEditorMode: () => EditorMode;
+  onUiScale: (scale: number) => void;
+  getUiScale: () => number;
   onHelp: () => void;
   onSetDefault: () => void;
   onCheckUpdates: () => void;
@@ -97,6 +100,18 @@ export function mountSettingsPanel(handlers: {
     }
     modeSel.addEventListener("change", () => handlers.onEditorMode(modeSel.value as EditorMode));
     modeRow.append(modeLabel, modeSel); card.appendChild(modeRow);
+
+    // UI size
+    const uiRow = document.createElement("div"); uiRow.className = "settings-row";
+    const uiLabel = document.createElement("label"); uiLabel.textContent = t("settings.uiScale");
+    const uiSel = document.createElement("select");
+    for (const step of UI_SCALE_STEPS) {
+      const o = document.createElement("option"); o.value = String(step); o.textContent = `${Math.round(step * 100)}%`;
+      if (step === handlers.getUiScale()) o.selected = true;
+      uiSel.appendChild(o);
+    }
+    uiSel.addEventListener("change", () => handlers.onUiScale(Number(uiSel.value)));
+    uiRow.append(uiLabel, uiSel); card.appendChild(uiRow);
 
     // Layout
     const layoutRow = document.createElement("div"); layoutRow.className = "settings-row settings-row-layout";
