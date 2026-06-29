@@ -30,7 +30,7 @@ import { showContextMenu, type MenuItem } from "./workspace/contextMenu";
 import { promptModal } from "./workspace/promptModal";
 import { clearFindHighlights, findHighlightExtension, setFindHighlights } from "./editor/findHighlights";
 import { DEFAULT_LAYOUT, normalizeLayoutSettings, parseLayoutSettingsJson, serializeLayoutSettings, type LayoutSettings, type ResolvedLayoutSettings } from "./workspace/layoutSettings";
-import { clampEditorFontScale, stepEditorFontScale, EDITOR_FONT_DEFAULT } from "./theme/scale";
+import { clampEditorFontScale, stepEditorFontScale, EDITOR_FONT_DEFAULT, clampUiScale, UI_SCALE_DEFAULT } from "./theme/scale";
 import { createPaneWorkspace, type PaneWorkspace } from "./workspace/paneWorkspace";
 import { isTauri } from "@tauri-apps/api/core";
 import { normalizePaneWorkspaceSnapshot } from "./workspace/panePersistence";
@@ -198,6 +198,15 @@ function currentEditorFontScale(): number {
   const raw = getComputedStyle(document.documentElement).getPropertyValue("--editor-font-scale");
   const parsed = Number.parseFloat(raw);
   return Number.isFinite(parsed) ? clampEditorFontScale(parsed) : EDITOR_FONT_DEFAULT;
+}
+function applyUiScale(scale: number, persist = true): void {
+  document.documentElement.style.setProperty("--ui-scale", String(clampUiScale(scale)));
+  if (persist) scheduleSaveSettings();
+}
+function currentUiScale(): number {
+  const raw = getComputedStyle(document.documentElement).getPropertyValue("--ui-scale");
+  const parsed = Number.parseFloat(raw);
+  return Number.isFinite(parsed) ? clampUiScale(parsed) : UI_SCALE_DEFAULT;
 }
 function zoomEditorFont(dir: 1 | -1): void {
   applyEditorFontScale(stepEditorFontScale(currentEditorFontScale(), dir));
@@ -634,6 +643,7 @@ async function restore(): Promise<void> {
   paneWorkspace.setEditorMode(editorMode);
   layoutModeControl?.setMode(editorMode);
   applyLayoutSettings(s.layout ?? { sidebarWidth: s.sidebarWidth }, false);
+  applyUiScale(currentUiScale(), false); // clamp and reapply on startup (persisted scale loaded in future settings extension)
 
   // Resolve the UI language BEFORE loading any content, so the app never flashes
   // a language the user didn't choose. On first run (no saved locale) we ask once
