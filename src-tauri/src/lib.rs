@@ -4,12 +4,18 @@ mod settings;
 mod search;
 
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, Ordering};
 use tauri::{Emitter, Manager};
 
 pub struct WatcherState(pub Mutex<Option<notify::RecommendedWatcher>>);
 /// A file path Rune was launched with (double-clicked .md via file association),
 /// pending until the frontend is ready to open it.
 pub struct LaunchFile(pub Mutex<Option<String>>);
+
+/// True once the frontend has registered its `open-file` listener (it drains
+/// `LaunchFile` on startup). Before that, OS file-open events are buffered into
+/// `LaunchFile`; after, they are delivered live.
+pub struct AppReady(pub AtomicBool);
 
 /// First CLI argument that is an existing file (skips the exe path and any flags).
 /// This is how a double-clicked file arrives on Windows/Linux.
@@ -49,6 +55,7 @@ pub fn run() {
         .plugin(tauri_plugin_process::init())
         .manage(WatcherState(Mutex::new(None)))
         .manage(LaunchFile(Mutex::new(initial)))
+        .manage(AppReady(AtomicBool::new(false)))
         .invoke_handler(tauri::generate_handler![
             commands::read_file,
             commands::write_file,
@@ -71,9 +78,18 @@ pub fn run() {
             // macOS delivers file-open via the Opened event, not argv.
             #[cfg(target_os = "macos")]
             if let tauri::RunEvent::Opened { urls } = &event {
+                let ready = app.state::<AppReady>().0.load(Ordering::SeqCst);
                 for url in urls {
                     if let Ok(path) = url.to_file_path() {
-                        let _ = app.emit("open-file", path.to_string_lossy().to_string());
+                        let p = path.to_string_lossy().to_string();
+                        // Cold launch: the frontend listener isn't ready yet, so
+                        // buffer the path for take_launch_file() to drain on startup.
+                        if !ready {
+                            if let Ok(mut g) = app.state::<LaunchFile>().0.lock() {
+                                *g = Some(p.clone());
+                            }
+                        }
+                        let _ = app.emit("open-file", p);
                     }
                 }
             }

@@ -67,9 +67,14 @@ pub fn search(root: String, query: String) -> Result<Vec<crate::search::SearchHi
 }
 
 /// Return (and clear) the file Rune was launched with via file association, if any.
+/// Also marks the app "ready" so later OS open events are delivered live, not buffered.
 #[tauri::command]
-pub fn take_launch_file(state: tauri::State<crate::LaunchFile>) -> Option<String> {
-    state.0.lock().ok().and_then(|mut g| g.take())
+pub fn take_launch_file(
+    launch: tauri::State<crate::LaunchFile>,
+    ready: tauri::State<crate::AppReady>,
+) -> Option<String> {
+    ready.0.store(true, std::sync::atomic::Ordering::SeqCst);
+    launch.0.lock().ok().and_then(|mut g| g.take())
 }
 
 #[tauri::command]
