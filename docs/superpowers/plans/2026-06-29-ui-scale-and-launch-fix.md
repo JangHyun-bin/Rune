@@ -650,14 +650,12 @@ In `src/main.ts`, in the `mountSettingsPanel({ ... })` call (starts line 283), a
 
 - [ ] **Step 6: Add the zoom shortcuts to the Help panel**
 
-In `src/workspace/helpPanel.ts`, add a zoom row group. Insert a new group into the `GROUPS` array (after the `help.tools` group, before the closing `];` on line 42):
+In `src/workspace/helpPanel.ts`, append three rows to the **existing** `help.tools` group's `rows` array (after the `cmd.toggleSourceMode` row, line 40) — do not create a new group (that would duplicate the "View & Tools" header):
 
 ```ts
-  { titleKey: "help.tools", rows: [
     { keys: [MOD, "−"], labelKey: "cmd.zoomOut" },
     { keys: [MOD, "+"], labelKey: "cmd.zoomIn" },
     { keys: [MOD, "0"], labelKey: "cmd.zoomReset" },
-  ] },
 ```
 
 - [ ] **Step 7: Verify build + full test suite**
