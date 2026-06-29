@@ -30,6 +30,7 @@ import { showContextMenu, type MenuItem } from "./workspace/contextMenu";
 import { promptModal } from "./workspace/promptModal";
 import { clearFindHighlights, findHighlightExtension, setFindHighlights } from "./editor/findHighlights";
 import { DEFAULT_LAYOUT, normalizeLayoutSettings, parseLayoutSettingsJson, serializeLayoutSettings, type LayoutSettings, type ResolvedLayoutSettings } from "./workspace/layoutSettings";
+import { clampEditorFontScale, stepEditorFontScale, EDITOR_FONT_DEFAULT, clampUiScale, UI_SCALE_DEFAULT } from "./theme/scale";
 import { createPaneWorkspace, type PaneWorkspace } from "./workspace/paneWorkspace";
 import { isTauri } from "@tauri-apps/api/core";
 import { normalizePaneWorkspaceSnapshot } from "./workspace/panePersistence";
@@ -73,7 +74,7 @@ function settingsSnapshot() {
   const layout = currentLayoutSettings();
   const paneLayout = typeof paneWorkspace === "undefined" ? null : paneWorkspace.snapshot();
   const openTabs = paneLayout?.panes.flatMap((pane) => pane.openTabs) ?? [];
-  return { theme, lastFolder: currentFolder, openTabs, locale: getLocale(), editorWidth: currentEditorWidth(), editorMode, sidebarWidth: layout.sidebarWidth, layout, paneLayout };
+  return { theme, lastFolder: currentFolder, openTabs, locale: getLocale(), editorWidth: currentEditorWidth(), editorMode, sidebarWidth: layout.sidebarWidth, layout, paneLayout, uiScale: currentUiScale(), editorFontScale: currentEditorFontScale() };
 }
 function applyTheme(theme: "light" | "dark"): void {
   document.documentElement.setAttribute("data-theme", theme);
@@ -189,6 +190,27 @@ function applyEditorMode(mode: EditorMode, persist = true): void {
 function flipEditorMode(): void {
   applyEditorMode(currentEditorMode() === "preview" ? "source" : "preview");
 }
+function applyEditorFontScale(scale: number, persist = true): void {
+  document.documentElement.style.setProperty("--editor-font-scale", String(clampEditorFontScale(scale)));
+  if (persist) scheduleSaveSettings();
+}
+function currentEditorFontScale(): number {
+  const raw = getComputedStyle(document.documentElement).getPropertyValue("--editor-font-scale");
+  const parsed = Number.parseFloat(raw);
+  return Number.isFinite(parsed) ? clampEditorFontScale(parsed) : EDITOR_FONT_DEFAULT;
+}
+function applyUiScale(scale: number, persist = true): void {
+  document.documentElement.style.setProperty("--ui-scale", String(clampUiScale(scale)));
+  if (persist) scheduleSaveSettings();
+}
+function currentUiScale(): number {
+  const raw = getComputedStyle(document.documentElement).getPropertyValue("--ui-scale");
+  const parsed = Number.parseFloat(raw);
+  return Number.isFinite(parsed) ? clampUiScale(parsed) : UI_SCALE_DEFAULT;
+}
+function zoomEditorFont(dir: 1 | -1): void {
+  applyEditorFontScale(stepEditorFontScale(currentEditorFontScale(), dir));
+}
 function mountSidebarResizer(handle: HTMLElement): void {
   let dragging = false;
   let activePointerId: number | null = null;
@@ -288,6 +310,8 @@ const settingsPanel = mountSettingsPanel({
   getEditorWidth: currentEditorWidth,
   onEditorMode: (mode) => applyEditorMode(mode),
   getEditorMode: currentEditorMode,
+  onUiScale: (scale) => { applyUiScale(scale); settingsPanel.refresh(); },
+  getUiScale: currentUiScale,
   onHelp: () => helpPanel.open(),
   onSetDefault: () => void commands.openDefaultAppsSettings(),
   onCheckUpdates: () => void checkForUpdates(true),
@@ -613,7 +637,7 @@ findReplacePanel = mountFindReplacePanel({
 });
 async function restore(): Promise<void> {
   const res = await commands.loadSettings();
-  const s = res.status === "ok" ? res.data : { theme: null, lastFolder: null, openTabs: [], locale: null, editorWidth: null, editorMode: null, sidebarWidth: null, layout: null, paneLayout: null };
+  const s = res.status === "ok" ? res.data : { theme: null, lastFolder: null, openTabs: [], locale: null, editorWidth: null, editorMode: null, sidebarWidth: null, layout: null, paneLayout: null, uiScale: null, editorFontScale: null };
   document.documentElement.setAttribute("data-theme", s.theme === "light" || s.theme === "dark" ? s.theme : (prefersDark() ? "dark" : "light"));
   document.documentElement.setAttribute("data-editor-width", s.editorWidth === "wide" ? "wide" : "readable");
   editorMode = normalizeEditorMode(s.editorMode);
@@ -621,6 +645,8 @@ async function restore(): Promise<void> {
   paneWorkspace.setEditorMode(editorMode);
   layoutModeControl?.setMode(editorMode);
   applyLayoutSettings(s.layout ?? { sidebarWidth: s.sidebarWidth }, false);
+  applyUiScale(s.uiScale ?? UI_SCALE_DEFAULT, false);
+  applyEditorFontScale(s.editorFontScale ?? EDITOR_FONT_DEFAULT, false);
 
   // Resolve the UI language BEFORE loading any content, so the app never flashes
   // a language the user didn't choose. On first run (no saved locale) we ask once
@@ -852,6 +878,9 @@ window.addEventListener("resize", () => applyLayoutSettings(currentLayoutSetting
 window.addEventListener("keydown", (e) => {
   if (e.key === "F1") { e.preventDefault(); helpPanel.toggle(); return; }
   const mod = e.ctrlKey || e.metaKey;
+  if (mod && (e.key === "-" || e.key === "_")) { e.preventDefault(); zoomEditorFont(-1); return; }
+  if (mod && (e.key === "=" || e.key === "+")) { e.preventDefault(); zoomEditorFont(1); return; }
+  if (mod && e.key === "0") { e.preventDefault(); applyEditorFontScale(EDITOR_FONT_DEFAULT); return; }
   if (mod && e.shiftKey && e.key.toLowerCase() === "f") { e.preventDefault(); searchPanel.toggle(); return; }
   if (mod && !e.shiftKey && e.key.toLowerCase() === "f") { e.preventDefault(); findReplacePanel?.open(); return; }
   if (mod && e.shiftKey && e.key.toLowerCase() === "o") { e.preventDefault(); void openFolder(); return; }
