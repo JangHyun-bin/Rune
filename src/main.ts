@@ -30,6 +30,7 @@ import { showContextMenu, type MenuItem } from "./workspace/contextMenu";
 import { promptModal } from "./workspace/promptModal";
 import { clearFindHighlights, findHighlightExtension, setFindHighlights } from "./editor/findHighlights";
 import { DEFAULT_LAYOUT, normalizeLayoutSettings, parseLayoutSettingsJson, serializeLayoutSettings, type LayoutSettings, type ResolvedLayoutSettings } from "./workspace/layoutSettings";
+import { clampEditorFontScale, stepEditorFontScale, EDITOR_FONT_DEFAULT } from "./theme/scale";
 import { createPaneWorkspace, type PaneWorkspace } from "./workspace/paneWorkspace";
 import { isTauri } from "@tauri-apps/api/core";
 import { normalizePaneWorkspaceSnapshot } from "./workspace/panePersistence";
@@ -188,6 +189,18 @@ function applyEditorMode(mode: EditorMode, persist = true): void {
 }
 function flipEditorMode(): void {
   applyEditorMode(currentEditorMode() === "preview" ? "source" : "preview");
+}
+function applyEditorFontScale(scale: number, persist = true): void {
+  document.documentElement.style.setProperty("--editor-font-scale", String(clampEditorFontScale(scale)));
+  if (persist) scheduleSaveSettings();
+}
+function currentEditorFontScale(): number {
+  const raw = getComputedStyle(document.documentElement).getPropertyValue("--editor-font-scale");
+  const parsed = Number.parseFloat(raw);
+  return Number.isFinite(parsed) ? clampEditorFontScale(parsed) : EDITOR_FONT_DEFAULT;
+}
+function zoomEditorFont(dir: 1 | -1): void {
+  applyEditorFontScale(stepEditorFontScale(currentEditorFontScale(), dir));
 }
 function mountSidebarResizer(handle: HTMLElement): void {
   let dragging = false;
@@ -852,6 +865,9 @@ window.addEventListener("resize", () => applyLayoutSettings(currentLayoutSetting
 window.addEventListener("keydown", (e) => {
   if (e.key === "F1") { e.preventDefault(); helpPanel.toggle(); return; }
   const mod = e.ctrlKey || e.metaKey;
+  if (mod && (e.key === "-" || e.key === "_")) { e.preventDefault(); zoomEditorFont(-1); return; }
+  if (mod && (e.key === "=" || e.key === "+")) { e.preventDefault(); zoomEditorFont(1); return; }
+  if (mod && e.key === "0") { e.preventDefault(); applyEditorFontScale(EDITOR_FONT_DEFAULT); return; }
   if (mod && e.shiftKey && e.key.toLowerCase() === "f") { e.preventDefault(); searchPanel.toggle(); return; }
   if (mod && !e.shiftKey && e.key.toLowerCase() === "f") { e.preventDefault(); findReplacePanel?.open(); return; }
   if (mod && e.shiftKey && e.key.toLowerCase() === "o") { e.preventDefault(); void openFolder(); return; }

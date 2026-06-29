@@ -20,6 +20,7 @@
   --sidebar-width:240px;
   --outline-height:220px;
   --split-source-width:50%;
+  --editor-font-scale: 1;
 }
 :root[data-theme="dark"] {
   --bg:#0D0F12; --faint:#15181D; --border:#2C3138;
