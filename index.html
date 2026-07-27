@@ -10,17 +10,29 @@
   <body>
     <div id="app">
       <div id="titlebar"></div>
-      <div id="body">
-        <div id="sidebar">
-          <div id="filetree"></div>
-          <div id="outline-resizer" role="separator" aria-orientation="horizontal" aria-label="Resize outline"></div>
-          <div id="outline"></div>
+      <div id="body" class="workbench">
+        <nav id="activitybar" aria-label="Activity Bar"></nav>
+        <aside id="primary-sidebar" aria-label="Primary Side Bar"></aside>
+        <div id="primary-sidebar-resizer"
+             role="separator"
+             aria-orientation="vertical"
+             aria-label="Resize Primary Side Bar"></div>
+        <div id="workbench-center">
+          <div id="main-col">
+            <div id="editor-toolbar"></div>
+            <div id="editor"></div>
+          </div>
+          <div id="panel-resizer" class="hidden"
+               role="separator"
+               aria-orientation="horizontal"
+               aria-label="Resize Panel"></div>
+          <section id="panel" class="hidden" aria-label="Panel"></section>
         </div>
-        <div id="sidebar-resizer" role="separator" aria-orientation="vertical" aria-label="Resize workspace"></div>
-        <div id="main-col">
-          <div id="editor-toolbar"></div>
-          <div id="editor"></div>
-        </div>
+        <div id="secondary-sidebar-resizer" class="hidden"
+             role="separator"
+             aria-orientation="vertical"
+             aria-label="Resize Secondary Side Bar"></div>
+        <aside id="secondary-sidebar" class="hidden" aria-label="Secondary Side Bar"></aside>
       </div>
       <div id="statusbar"></div>
     </div>
