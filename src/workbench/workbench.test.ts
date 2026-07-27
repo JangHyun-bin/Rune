@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { setLocale, type Locale } from "../i18n/i18n";
 import { DEFAULT_WORKBENCH_LAYOUT } from "./workbenchLayout";
 import { createViewRegistry } from "./viewRegistry";
 import { mountWorkbench } from "./workbench";
@@ -164,11 +165,11 @@ function setup() {
   const createWorkspace = vi.fn(() => ({ element: document.createElement("div"), focus: focusWorkspace, relabel, dispose() {} }));
   const createOutline = vi.fn(() => ({ element: document.createElement("div"), focus: focusOutline, relabel, dispose() {} }));
   const createSearch = vi.fn(() => ({ element: document.createElement("div"), focus: focusSearch, relabel, dispose() {} }));
-  registry.registerContainer({ id: "explorer", titleKey: "Explorer", icon: "files", order: 0 });
-  registry.registerContainer({ id: "search", titleKey: "Search", icon: "search", order: 1 });
-  registry.registerView({ id: "workspace", titleKey: "Workspace", defaultContainerId: "explorer", order: 0, create: createWorkspace });
-  registry.registerView({ id: "outline", titleKey: "Outline", defaultContainerId: "explorer", order: 1, create: createOutline });
-  registry.registerView({ id: "search", titleKey: "Search", defaultContainerId: "search", order: 0, create: createSearch });
+  registry.registerContainer({ id: "explorer", titleKey: "view.explorer", icon: "files", order: 0 });
+  registry.registerContainer({ id: "search", titleKey: "view.search", icon: "search", order: 1 });
+  registry.registerView({ id: "workspace", titleKey: "view.workspace", defaultContainerId: "explorer", order: 0, create: createWorkspace });
+  registry.registerView({ id: "outline", titleKey: "view.outline", defaultContainerId: "explorer", order: 1, create: createOutline });
+  registry.registerView({ id: "search", titleKey: "view.search", defaultContainerId: "search", order: 0, create: createSearch });
 
   const hosts = {
     activityBar: document.createElement("nav"),
@@ -206,6 +207,7 @@ function setup() {
 }
 
 beforeEach(() => {
+  setLocale("en");
   testDocument.activeElement = null;
   testDocument.body = new TestElement("body");
   testWindow = new TestWindow();
@@ -307,6 +309,21 @@ describe("workbench", () => {
     expect(onDidChange.mock.calls[2][0].parts.primarySidebar.visible).toBe(false);
   });
 
+  it("toggles the Primary Sidebar through the public API", () => {
+    const { primarySidebar, primaryResizer, workbench, onDidChange } = setup();
+
+    workbench.togglePrimarySidebar();
+
+    expect(workbench.snapshot().parts.primarySidebar.visible).toBe(false);
+    expect((primarySidebar as unknown as TestElement).classList.contains("hidden")).toBe(true);
+    expect((primaryResizer as unknown as TestElement).classList.contains("hidden")).toBe(true);
+
+    workbench.togglePrimarySidebar();
+
+    expect(workbench.snapshot().parts.primarySidebar.visible).toBe(true);
+    expect(onDidChange).toHaveBeenCalledTimes(2);
+  });
+
   it("persists one Primary Sidebar size change on pointer release", () => {
     const { primarySidebar, primaryResizer, workbench, onDidChange } = setup();
 
@@ -329,6 +346,42 @@ describe("workbench", () => {
 
     expect(relabel).toHaveBeenCalledTimes(2);
     expect(onDidChange).not.toHaveBeenCalled();
+  });
+
+  it("relabels Workbench controls in every supported locale", () => {
+    const labels: Record<Locale, { explorer: string; outline: string; open: string; close: string; collapse: string; expand: string }> = {
+      en: { explorer: "Explorer", outline: "Outline", open: "Open", close: "Close", collapse: "Collapse", expand: "Expand" },
+      ko: { explorer: "탐색기", outline: "개요", open: "열기", close: "닫기", collapse: "접기", expand: "펼치기" },
+      ja: { explorer: "エクスプローラー", outline: "アウトライン", open: "開く", close: "閉じる", collapse: "折りたたむ", expand: "展開" },
+      "zh-Hans": { explorer: "资源管理器", outline: "大纲", open: "打开", close: "关闭", collapse: "折叠", expand: "展开" },
+    };
+    const { activityBar, primarySidebar, workbench } = setup();
+    const root = primarySidebar as unknown as TestElement;
+
+    workbench.closeView("outline");
+    for (const [locale, expected] of Object.entries(labels) as [Locale, typeof labels[Locale]][]) {
+      setLocale(locale);
+      workbench.relabel();
+      expect(byData(activityBar as unknown as TestElement, "containerId", "explorer").getAttribute("aria-label")).toBe(expected.explorer);
+      expect(walk(root).find((element) => element.tagName === "h2")?.textContent).toBe(expected.explorer);
+      expect(byClass(root, "view-restore")[0].getAttribute("aria-label")).toBe(`${expected.open} ${expected.outline}`);
+    }
+
+    workbench.openView("outline");
+    for (const [locale, expected] of Object.entries(labels) as [Locale, typeof labels[Locale]][]) {
+      setLocale(locale);
+      workbench.relabel();
+      expect(byClass(viewById(root, "outline"), "view-collapse")[0].getAttribute("aria-label")).toBe(`${expected.collapse} ${expected.outline}`);
+    }
+    workbench.toggleViewCollapsed("outline");
+    for (const [locale, expected] of Object.entries(labels) as [Locale, typeof labels[Locale]][]) {
+      setLocale(locale);
+      workbench.relabel();
+      const outline = viewById(root, "outline");
+      expect(byClass(outline, "view-title")[0].textContent).toBe(expected.outline);
+      expect(byClass(outline, "view-collapse")[0].getAttribute("aria-label")).toBe(`${expected.expand} ${expected.outline}`);
+      expect(byClass(outline, "view-close")[0].getAttribute("aria-label")).toBe(`${expected.close} ${expected.outline}`);
+    }
   });
 
   it("restores and persists one clamped Outline size on pointer release", () => {

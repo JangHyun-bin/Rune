@@ -41,6 +41,7 @@ import { mountWorkbench } from "./workbench/workbench";
 import { DEFAULT_WORKBENCH_LAYOUT } from "./workbench/workbenchLayout";
 
 const chrome = mountChrome(document.getElementById("titlebar")!, document.getElementById("statusbar")!, {
+  onTogglePrimarySidebar: () => workbench.togglePrimarySidebar(),
   onOpenSettings: () => settingsPanel.open(),
 });
 const editorRoot = document.getElementById("editor")!;
@@ -528,6 +529,11 @@ function paletteItems(): PaletteItem[] {
     { label: tr("cmd.exportPdf"), run: () => void exportPdf(activeView().state.doc.toString(), exportTitle()) },
     { label: tr("cmd.findReplace"), run: () => findReplacePanel?.open() },
     { label: tr("cmd.search"), run: () => workbench.toggleView("search") },
+    { label: tr("workbench.togglePrimarySidebar"), run: () => workbench.togglePrimarySidebar() },
+    { label: tr("view.workspace"), run: () => workbench.openView("workspace") },
+    { label: tr("view.outline"), run: () => workbench.openView("outline") },
+    { label: tr("view.search"), run: () => workbench.openView("search") },
+    { label: tr("workbench.resetViewVisibility"), run: () => workbench.resetViewVisibility() },
     { label: tr("cmd.reveal"), run: () => revealActive() },
     { label: tr("settings.title"), run: () => settingsPanel.open() },
     { label: tr("cmd.help"), run: () => helpPanel.open() },

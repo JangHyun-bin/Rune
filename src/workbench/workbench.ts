@@ -11,6 +11,7 @@ import {
   type WorkbenchViewId,
 } from "./workbenchLayout";
 import type { ViewContribution, ViewRegistry } from "./viewRegistry";
+import { t } from "../i18n/i18n";
 
 export interface Workbench {
   snapshot(): WorkbenchLayoutSnapshot;
@@ -19,6 +20,7 @@ export interface Workbench {
   closeView(id: WorkbenchViewId): void;
   toggleView(id: WorkbenchViewId): void;
   toggleViewCollapsed(id: WorkbenchViewId): void;
+  togglePrimarySidebar(): void;
   activateContainer(id: WorkbenchContainerId): void;
   resetViewVisibility(): void;
   setPrimarySidebarSize(size: number): void;
@@ -30,6 +32,7 @@ interface ViewShell {
   section: HTMLElement;
   title: HTMLElement;
   collapse: HTMLButtonElement;
+  close: HTMLButtonElement;
   body: HTMLElement;
 }
 
@@ -96,7 +99,7 @@ export function mountWorkbench(options: {
     body.className = "workbench-view-body";
     section.appendChild(header);
     section.appendChild(body);
-    shell = { section, title, collapse, body };
+    shell = { section, title, collapse, close, body };
     viewShells.set(view.id, shell);
     return shell;
   };
@@ -104,10 +107,17 @@ export function mountWorkbench(options: {
   const renderView = (view: ViewContribution): HTMLElement => {
     const layout = state.views[view.id];
     const shell = shellFor(view);
-    shell.title.textContent = view.titleKey;
+    const title = t(view.titleKey);
+    shell.title.textContent = title;
     shell.section.classList.toggle("hidden", !layout.visible);
     shell.section.classList.toggle("collapsed", layout.collapsed);
     shell.collapse.setAttribute("aria-expanded", String(!layout.collapsed));
+    const collapseLabel = `${t(layout.collapsed ? "view.expand" : "view.collapse")} ${title}`;
+    shell.collapse.setAttribute("aria-label", collapseLabel);
+    shell.collapse.title = collapseLabel;
+    const closeLabel = `${t("view.close")} ${title}`;
+    shell.close.setAttribute("aria-label", closeLabel);
+    shell.close.title = closeLabel;
     shell.body.classList.toggle("hidden", layout.collapsed);
     if (view.id === "outline") {
       shell.section.style.setProperty("--outline-height", `${layout.size ?? OUTLINE_DEFAULT_SIZE}px`);
@@ -124,16 +134,14 @@ export function mountWorkbench(options: {
       .filter((container) => state.containers[container.id].part === "primarySidebar")
       .sort((a, b) => state.containers[a.id].order - state.containers[b.id].order || a.id.localeCompare(b.id));
     options.activityBar.replaceChildren(...primaryContainers.map((container) => {
-      const button = createButton("activitybar-button", container.titleKey, container.icon);
+      const button = createButton("activitybar-button", t(container.titleKey), container.icon);
       button.dataset.containerId = container.id;
       const active = state.parts.primarySidebar.activeContainerId === container.id;
       button.classList.toggle("active", active);
       button.setAttribute("aria-pressed", String(active && state.parts.primarySidebar.visible));
       button.addEventListener("click", () => {
         if (active && state.parts.primarySidebar.visible) {
-          const next = normalizeWorkbenchLayout(state);
-          next.parts.primarySidebar.visible = false;
-          commit(next);
+          workbench.togglePrimarySidebar();
         } else {
           workbench.activateContainer(container.id);
         }
@@ -162,10 +170,11 @@ export function mountWorkbench(options: {
     const titlebar = document.createElement("header");
     titlebar.className = "view-container-titlebar";
     const title = document.createElement("h2");
-    title.textContent = contribution.titleKey;
+    title.textContent = t(contribution.titleKey);
     titlebar.appendChild(title);
     for (const view of views.filter((candidate) => !state.views[candidate.id].visible)) {
-      const restore = createButton("view-restore", `Open ${view.titleKey}`, view.titleKey);
+      const viewTitle = t(view.titleKey);
+      const restore = createButton("view-restore", `${t("view.open")} ${viewTitle}`, viewTitle);
       restore.dataset.viewId = view.id;
       restore.addEventListener("click", () => workbench.openView(view.id));
       titlebar.appendChild(restore);
@@ -239,6 +248,11 @@ export function mountWorkbench(options: {
       else workbench.openView(id);
     },
     toggleViewCollapsed: (id) => commit(toggleLayoutViewCollapsed(state, id)),
+    togglePrimarySidebar: () => {
+      const next = normalizeWorkbenchLayout(state);
+      next.parts.primarySidebar.visible = !next.parts.primarySidebar.visible;
+      commit(next);
+    },
     activateContainer: (id) => {
       commit(activateLayoutContainer(state, id));
       const view = viewsIn(id).find((candidate) => state.views[candidate.id].visible);

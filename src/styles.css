@@ -42,6 +42,8 @@ body { background: var(--bg); color: var(--text); font-family: var(--sans); }
 #titlebar button { background:none; border:none; color:var(--muted); font-size:0.875rem; line-height:1; padding:0.25rem 0.5rem;
   border-radius:var(--radius-sm); cursor:pointer; transition:color var(--dur) var(--ease), background var(--dur) var(--ease); }
 #titlebar button:hover { color:var(--text); background:var(--accent-soft); }
+#titlebar button:focus-visible { outline:2px solid var(--accent); outline-offset:1px; }
+#titlebar .tb-toggle-sidebar { font-size:1rem; }
 #body { flex: 1; min-height: 0; display: flex; }
 .hidden { display:none !important; }
 #activitybar { width:3rem; flex:0 0 3rem; display:flex; flex-direction:column; align-items:stretch; background:var(--faint);

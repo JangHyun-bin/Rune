@@ -12,10 +12,16 @@ export interface Chrome {
 export function mountChrome(
   titlebar: HTMLElement,
   statusbar: HTMLElement,
-  opts?: { onOpenSettings?: () => void },
+  opts?: { onTogglePrimarySidebar?: () => void; onOpenSettings?: () => void },
 ): Chrome {
   const spacer = document.createElement("span");
   spacer.className = "tb-spacer";
+  const sidebarBtn = document.createElement("button");
+  sidebarBtn.className = "tb-toggle-sidebar";
+  sidebarBtn.textContent = "◫";
+  sidebarBtn.title = t("workbench.togglePrimarySidebar");
+  sidebarBtn.setAttribute("aria-label", t("workbench.togglePrimarySidebar"));
+  sidebarBtn.addEventListener("click", () => opts?.onTogglePrimarySidebar?.());
   const settingsBtn = document.createElement("button");
   settingsBtn.textContent = "⚙";
   settingsBtn.title = t("settings.title");
@@ -24,7 +30,7 @@ export function mountChrome(
   const brand = document.createElement("span");
   brand.className = "tb-brand";
   brand.innerHTML = sparkleSvg(18);
-  titlebar.replaceChildren(brand, spacer, settingsBtn);
+  titlebar.replaceChildren(brand, spacer, sidebarBtn, settingsBtn);
 
   const left = document.createElement("span");
   const right = document.createElement("span");
@@ -45,6 +51,8 @@ export function mountChrome(
       lineCol.textContent = t("status.lineCol", { line, col });
     },
     relabel() {
+      sidebarBtn.title = t("workbench.togglePrimarySidebar");
+      sidebarBtn.setAttribute("aria-label", t("workbench.togglePrimarySidebar"));
       settingsBtn.title = t("settings.title");
       settingsBtn.setAttribute("aria-label", t("settings.title"));
       autoSave.textContent = t("status.autosave");
