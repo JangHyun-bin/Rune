@@ -9,7 +9,7 @@ import { mountUpdateBanner } from "./workspace/updatePanel";
 import { EditorView, keymap } from "@codemirror/view";
 import { Prec } from "@codemirror/state";
 import { mountChrome } from "./chrome/chrome";
-import { mountFileTree } from "./workspace/fileTree";
+import { mountFileTree, type FileTree } from "./workspace/fileTree";
 import { parentDir } from "./workspace/paths";
 import { listen, type Event } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
@@ -22,7 +22,7 @@ import { mountFindReplacePanel, type FindReplacePanel } from "./workspace/findRe
 import { mountSettingsPanel } from "./workspace/settingsPanel";
 import { mountLayoutModeControl, normalizeEditorMode, type LayoutModeControl } from "./workspace/layoutModeControl";
 import { parseHeadings } from "./editor/outline";
-import { mountOutlinePanel } from "./workspace/outlinePanel";
+import { mountOutlinePanel, type OutlinePanel } from "./workspace/outlinePanel";
 import { showLanguagePicker } from "./workspace/languagePicker";
 import { mountHelpPanel } from "./workspace/helpPanel";
 import { t as tr, setLocale, getLocale, detectLocale, LOCALES, type Locale } from "./i18n/i18n";
@@ -36,6 +36,9 @@ import { isTauri } from "@tauri-apps/api/core";
 import { normalizePaneWorkspaceSnapshot } from "./workspace/panePersistence";
 import { dropZoneRect, firstMarkdownPath, hitPaneDropZone, physicalToCssPoint } from "./workspace/dropTargets";
 import { handleNativeFileDrop, type ResolvedDropTarget } from "./workspace/fileDrop";
+import { createViewRegistry } from "./workbench/viewRegistry";
+import { mountWorkbench } from "./workbench/workbench";
+import { DEFAULT_WORKBENCH_LAYOUT } from "./workbench/workbenchLayout";
 
 const chrome = mountChrome(document.getElementById("titlebar")!, document.getElementById("statusbar")!, {
   onOpenSettings: () => settingsPanel.open(),
@@ -45,10 +48,6 @@ const editorToolbar = document.getElementById("editor-toolbar")!;
 const dropOverlay = document.createElement("div");
 dropOverlay.className = "drop-overlay hidden";
 document.body.appendChild(dropOverlay);
-const tree = mountFileTree(document.getElementById("filetree")!, (p) => void openPath(p), () => void openFolder(), fileTreeMenu, {
-  onNewFile: () => { if (currentFolder) void newFileIn(currentFolder); },
-  onNewFolder: () => { if (currentFolder) void newFolderIn(currentFolder); },
-});
 
 let paneWorkspace: PaneWorkspace;
 let currentFolder: string | null = null;
@@ -56,6 +55,83 @@ let workspaceFiles: { name: string; path: string }[] = [];
 let editorMode: EditorMode = "preview";
 let findReplacePanel: FindReplacePanel | null = null;
 let layoutModeControl: LayoutModeControl | null = null;
+let tree: FileTree;
+let outlinePanel: OutlinePanel;
+
+const viewRegistry = createViewRegistry();
+viewRegistry.registerContainer({ id: "explorer", titleKey: "view.explorer", icon: "▤", order: 0 });
+viewRegistry.registerContainer({ id: "search", titleKey: "view.search", icon: "⌕", order: 1 });
+viewRegistry.registerContainer({ id: "auxiliary", titleKey: "view.auxiliary", icon: "◧", order: 0 });
+viewRegistry.registerContainer({ id: "panel", titleKey: "view.panel", icon: "⌄", order: 0 });
+viewRegistry.registerView({
+  id: "workspace",
+  titleKey: "view.workspace",
+  defaultContainerId: "explorer",
+  order: 0,
+  create() {
+    const element = document.createElement("div");
+    tree = mountFileTree(element, (path) => void openPath(path), () => void openFolder(), fileTreeMenu, {
+      onNewFile: () => { if (currentFolder) void newFileIn(currentFolder); },
+      onNewFolder: () => { if (currentFolder) void newFolderIn(currentFolder); },
+    });
+    return {
+      element,
+      relabel: () => tree.relabel(),
+      dispose: () => tree.dispose(),
+    };
+  },
+});
+viewRegistry.registerView({
+  id: "outline",
+  titleKey: "view.outline",
+  defaultContainerId: "explorer",
+  order: 1,
+  create() {
+    const element = document.createElement("div");
+    outlinePanel = mountOutlinePanel(element, jumpToLine);
+    return {
+      element,
+      relabel: () => outlinePanel.relabel(),
+      dispose: () => outlinePanel.dispose(),
+    };
+  },
+});
+viewRegistry.registerView({
+  id: "search",
+  titleKey: "view.search",
+  defaultContainerId: "search",
+  order: 0,
+  create() {
+    const element = document.createElement("div");
+    const panel = mountSearchPanel(
+      element,
+      () => currentFolder,
+      (path, line) => { void (async () => { if (await openPath(path)) jumpToLine(line); })(); },
+    );
+    return {
+      element,
+      focus: () => panel.focus(),
+      relabel: () => panel.relabel(),
+      dispose: () => panel.dispose(),
+    };
+  },
+});
+viewRegistry.resolveView("workspace");
+viewRegistry.resolveView("outline");
+const workbench = mountWorkbench({
+  activityBar: document.getElementById("activitybar")!,
+  primarySidebar: document.getElementById("primary-sidebar")!,
+  primaryResizer: document.getElementById("primary-sidebar-resizer")!,
+  secondarySidebar: document.getElementById("secondary-sidebar")!,
+  secondaryResizer: document.getElementById("secondary-sidebar-resizer")!,
+  panel: document.getElementById("panel")!,
+  panelResizer: document.getElementById("panel-resizer")!,
+  registry: viewRegistry,
+  initialState: DEFAULT_WORKBENCH_LAYOUT,
+  focusEditor: () => { if (typeof paneWorkspace !== "undefined") activeView().focus(); },
+  onDidChange: () => {},
+});
+
 const SIDEBAR_DEFAULT = DEFAULT_LAYOUT.sidebarWidth;
 const SIDEBAR_MIN = 96;
 const MAIN_MIN = 220;
@@ -211,96 +287,6 @@ function currentUiScale(): number {
 function zoomEditorFont(dir: 1 | -1): void {
   applyEditorFontScale(stepEditorFontScale(currentEditorFontScale(), dir));
 }
-function mountSidebarResizer(handle: HTMLElement): void {
-  let dragging = false;
-  let activePointerId: number | null = null;
-  let startX = 0;
-  let startWidth = SIDEBAR_DEFAULT;
-  let moved = false;
-
-  const finish = () => {
-    if (!dragging) return;
-    if (activePointerId !== null && handle.hasPointerCapture(activePointerId)) {
-      handle.releasePointerCapture(activePointerId);
-    }
-    dragging = false;
-    activePointerId = null;
-    handle.classList.remove("dragging");
-    document.body.classList.remove("resizing-sidebar");
-    if (moved) applySidebarWidth(currentSidebarWidth());
-  };
-  const move = (e: PointerEvent) => {
-    if (!dragging) return;
-    moved = true;
-    applySidebarWidth(startWidth + e.clientX - startX, false);
-  };
-
-  handle.addEventListener("pointerdown", (e) => {
-    if (e.button !== 0) return;
-    dragging = true;
-    activePointerId = e.pointerId;
-    startX = e.clientX;
-    startWidth = currentSidebarWidth();
-    moved = false;
-    handle.classList.add("dragging");
-    document.body.classList.add("resizing-sidebar");
-    try {
-      handle.setPointerCapture(e.pointerId);
-    } catch {
-      activePointerId = null;
-    }
-    e.preventDefault();
-  });
-  window.addEventListener("pointermove", move);
-  window.addEventListener("pointerup", finish);
-  window.addEventListener("pointercancel", finish);
-  window.addEventListener("blur", finish);
-}
-function mountOutlineResizer(handle: HTMLElement): void {
-  let dragging = false;
-  let activePointerId: number | null = null;
-  let startY = 0;
-  let startHeight = OUTLINE_DEFAULT;
-  let moved = false;
-
-  const finish = () => {
-    if (!dragging) return;
-    if (activePointerId !== null && handle.hasPointerCapture(activePointerId)) {
-      handle.releasePointerCapture(activePointerId);
-    }
-    dragging = false;
-    activePointerId = null;
-    handle.classList.remove("dragging");
-    document.body.classList.remove("resizing-outline");
-    if (moved) applyOutlineHeight(currentOutlineHeight());
-  };
-  const move = (e: PointerEvent) => {
-    if (!dragging) return;
-    moved = true;
-    applyOutlineHeight(startHeight + startY - e.clientY, false);
-  };
-
-  handle.addEventListener("pointerdown", (e) => {
-    if (e.button !== 0) return;
-    dragging = true;
-    activePointerId = e.pointerId;
-    startY = e.clientY;
-    startHeight = currentOutlineHeight();
-    moved = false;
-    handle.classList.add("dragging");
-    document.body.classList.add("resizing-outline");
-    try {
-      handle.setPointerCapture(e.pointerId);
-    } catch {
-      activePointerId = null;
-    }
-    e.preventDefault();
-  });
-  window.addEventListener("pointermove", move);
-  window.addEventListener("pointerup", finish);
-  window.addEventListener("pointercancel", finish);
-  window.addEventListener("blur", finish);
-}
 const helpPanel = mountHelpPanel();
 const settingsPanel = mountSettingsPanel({
   onLocale: (l) => applyLocale(l),
@@ -322,11 +308,10 @@ const settingsPanel = mountSettingsPanel({
   getLayoutSummary: layoutSummary,
 });
 layoutModeControl = mountLayoutModeControl(editorToolbar, currentEditorMode, (mode) => applyEditorMode(mode));
-mountSidebarResizer(document.getElementById("sidebar-resizer")!);
-mountOutlineResizer(document.getElementById("outline-resizer")!);
 function applyLocale(l: Locale): void {
   setLocale(l);
   chrome.relabel();
+  workbench.relabel();
   layoutModeControl?.relabel();
   syncActiveUI();
   settingsPanel.refresh();
@@ -574,7 +559,7 @@ function paletteItems(): PaletteItem[] {
     { label: tr("cmd.exportHtml"), run: () => void exportHtml(activeView().state.doc.toString(), exportTitle()) },
     { label: tr("cmd.exportPdf"), run: () => void exportPdf(activeView().state.doc.toString(), exportTitle()) },
     { label: tr("cmd.findReplace"), run: () => findReplacePanel?.open() },
-    { label: tr("cmd.search"), run: () => searchPanel.toggle() },
+    { label: tr("cmd.search"), run: () => workbench.toggleView("search") },
     { label: tr("cmd.reveal"), run: () => revealActive() },
     { label: tr("settings.title"), run: () => settingsPanel.open() },
     { label: tr("cmd.help"), run: () => helpPanel.open() },
@@ -590,11 +575,6 @@ function jumpToLine(n: number): void {
   view.dispatch({ selection: { anchor: line.from }, scrollIntoView: true });
   view.focus();
 }
-const outlinePanel = mountOutlinePanel(document.getElementById("outline")!, jumpToLine);
-const searchPanel = mountSearchPanel(
-  () => currentFolder,
-  (path, line) => { void (async () => { if (await openPath(path)) jumpToLine(line); })(); },
-);
 findReplacePanel = mountFindReplacePanel({
   getText: () => activeView().state.doc.toString(),
   getCursor: () => activeView().state.selection.main.head,
@@ -659,6 +639,7 @@ async function restore(): Promise<void> {
     setLocale(await showLanguagePicker(getLocale()));
   }
   chrome.relabel();
+  workbench.relabel();
   layoutModeControl?.relabel();
 
   if (s.lastFolder) { await loadFolder(s.lastFolder).catch(() => {}); }
@@ -881,7 +862,7 @@ window.addEventListener("keydown", (e) => {
   if (mod && (e.key === "-" || e.key === "_")) { e.preventDefault(); zoomEditorFont(-1); return; }
   if (mod && (e.key === "=" || e.key === "+")) { e.preventDefault(); zoomEditorFont(1); return; }
   if (mod && e.key === "0") { e.preventDefault(); applyEditorFontScale(EDITOR_FONT_DEFAULT); return; }
-  if (mod && e.shiftKey && e.key.toLowerCase() === "f") { e.preventDefault(); searchPanel.toggle(); return; }
+  if (mod && e.shiftKey && e.key.toLowerCase() === "f") { e.preventDefault(); workbench.toggleView("search"); return; }
   if (mod && !e.shiftKey && e.key.toLowerCase() === "f") { e.preventDefault(); findReplacePanel?.open(); return; }
   if (mod && e.shiftKey && e.key.toLowerCase() === "o") { e.preventDefault(); void openFolder(); return; }
   if (mod && e.shiftKey && e.key.toLowerCase() === "l") { e.preventDefault(); flipEditorWidth(); return; }

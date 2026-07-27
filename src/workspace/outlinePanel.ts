@@ -4,6 +4,8 @@ import type { HeadingItem } from "../editor/outline";
 export interface OutlinePanel {
   render(items: HeadingItem[]): void;
   setActiveLine(line: number): void;
+  relabel(): void;
+  dispose(): void;
 }
 
 export function mountOutlinePanel(el: HTMLElement, onJump: (line: number) => void): OutlinePanel {
@@ -29,10 +31,11 @@ export function mountOutlinePanel(el: HTMLElement, onJump: (line: number) => voi
 
     const list = document.createElement("div");
     list.className = "outline-list";
+    const activeHeading = [...items].reverse().find((item) => item.line <= activeLine)?.line ?? -1;
     for (const item of items) {
       const row = document.createElement("button");
       row.type = "button";
-      row.className = "outline-row" + (item.line === activeLine ? " active" : "");
+      row.className = "outline-row" + (item.line === activeHeading ? " active" : "");
       row.style.setProperty("--level", String(item.level));
       row.textContent = item.text;
       row.title = item.text;
@@ -52,6 +55,10 @@ export function mountOutlinePanel(el: HTMLElement, onJump: (line: number) => voi
       const activeHeading = [...items].reverse().find((item) => item.line <= activeLine)?.line ?? -1;
       const rows = el.querySelectorAll<HTMLButtonElement>(".outline-row");
       rows.forEach((row, idx) => row.classList.toggle("active", items[idx]?.line === activeHeading));
+    },
+    relabel: draw,
+    dispose() {
+      el.replaceChildren();
     },
   };
 }

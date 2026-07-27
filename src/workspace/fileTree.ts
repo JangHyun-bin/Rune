@@ -6,6 +6,8 @@ export interface FileTree {
   setActive(path: string | null): void;
   showNoFolder(): void;
   showError(): void;
+  relabel(): void;
+  dispose(): void;
 }
 
 export interface FileTreeActions {
@@ -147,5 +149,7 @@ export function mountFileTree(
     setActive(path) { activePath = path; draw(); },
     showNoFolder() { mode = "noFolder"; currentFolderPath = null; draw(); },
     showError() { mode = "error"; currentFolderPath = null; draw(); },
+    relabel: draw,
+    dispose() { sidebar.replaceChildren(); },
   };
 }

@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { mountFileTree } from "./fileTree";
+import { mountOutlinePanel } from "./outlinePanel";
+import { setLocale } from "../i18n/i18n";
 
 type Listener = (event: Event) => void;
 
@@ -7,7 +9,12 @@ class TestNode {
   className = "";
   children: TestNode[] = [];
   parentElement: TestNode | null = null;
-  style: Record<string, string> = {};
+  style = {
+    values: {} as Record<string, string>,
+    setProperty: (name: string, value: string) => {
+      this.style.values[name] = value;
+    },
+  };
   tagName: string;
   title = "";
   type = "";
@@ -63,6 +70,17 @@ class TestNode {
     }
   }
 
+  get classList() {
+    return {
+      toggle: (name: string, force?: boolean) => {
+        const names = new Set(this.className.split(/\s+/).filter(Boolean));
+        const enabled = force ?? !names.has(name);
+        if (enabled) names.add(name); else names.delete(name);
+        this.className = [...names].join(" ");
+      },
+    };
+  }
+
   querySelector(selector: string): TestNode | null {
     return this.querySelectorAll(selector)[0] ?? null;
   }
@@ -99,6 +117,7 @@ function createTestDocument() {
 
 describe("mountFileTree", () => {
   afterEach(() => {
+    setLocale("en");
     vi.unstubAllGlobals();
   });
 
@@ -130,5 +149,63 @@ describe("mountFileTree", () => {
     expect(openFolder).toHaveBeenCalledOnce();
     expect(newFile).toHaveBeenCalledOnce();
     expect(newFolder).toHaveBeenCalledOnce();
+  });
+
+  it("relabels without losing expanded folders and clears its host on dispose", () => {
+    vi.stubGlobal("document", createTestDocument());
+    const host = document.createElement("div");
+    const tree = mountFileTree(host, vi.fn(), vi.fn(), vi.fn());
+    tree.render([{
+      name: "docs",
+      path: "C:/w/docs",
+      isDir: true,
+      children: [{ name: "guide.md", path: "C:/w/docs/guide.md", isDir: false, children: [] }],
+    }], "C:/w");
+
+    (host.querySelector(".ft-row") as HTMLElement).click();
+    expect(host.textContent).toContain("guide.md");
+
+    setLocale("ko");
+    tree.relabel();
+
+    expect(host.textContent).toContain("워크스페이스");
+    expect(host.textContent).toContain("guide.md");
+
+    tree.showNoFolder();
+    expect(host.textContent).toContain("열린 폴더가 없습니다.");
+
+    tree.dispose();
+    expect(host.children).toHaveLength(0);
+  });
+});
+
+describe("mountOutlinePanel", () => {
+  afterEach(() => {
+    setLocale("en");
+    vi.unstubAllGlobals();
+  });
+
+  it("relabels without losing headings or the active line and clears its host on dispose", () => {
+    vi.stubGlobal("document", createTestDocument());
+    const host = document.createElement("div");
+    const outline = mountOutlinePanel(host, vi.fn());
+    outline.render([
+      { level: 1, text: "First", line: 1 },
+      { level: 2, text: "Second", line: 3 },
+    ]);
+    outline.setActiveLine(4);
+
+    setLocale("ko");
+    outline.relabel();
+
+    expect(host.textContent).toContain("개요");
+    expect(host.textContent).toContain("First");
+    expect(host.textContent).toContain("Second");
+    const rows = host.querySelectorAll(".outline-row");
+    expect(rows[0].className).toBe("outline-row");
+    expect(rows[1].className).toBe("outline-row active");
+
+    outline.dispose();
+    expect(host.children).toHaveLength(0);
   });
 });
