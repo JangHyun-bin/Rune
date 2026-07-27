@@ -39,13 +39,18 @@ export function createViewRegistry(): ViewRegistry {
   const createdViews = new Map<WorkbenchViewId, WorkbenchView>();
   let disposed = false;
   const byOrderThenId = <T extends { id: string; order: number }>(a: T, b: T) => a.order - b.order || a.id.localeCompare(b.id);
+  const assertActive = () => {
+    if (disposed) throw new Error("View registry is disposed");
+  };
 
   return {
     registerContainer(value) {
+      assertActive();
       if (containerContributions.has(value.id)) throw new Error(`Duplicate view container: ${value.id}`);
       containerContributions.set(value.id, value);
     },
     registerView(value) {
+      assertActive();
       if (viewContributions.has(value.id)) throw new Error(`Duplicate view: ${value.id}`);
       viewContributions.set(value.id, value);
     },
@@ -61,6 +66,7 @@ export function createViewRegistry(): ViewRegistry {
       return contribution;
     },
     resolveView(id) {
+      assertActive();
       let instance = createdViews.get(id);
       if (!instance) {
         instance = this.view(id).create();

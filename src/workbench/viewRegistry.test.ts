@@ -50,6 +50,17 @@ describe("view registry", () => {
     expect(dispose).toHaveBeenCalledTimes(1);
   });
 
+  it("does not create views after disposal", () => {
+    const create = vi.fn(() => ({ element: {} as HTMLElement, dispose() {} }));
+    const registry = createViewRegistry();
+    registry.registerView({ id: "outline", titleKey: "outline", defaultContainerId: "explorer", order: 0, create });
+
+    registry.dispose();
+
+    expect(() => registry.resolveView("outline")).toThrow("View registry is disposed");
+    expect(create).not.toHaveBeenCalled();
+  });
+
   it("sorts contributions by order then id", () => {
     const registry = createViewRegistry();
     registry.registerContainer({ id: "search", titleKey: "search", icon: "search", order: 0 });
