@@ -70,6 +70,10 @@ body.resizing-outline, body.resizing-pane-split-column { cursor:row-resize; user
   border-bottom:1px solid var(--border); box-sizing:border-box; }
 .view-container-titlebar h2 { flex:1; margin:0; font-size:0.6875rem; text-transform:uppercase; letter-spacing:0.06em; }
 .view-container-body { flex:1; min-height:0; display:flex; flex-direction:column; }
+.outline-view-resizer { height:6px; flex:0 0 6px; cursor:row-resize; background:var(--faint); border-top:1px solid var(--border);
+  border-bottom:1px solid var(--border); touch-action:none; box-sizing:border-box;
+  transition:background var(--dur) var(--ease), border-color var(--dur) var(--ease); }
+.outline-view-resizer:hover, .outline-view-resizer.dragging { background:var(--accent-soft); border-top-color:var(--accent); }
 .workbench-view { min-height:0; display:flex; flex-direction:column; border-bottom:1px solid var(--border); }
 .workbench-view[data-view-id="workspace"] { flex:1 1 auto; }
 .workbench-view[data-view-id="workspace"] .workbench-view-body { flex:1 1 auto; min-height:120px; overflow:auto; }

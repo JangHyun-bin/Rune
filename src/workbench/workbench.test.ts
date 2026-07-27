@@ -160,9 +160,10 @@ function setup() {
   const focusWorkspace = vi.fn();
   const focusOutline = vi.fn();
   const focusSearch = vi.fn();
-  const createWorkspace = vi.fn(() => ({ element: document.createElement("div"), focus: focusWorkspace, dispose() {} }));
-  const createOutline = vi.fn(() => ({ element: document.createElement("div"), focus: focusOutline, dispose() {} }));
-  const createSearch = vi.fn(() => ({ element: document.createElement("div"), focus: focusSearch, dispose() {} }));
+  const relabel = vi.fn();
+  const createWorkspace = vi.fn(() => ({ element: document.createElement("div"), focus: focusWorkspace, relabel, dispose() {} }));
+  const createOutline = vi.fn(() => ({ element: document.createElement("div"), focus: focusOutline, relabel, dispose() {} }));
+  const createSearch = vi.fn(() => ({ element: document.createElement("div"), focus: focusSearch, relabel, dispose() {} }));
   registry.registerContainer({ id: "explorer", titleKey: "Explorer", icon: "files", order: 0 });
   registry.registerContainer({ id: "search", titleKey: "Search", icon: "search", order: 1 });
   registry.registerView({ id: "workspace", titleKey: "Workspace", defaultContainerId: "explorer", order: 0, create: createWorkspace });
@@ -200,6 +201,7 @@ function setup() {
     focusWorkspace,
     focusOutline,
     focusSearch,
+    relabel,
   };
 }
 
@@ -318,5 +320,47 @@ describe("workbench", () => {
 
     expect(workbench.snapshot().parts.primarySidebar.size).toBe(320);
     expect(onDidChange).toHaveBeenCalledTimes(1);
+  });
+
+  it("relabels resolved views without emitting a layout change", () => {
+    const { workbench, relabel, onDidChange } = setup();
+
+    workbench.relabel();
+
+    expect(relabel).toHaveBeenCalledTimes(2);
+    expect(onDidChange).not.toHaveBeenCalled();
+  });
+
+  it("restores and persists one clamped Outline size on pointer release", () => {
+    const { primarySidebar, workbench, onDidChange } = setup();
+    const restored = workbench.snapshot();
+    restored.views.outline.size = 144;
+    workbench.restore(restored);
+    onDidChange.mockClear();
+
+    const root = primarySidebar as unknown as TestElement;
+    const outline = viewById(root, "outline");
+    const resizers = byClass(root, "outline-view-resizer");
+    expect(resizers).toHaveLength(1);
+    const resizer = resizers[0];
+    expect(resizer.getAttribute("role")).toBe("separator");
+    expect(resizer.getAttribute("aria-orientation")).toBe("horizontal");
+    expect(resizer.getAttribute("aria-valuemin")).toBe("64");
+    expect(resizer.getAttribute("aria-valuemax")).toBe("600");
+    expect(resizer.getAttribute("aria-valuenow")).toBe("144");
+    expect(outline.style["--outline-height"]).toBe("144px");
+
+    resizer.dispatch("pointerdown", { button: 0, pointerId: 2, clientY: 100 });
+    testWindow.dispatch("pointermove", { clientY: -1000 });
+
+    expect(workbench.snapshot().views.outline.size).toBe(600);
+    expect(outline.style["--outline-height"]).toBe("600px");
+    expect(resizer.getAttribute("aria-valuenow")).toBe("600");
+    expect(onDidChange).not.toHaveBeenCalled();
+
+    testWindow.dispatch("pointerup");
+
+    expect(onDidChange).toHaveBeenCalledTimes(1);
+    expect(onDidChange.mock.calls[0][0].views.outline.size).toBe(600);
   });
 });

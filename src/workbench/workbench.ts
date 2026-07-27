@@ -49,6 +49,7 @@ export function mountWorkbench(options: {
   let state = normalizeWorkbenchLayout(options.initialState);
   let destroyed = false;
   const viewShells = new Map<WorkbenchViewId, ViewShell>();
+  const OUTLINE_DEFAULT_SIZE = 220;
 
   const contributions = (): ViewContribution[] => {
     const values = new Map<WorkbenchViewId, ViewContribution>();
@@ -108,8 +109,8 @@ export function mountWorkbench(options: {
     shell.section.classList.toggle("collapsed", layout.collapsed);
     shell.collapse.setAttribute("aria-expanded", String(!layout.collapsed));
     shell.body.classList.toggle("hidden", layout.collapsed);
-    if (view.id === "outline" && layout.size !== null) {
-      shell.section.style.setProperty("--outline-height", `${layout.size}px`);
+    if (view.id === "outline") {
+      shell.section.style.setProperty("--outline-height", `${layout.size ?? OUTLINE_DEFAULT_SIZE}px`);
     }
     if (layout.visible) {
       const instance = options.registry.resolveView(view.id);
@@ -171,7 +172,26 @@ export function mountWorkbench(options: {
     }
     const body = document.createElement("div");
     body.className = "view-container-body";
-    body.replaceChildren(...views.map(renderView));
+    const children: HTMLElement[] = [];
+    for (const view of views) {
+      if (view.id === "outline") {
+        const size = state.views.outline.size ?? OUTLINE_DEFAULT_SIZE;
+        const resizer = document.createElement("div");
+        resizer.className = "outline-view-resizer";
+        resizer.dataset.resizesView = "outline";
+        resizer.setAttribute("role", "separator");
+        resizer.setAttribute("aria-orientation", "horizontal");
+        resizer.setAttribute("aria-label", "Resize Outline");
+        resizer.setAttribute("aria-valuemin", "64");
+        resizer.setAttribute("aria-valuemax", "600");
+        resizer.setAttribute("aria-valuenow", String(size));
+        resizer.classList.toggle("hidden", !state.views.outline.visible || state.views.outline.collapsed);
+        resizer.addEventListener("pointerdown", (event) => onOutlinePointerDown(resizer, event));
+        children.push(resizer);
+      }
+      children.push(renderView(view));
+    }
+    body.replaceChildren(...children);
     container.appendChild(titlebar);
     container.appendChild(body);
     options.primarySidebar.replaceChildren(container);
@@ -228,7 +248,7 @@ export function mountWorkbench(options: {
     setPrimarySidebarSize: (size) => commit(setPartSize(state, "primarySidebar", size)),
     relabel: () => {
       options.registry.relabel();
-      commit(state);
+      render();
     },
     destroy: () => {
       if (destroyed) return;
@@ -237,11 +257,19 @@ export function mountWorkbench(options: {
         moved = false;
         finishResize();
       }
+      if (outlineResizing) {
+        outlineMoved = false;
+        finishOutlineResize();
+      }
       options.primaryResizer.removeEventListener("pointerdown", onPointerDown);
       window.removeEventListener("pointermove", onPointerMove);
       window.removeEventListener("pointerup", finishResize);
       window.removeEventListener("pointercancel", finishResize);
       window.removeEventListener("blur", finishResize);
+      window.removeEventListener("pointermove", onOutlinePointerMove);
+      window.removeEventListener("pointerup", finishOutlineResize);
+      window.removeEventListener("pointercancel", finishOutlineResize);
+      window.removeEventListener("blur", finishOutlineResize);
       options.activityBar.replaceChildren();
       options.primarySidebar.replaceChildren();
       options.registry.dispose();
@@ -290,11 +318,61 @@ export function mountWorkbench(options: {
     event.preventDefault();
   };
 
+  let outlineResizing = false;
+  let outlinePointerId: number | null = null;
+  let outlineResizeHandle: HTMLElement | null = null;
+  let outlineStartY = 0;
+  let outlineStartSize = state.views.outline.size ?? OUTLINE_DEFAULT_SIZE;
+  let outlineMoved = false;
+  const finishOutlineResize = (): void => {
+    if (!outlineResizing) return;
+    if (outlineResizeHandle && outlinePointerId !== null && outlineResizeHandle.hasPointerCapture(outlinePointerId)) {
+      outlineResizeHandle.releasePointerCapture(outlinePointerId);
+    }
+    outlineResizing = false;
+    outlinePointerId = null;
+    outlineResizeHandle?.classList.remove("dragging");
+    outlineResizeHandle = null;
+    document.body.classList.remove("resizing-outline");
+    if (outlineMoved) commit(state);
+  };
+  const onOutlinePointerMove = (event: PointerEvent): void => {
+    if (!outlineResizing) return;
+    outlineMoved = true;
+    const next = normalizeWorkbenchLayout(state);
+    next.views.outline.size = outlineStartSize + outlineStartY - event.clientY;
+    state = normalizeWorkbenchLayout(next);
+    const size = state.views.outline.size ?? OUTLINE_DEFAULT_SIZE;
+    viewShells.get("outline")?.section.style.setProperty("--outline-height", `${size}px`);
+    outlineResizeHandle?.setAttribute("aria-valuenow", String(size));
+  };
+  const onOutlinePointerDown = (handle: HTMLElement, event: PointerEvent): void => {
+    if (event.button !== 0) return;
+    outlineResizing = true;
+    outlinePointerId = event.pointerId;
+    outlineResizeHandle = handle;
+    outlineStartY = event.clientY;
+    outlineStartSize = state.views.outline.size ?? OUTLINE_DEFAULT_SIZE;
+    outlineMoved = false;
+    handle.classList.add("dragging");
+    document.body.classList.add("resizing-outline");
+    try {
+      handle.setPointerCapture(event.pointerId);
+    } catch {
+      outlinePointerId = null;
+    }
+    event.preventDefault();
+  };
+
   options.primaryResizer.addEventListener("pointerdown", onPointerDown);
   window.addEventListener("pointermove", onPointerMove);
   window.addEventListener("pointerup", finishResize);
   window.addEventListener("pointercancel", finishResize);
   window.addEventListener("blur", finishResize);
+  window.addEventListener("pointermove", onOutlinePointerMove);
+  window.addEventListener("pointerup", finishOutlineResize);
+  window.addEventListener("pointercancel", finishOutlineResize);
+  window.addEventListener("blur", finishOutlineResize);
   render();
   return workbench;
 }
