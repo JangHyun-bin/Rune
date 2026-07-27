@@ -52,6 +52,43 @@ export function normalizePersistedWorkbenchLayout(
   });
 }
 
+export function createSettingsSaveScheduler(save: () => void, delay: number) {
+  let enabled = false;
+  let pending = false;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+
+  const saveNow = (): void => {
+    if (!enabled) {
+      pending = true;
+      return;
+    }
+    if (timer !== undefined) clearTimeout(timer);
+    timer = undefined;
+    pending = false;
+    save();
+  };
+  const schedule = (): void => {
+    if (!enabled) {
+      pending = true;
+      return;
+    }
+    if (timer !== undefined) clearTimeout(timer);
+    timer = setTimeout(() => {
+      timer = undefined;
+      save();
+    }, delay);
+  };
+
+  return {
+    schedule,
+    saveNow,
+    enable(): void {
+      enabled = true;
+      if (pending) saveNow();
+    },
+  };
+}
+
 export function serializeLayoutSettings(value: Partial<LayoutSettings>): string {
   return JSON.stringify({ version: 1, layout: normalizeLayoutSettings(value) } satisfies LayoutExport, null, 2);
 }

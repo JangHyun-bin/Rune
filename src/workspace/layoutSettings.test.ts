@@ -1,5 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
+  createSettingsSaveScheduler,
   DEFAULT_LAYOUT,
   normalizeLayoutSettings,
   normalizePersistedWorkbenchLayout,
@@ -56,5 +57,37 @@ describe("layout settings", () => {
 
     expect(workbench.parts.primarySidebar.size).toBe(326);
     expect(workbench.views.outline.size).toBe(184);
+  });
+
+  it("blocks saves until async restore finishes, then debounces normally", async () => {
+    vi.useFakeTimers();
+    try {
+      const save = vi.fn();
+      const scheduler = createSettingsSaveScheduler(save, 500);
+      let finishRestore!: () => void;
+      const restoring = new Promise<void>((resolve) => { finishRestore = resolve; });
+      const restore = (async () => {
+        scheduler.schedule();
+        await restoring;
+      })();
+      const restoredAndEnabled = restore.then(() => scheduler.enable());
+
+      await vi.advanceTimersByTimeAsync(500);
+      expect(save).not.toHaveBeenCalled();
+
+      finishRestore();
+      expect(save).not.toHaveBeenCalled();
+      await restoredAndEnabled;
+      expect(save).toHaveBeenCalledTimes(1);
+
+      scheduler.schedule();
+      scheduler.schedule();
+      await vi.advanceTimersByTimeAsync(499);
+      expect(save).toHaveBeenCalledTimes(1);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(save).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

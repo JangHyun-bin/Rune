@@ -29,7 +29,7 @@ import { t as tr, setLocale, getLocale, detectLocale, LOCALES, type Locale } fro
 import { showContextMenu, type MenuItem } from "./workspace/contextMenu";
 import { promptModal } from "./workspace/promptModal";
 import { clearFindHighlights, findHighlightExtension, setFindHighlights } from "./editor/findHighlights";
-import { DEFAULT_LAYOUT, normalizeLayoutSettings, normalizePersistedWorkbenchLayout, parseLayoutSettingsJson, serializeLayoutSettings, type LayoutSettings, type ResolvedLayoutSettings } from "./workspace/layoutSettings";
+import { createSettingsSaveScheduler, DEFAULT_LAYOUT, normalizeLayoutSettings, normalizePersistedWorkbenchLayout, parseLayoutSettingsJson, serializeLayoutSettings, type LayoutSettings, type ResolvedLayoutSettings } from "./workspace/layoutSettings";
 import { clampEditorFontScale, stepEditorFontScale, EDITOR_FONT_DEFAULT, clampUiScale, UI_SCALE_DEFAULT } from "./theme/scale";
 import { createPaneWorkspace, type PaneWorkspace } from "./workspace/paneWorkspace";
 import { isTauri } from "@tauri-apps/api/core";
@@ -118,7 +118,6 @@ viewRegistry.registerView({
 });
 viewRegistry.resolveView("workspace");
 viewRegistry.resolveView("outline");
-let suppressWorkbenchSave = false;
 const workbench = mountWorkbench({
   activityBar: document.getElementById("activitybar")!,
   primarySidebar: document.getElementById("primary-sidebar")!,
@@ -130,7 +129,7 @@ const workbench = mountWorkbench({
   registry: viewRegistry,
   initialState: DEFAULT_WORKBENCH_LAYOUT,
   focusEditor: () => { if (typeof paneWorkspace !== "undefined") activeView().focus(); },
-  onDidChange: () => { if (!suppressWorkbenchSave) scheduleSaveSettings(); },
+  onDidChange: scheduleSaveSettings,
 });
 
 const SPLIT_RATIO_DEFAULT = DEFAULT_LAYOUT.splitRatio;
@@ -195,19 +194,14 @@ function applySplitRatio(ratio: number, persist = true): void {
   if (typeof paneWorkspace !== "undefined") paneWorkspace.setSplitRatio(clamped);
   if (persist) scheduleSaveSettings();
 }
-function applyLayoutSettings(layout: Partial<LayoutSettings>, persist = true): void {
+function applyLayoutSettings(layout: Partial<LayoutSettings>): void {
   const normalized = normalizeLayoutSettings(layout);
   const workbenchLayout = workbench.snapshot();
   workbenchLayout.parts.primarySidebar.size = normalized.sidebarWidth;
   workbenchLayout.views.outline.size = normalized.outlineHeight;
-  suppressWorkbenchSave = !persist;
-  try {
-    workbench.restore(workbenchLayout);
-  } finally {
-    suppressWorkbenchSave = false;
-  }
+  workbench.restore(workbenchLayout);
   applySplitRatio(normalized.splitRatio, false);
-  if (persist) scheduleSaveSettings();
+  scheduleSaveSettings();
 }
 function resetLayoutSettings(): void {
   applyLayoutSettings(DEFAULT_LAYOUT);
@@ -291,15 +285,15 @@ function applyLocale(l: Locale): void {
   settingsPanel.refresh();
   scheduleSaveSettings();
 }
-let saveTimer: number | undefined;
+const settingsSaveScheduler = createSettingsSaveScheduler(
+  () => { void commands.saveSettings(settingsSnapshot()); },
+  500,
+);
 function scheduleSaveSettings() {
-  if (saveTimer !== undefined) clearTimeout(saveTimer);
-  saveTimer = window.setTimeout(() => void commands.saveSettings(settingsSnapshot()), 500);
+  settingsSaveScheduler.schedule();
 }
 function saveSettingsNow(): void {
-  if (saveTimer !== undefined) clearTimeout(saveTimer);
-  saveTimer = undefined;
-  void commands.saveSettings(settingsSnapshot());
+  settingsSaveScheduler.saveNow();
 }
 
 function baseName(p: string): string { const i = Math.max(p.lastIndexOf("/"), p.lastIndexOf("\\")); return i >= 0 ? p.slice(i + 1) : p; }
@@ -598,12 +592,7 @@ async function restore(): Promise<void> {
   document.documentElement.setAttribute("data-editor-mode", editorMode);
   paneWorkspace.setEditorMode(editorMode);
   layoutModeControl?.setMode(editorMode);
-  suppressWorkbenchSave = true;
-  try {
-    workbench.restore(normalizePersistedWorkbenchLayout(s.workbenchLayout, s.layout, s.sidebarWidth));
-  } finally {
-    suppressWorkbenchSave = false;
-  }
+  workbench.restore(normalizePersistedWorkbenchLayout(s.workbenchLayout, s.layout, s.sidebarWidth));
   applySplitRatio(s.layout?.splitRatio ?? DEFAULT_LAYOUT.splitRatio, false);
   applyUiScale(s.uiScale ?? UI_SCALE_DEFAULT, false);
   applyEditorFontScale(s.editorFontScale ?? EDITOR_FONT_DEFAULT, false);
@@ -639,7 +628,7 @@ async function restore(): Promise<void> {
   syncActiveUI();
 
   // Persist startup-only migrations after folder fallback has stabilized lastFolder.
-  if (firstRun || !s.workbenchLayout || !s.paneLayout || loadedRestoredFolder) { void commands.saveSettings(settingsSnapshot()); }
+  if (firstRun || !s.workbenchLayout || !s.paneLayout || loadedRestoredFolder) saveSettingsNow();
 
   // If Rune was launched by double-clicking a .md (file association), open it.
   const launch = await commands.takeLaunchFile();
@@ -832,7 +821,7 @@ paneWorkspace = createPaneWorkspace({
   canCloseDirtyTab: () => confirm(tr("confirm.closeDirty")),
 });
 bindNativeFileDrop();
-void restore();
+void restore().then(() => settingsSaveScheduler.enable());
 
 window.addEventListener("blur", () => { void paneWorkspace.flushSaves(); });
 window.addEventListener("resize", () => applySplitRatio(currentSplitRatio(), false));
