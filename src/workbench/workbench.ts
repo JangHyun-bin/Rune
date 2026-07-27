@@ -203,18 +203,27 @@ export function mountWorkbench(options: {
   const workbench: Workbench = {
     snapshot: () => normalizeWorkbenchLayout(state),
     restore: (snapshot) => commit(normalizeWorkbenchLayout(snapshot)),
-    openView: (id) => commit(openLayoutView(state, id)),
+    openView: (id) => {
+      commit(openLayoutView(state, id));
+      options.registry.resolveView(id).focus?.();
+    },
     closeView: (id) => {
       const ownedFocus = viewShells.get(id)?.section.contains(document.activeElement) ?? false;
       commit(closeLayoutView(state, id));
       if (ownedFocus) options.focusEditor();
     },
     toggleView: (id) => {
-      if (state.views[id].visible) workbench.closeView(id);
+      const view = state.views[id];
+      const part = state.parts[state.containers[view.containerId].part];
+      if (view.visible && part.visible && part.activeContainerId === view.containerId) workbench.closeView(id);
       else workbench.openView(id);
     },
     toggleViewCollapsed: (id) => commit(toggleLayoutViewCollapsed(state, id)),
-    activateContainer: (id) => commit(activateLayoutContainer(state, id)),
+    activateContainer: (id) => {
+      commit(activateLayoutContainer(state, id));
+      const view = viewsIn(id).find((candidate) => state.views[candidate.id].visible);
+      if (view) options.registry.resolveView(view.id).focus?.();
+    },
     resetViewVisibility: () => commit(resetLayoutViewVisibility(state)),
     setPrimarySidebarSize: (size) => commit(setPartSize(state, "primarySidebar", size)),
     relabel: () => {

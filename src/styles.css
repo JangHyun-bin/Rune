@@ -195,9 +195,8 @@ body.resizing-outline, body.resizing-pane-split-column { cursor:row-resize; user
 .cp-row.sel, .cp-row:hover { background: var(--accent-soft); }
 .cp-label { flex: 1; }
 .cp-hint { color: var(--muted); font-size: 0.6875rem; overflow: hidden; text-overflow: ellipsis; max-width: 15rem; white-space: nowrap; }
-.sp-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.3); display: flex; justify-content: center; align-items: flex-start; padding-top: 10vh; z-index: 100; }
-.sp-backdrop.hidden { display: none; }
-.sp-card { width: 35rem; max-width: 92vw; max-height: 70vh; display: flex; flex-direction: column; background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-xl); box-shadow: var(--shadow-lg); overflow: hidden; }
+.sp-card { width:100%; min-width:0; max-height:70vh; box-sizing:border-box; display:flex; flex-direction:column; background:var(--bg);
+  border:1px solid var(--border); border-radius:var(--radius-xl); box-shadow:var(--shadow-lg); overflow:hidden; }
 .sp-input { border: none; outline: none; padding: 0.875rem 1rem; font-size: 0.9375rem; font-family: var(--sans); background: var(--bg); color: var(--text); border-bottom: 1px solid var(--border); }
 .sp-list { overflow-y: auto; }
 .sp-row { padding: 0.5rem 1rem; cursor: pointer; border-bottom: 1px solid var(--faint); }

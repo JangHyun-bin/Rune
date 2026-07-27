@@ -157,9 +157,12 @@ function viewById(root: TestElement, id: string): TestElement {
 
 function setup() {
   const registry = createViewRegistry();
-  const createWorkspace = vi.fn(() => ({ element: document.createElement("div"), dispose() {} }));
-  const createOutline = vi.fn(() => ({ element: document.createElement("div"), dispose() {} }));
-  const createSearch = vi.fn(() => ({ element: document.createElement("div"), dispose() {} }));
+  const focusWorkspace = vi.fn();
+  const focusOutline = vi.fn();
+  const focusSearch = vi.fn();
+  const createWorkspace = vi.fn(() => ({ element: document.createElement("div"), focus: focusWorkspace, dispose() {} }));
+  const createOutline = vi.fn(() => ({ element: document.createElement("div"), focus: focusOutline, dispose() {} }));
+  const createSearch = vi.fn(() => ({ element: document.createElement("div"), focus: focusSearch, dispose() {} }));
   registry.registerContainer({ id: "explorer", titleKey: "Explorer", icon: "files", order: 0 });
   registry.registerContainer({ id: "search", titleKey: "Search", icon: "search", order: 1 });
   registry.registerView({ id: "workspace", titleKey: "Workspace", defaultContainerId: "explorer", order: 0, create: createWorkspace });
@@ -194,6 +197,9 @@ function setup() {
     createWorkspace,
     createOutline,
     createSearch,
+    focusWorkspace,
+    focusOutline,
+    focusSearch,
   };
 }
 
@@ -230,13 +236,31 @@ describe("workbench", () => {
   });
 
   it("activates Search from the Activity Bar and mounts its view", () => {
-    const { activityBar, primarySidebar, createSearch } = setup();
+    const { activityBar, primarySidebar, createSearch, focusWorkspace, focusSearch } = setup();
 
+    expect(focusWorkspace).not.toHaveBeenCalled();
     byData(activityBar as unknown as TestElement, "containerId", "search").dispatch("click");
 
     expect(byData(primarySidebar as unknown as TestElement, "containerId", "search")).toBeDefined();
     expect(byData(primarySidebar as unknown as TestElement, "viewId", "search")).toBeDefined();
     expect(createSearch).toHaveBeenCalledTimes(1);
+    expect(focusSearch).toHaveBeenCalledTimes(1);
+  });
+
+  it("opens and focuses an inactive visible Search view on first toggle", () => {
+    const { workbench, focusSearch } = setup();
+
+    expect(workbench.snapshot().views.search.visible).toBe(true);
+    expect(workbench.snapshot().parts.primarySidebar.activeContainerId).toBe("explorer");
+
+    workbench.toggleView("search");
+
+    expect(workbench.snapshot().views.search.visible).toBe(true);
+    expect(workbench.snapshot().parts.primarySidebar).toMatchObject({
+      activeContainerId: "search",
+      visible: true,
+    });
+    expect(focusSearch).toHaveBeenCalledTimes(1);
   });
 
   it("returns focus to the editor when a focused Outline is closed", () => {
