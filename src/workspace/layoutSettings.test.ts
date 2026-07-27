@@ -39,13 +39,15 @@ describe("layout settings", () => {
 
   it("migrates legacy sizes when workbench layout is missing", () => {
     const workbench = normalizePersistedWorkbenchLayout(null, {
-      sidebarWidth: 318,
-      outlineHeight: 176,
+      sidebarWidth: 320.5,
+      outlineHeight: 176.25,
       splitRatio: 0.5,
     }, null);
 
-    expect(workbench.parts.primarySidebar.size).toBe(318);
+    expect(workbench.parts.primarySidebar.size).toBe(321);
     expect(workbench.views.outline.size).toBe(176);
+    expect(Number.isInteger(workbench.parts.primarySidebar.size)).toBe(true);
+    expect(Number.isInteger(workbench.views.outline.size)).toBe(true);
   });
 
   it("migrates legacy sizes when workbench layout is invalid", () => {

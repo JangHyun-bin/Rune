@@ -13,11 +13,31 @@ import {
 describe("workbench layout", () => {
   it("migrates legacy sidebar and outline sizes", () => {
     const state = normalizeWorkbenchLayout(null, {
-      sidebarWidth: 318,
-      outlineHeight: 176,
+      sidebarWidth: 320.5,
+      outlineHeight: 176.25,
     });
-    expect(state.parts.primarySidebar.size).toBe(318);
+    expect(state.parts.primarySidebar.size).toBe(321);
     expect(state.views.outline.size).toBe(176);
+  });
+
+  it("normalizes persisted and mutated sizes to integer pixels", () => {
+    const persisted = {
+      ...DEFAULT_WORKBENCH_LAYOUT,
+      parts: {
+        ...DEFAULT_WORKBENCH_LAYOUT.parts,
+        primarySidebar: { ...DEFAULT_WORKBENCH_LAYOUT.parts.primarySidebar, size: 320.5 },
+      },
+      views: {
+        ...DEFAULT_WORKBENCH_LAYOUT.views,
+        outline: { ...DEFAULT_WORKBENCH_LAYOUT.views.outline, size: 176.25 },
+      },
+    };
+
+    const normalized = normalizeWorkbenchLayout(persisted);
+
+    expect(normalized.parts.primarySidebar.size).toBe(321);
+    expect(normalized.views.outline.size).toBe(176);
+    expect(setPartSize(DEFAULT_WORKBENCH_LAYOUT, "primarySidebar", 320.5).parts.primarySidebar.size).toBe(321);
   });
 
   it("recovers from malformed and unsupported snapshots", () => {

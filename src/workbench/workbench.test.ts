@@ -8,6 +8,8 @@ type Listener = (event: Event) => void;
 
 class TestElement {
   className = "";
+  clientHeight = 0;
+  clientWidth = 0;
   children: TestElement[] = [];
   dataset: Record<string, string> = {};
   parentElement: TestElement | null = null;
@@ -110,6 +112,8 @@ class TestElement {
 }
 
 class TestWindow {
+  innerHeight = 820;
+  innerWidth = 1024;
   private listeners = new Map<string, Listener[]>();
 
   addEventListener(type: string, listener: Listener): void {
@@ -156,7 +160,7 @@ function viewById(root: TestElement, id: string): TestElement {
   return element;
 }
 
-function setup() {
+function setup({ rootWidth = 1024, sidebarHeight = 820 } = {}) {
   const registry = createViewRegistry();
   const focusWorkspace = vi.fn();
   const focusOutline = vi.fn();
@@ -180,6 +184,13 @@ function setup() {
     panel: document.createElement("section"),
     panelResizer: document.createElement("div"),
   };
+  const workbenchHost = document.createElement("div") as unknown as TestElement;
+  workbenchHost.clientWidth = rootWidth;
+  workbenchHost.clientHeight = sidebarHeight;
+  (hosts.activityBar as unknown as TestElement).clientWidth = 48;
+  (hosts.primaryResizer as unknown as TestElement).clientWidth = 6;
+  (hosts.primarySidebar as unknown as TestElement).clientHeight = sidebarHeight;
+  for (const host of Object.values(hosts)) workbenchHost.appendChild(host as unknown as TestElement);
   const focusEditor = vi.fn();
   const onDidChange = vi.fn();
   const workbench = mountWorkbench({
@@ -382,6 +393,64 @@ describe("workbench", () => {
       expect(byClass(outline, "view-collapse")[0].getAttribute("aria-label")).toBe(`${expected.expand} ${expected.outline}`);
       expect(byClass(outline, "view-close")[0].getAttribute("aria-label")).toBe(`${expected.close} ${expected.outline}`);
     }
+  });
+
+  it("relabels structural regions and separators in every supported locale", () => {
+    const labels: Record<Locale, string[]> = {
+      en: ["Activity Bar", "Primary Sidebar", "Resize Primary Sidebar", "Secondary Sidebar", "Resize Secondary Sidebar", "Panel", "Resize Panel", "Resize Outline"],
+      ko: ["활동 표시줄", "기본 사이드바", "기본 사이드바 크기 조절", "보조 사이드바", "보조 사이드바 크기 조절", "패널", "패널 크기 조절", "개요 크기 조절"],
+      ja: ["アクティビティバー", "プライマリサイドバー", "プライマリサイドバーのサイズを変更", "セカンダリサイドバー", "セカンダリサイドバーのサイズを変更", "パネル", "パネルのサイズを変更", "アウトラインのサイズを変更"],
+      "zh-Hans": ["活动栏", "主侧边栏", "调整主侧边栏大小", "辅助侧边栏", "调整辅助侧边栏大小", "面板", "调整面板大小", "调整大纲大小"],
+    };
+    const {
+      activityBar,
+      primarySidebar,
+      primaryResizer,
+      secondarySidebar,
+      secondaryResizer,
+      panel,
+      panelResizer,
+      workbench,
+    } = setup();
+
+    for (const [locale, expected] of Object.entries(labels) as [Locale, string[]][]) {
+      setLocale(locale);
+      workbench.relabel();
+      const outlineResizer = byClass(primarySidebar as unknown as TestElement, "outline-view-resizer")[0];
+      const actual = [activityBar, primarySidebar, primaryResizer, secondarySidebar, secondaryResizer, panel, panelResizer, outlineResizer]
+        .map((element) => (element as unknown as TestElement).getAttribute("aria-label"));
+      expect(actual).toEqual(expected);
+      expect(actual).not.toContain("workbench.activityBar");
+    }
+  });
+
+  it("clamps the Primary Sidebar to leave room for the Activity Bar, separator, and editor", () => {
+    const { primaryResizer, workbench, onDidChange } = setup({ rootWidth: 500 });
+    const restored = workbench.snapshot();
+    restored.parts.primarySidebar.size = 720;
+
+    workbench.restore(restored);
+
+    expect(workbench.snapshot().parts.primarySidebar.size).toBe(226);
+    expect((primaryResizer as unknown as TestElement).getAttribute("aria-valuemax")).toBe("226");
+    expect((primaryResizer as unknown as TestElement).getAttribute("aria-valuenow")).toBe("226");
+    expect(onDidChange.mock.calls.at(-1)?.[0].parts.primarySidebar.size).toBe(226);
+  });
+
+  it("clamps Outline height to preserve Workspace and shell controls in a short sidebar", () => {
+    const { primarySidebar, workbench, onDidChange } = setup({ sidebarHeight: 400 });
+    const restored = workbench.snapshot();
+    restored.views.outline.size = 600;
+
+    workbench.restore(restored);
+
+    const root = primarySidebar as unknown as TestElement;
+    const resizer = byClass(root, "outline-view-resizer")[0];
+    expect(workbench.snapshot().views.outline.size).toBe(180);
+    expect(resizer.getAttribute("aria-valuemax")).toBe("180");
+    expect(resizer.getAttribute("aria-valuenow")).toBe("180");
+    expect(viewById(root, "outline").style["--outline-height"]).toBe("180px");
+    expect(onDidChange.mock.calls.at(-1)?.[0].views.outline.size).toBe(180);
   });
 
   it("restores and persists one clamped Outline size on pointer release", () => {

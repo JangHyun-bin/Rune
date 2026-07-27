@@ -77,6 +77,11 @@ export function mountHelpPanel(): HelpPanel {
     }
     card.appendChild(groups);
 
+    const navigation = document.createElement("p");
+    navigation.className = "help-note";
+    navigation.textContent = t("help.workbenchNavigation");
+    card.appendChild(navigation);
+
     const foot = document.createElement("p"); foot.className = "help-foot"; foot.textContent = t("help.footer");
     card.appendChild(foot);
   }

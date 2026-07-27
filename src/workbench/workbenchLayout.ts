@@ -97,11 +97,11 @@ function isFiniteNumber(value: unknown): value is number {
 }
 
 function clampPartSize(partId: WorkbenchPartId, size: number): number {
-  return Math.max(96, Math.min(partId === "panel" ? 600 : 720, size));
+  return Math.round(Math.max(96, Math.min(partId === "panel" ? 600 : 720, size)));
 }
 
 function clampOutlineSize(size: number): number {
-  return Math.max(64, Math.min(600, size));
+  return Math.round(Math.max(64, Math.min(600, size)));
 }
 
 function isLayout(value: unknown): value is WorkbenchLayoutSnapshot {
