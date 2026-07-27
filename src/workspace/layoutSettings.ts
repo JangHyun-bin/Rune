@@ -1,3 +1,5 @@
+import { normalizeWorkbenchLayout, type WorkbenchLayoutSnapshot } from "../workbench/workbenchLayout";
+
 export interface LayoutSettings {
   sidebarWidth: number | null;
   outlineHeight: number | null;
@@ -37,6 +39,17 @@ export function normalizeLayoutSettings(value: Partial<LayoutSettings> | null | 
     outlineHeight: finiteNumber(value?.outlineHeight) ?? DEFAULT_LAYOUT.outlineHeight,
     splitRatio: finiteNumber(value?.splitRatio) ?? DEFAULT_LAYOUT.splitRatio,
   };
+}
+
+export function normalizePersistedWorkbenchLayout(
+  workbenchLayout: unknown,
+  layout: Partial<LayoutSettings> | null | undefined,
+  sidebarWidth: number | null | undefined,
+): WorkbenchLayoutSnapshot {
+  return normalizeWorkbenchLayout(workbenchLayout, {
+    sidebarWidth: layout?.sidebarWidth ?? sidebarWidth,
+    outlineHeight: layout?.outlineHeight,
+  });
 }
 
 export function serializeLayoutSettings(value: Partial<LayoutSettings>): string {

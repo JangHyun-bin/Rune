@@ -29,7 +29,7 @@ import { t as tr, setLocale, getLocale, detectLocale, LOCALES, type Locale } fro
 import { showContextMenu, type MenuItem } from "./workspace/contextMenu";
 import { promptModal } from "./workspace/promptModal";
 import { clearFindHighlights, findHighlightExtension, setFindHighlights } from "./editor/findHighlights";
-import { DEFAULT_LAYOUT, normalizeLayoutSettings, parseLayoutSettingsJson, serializeLayoutSettings, type LayoutSettings, type ResolvedLayoutSettings } from "./workspace/layoutSettings";
+import { DEFAULT_LAYOUT, normalizeLayoutSettings, normalizePersistedWorkbenchLayout, parseLayoutSettingsJson, serializeLayoutSettings, type LayoutSettings, type ResolvedLayoutSettings } from "./workspace/layoutSettings";
 import { clampEditorFontScale, stepEditorFontScale, EDITOR_FONT_DEFAULT, clampUiScale, UI_SCALE_DEFAULT } from "./theme/scale";
 import { createPaneWorkspace, type PaneWorkspace } from "./workspace/paneWorkspace";
 import { isTauri } from "@tauri-apps/api/core";
@@ -118,6 +118,7 @@ viewRegistry.registerView({
 });
 viewRegistry.resolveView("workspace");
 viewRegistry.resolveView("outline");
+let suppressWorkbenchSave = false;
 const workbench = mountWorkbench({
   activityBar: document.getElementById("activitybar")!,
   primarySidebar: document.getElementById("primary-sidebar")!,
@@ -129,15 +130,9 @@ const workbench = mountWorkbench({
   registry: viewRegistry,
   initialState: DEFAULT_WORKBENCH_LAYOUT,
   focusEditor: () => { if (typeof paneWorkspace !== "undefined") activeView().focus(); },
-  onDidChange: () => {},
+  onDidChange: () => { if (!suppressWorkbenchSave) scheduleSaveSettings(); },
 });
 
-const SIDEBAR_DEFAULT = DEFAULT_LAYOUT.sidebarWidth;
-const SIDEBAR_MIN = 96;
-const MAIN_MIN = 220;
-const OUTLINE_DEFAULT = DEFAULT_LAYOUT.outlineHeight;
-const OUTLINE_MIN = 64;
-const FILETREE_MIN = 120;
 const SPLIT_RATIO_DEFAULT = DEFAULT_LAYOUT.splitRatio;
 const SPLIT_RATIO_MIN = 0.12;
 const SPLIT_RATIO_MAX = 0.88;
@@ -147,10 +142,15 @@ function activePane() { return paneWorkspace.activePane(); }
 function activeView(): EditorView { return activePane().view; }
 function settingsSnapshot() {
   const theme = document.documentElement.getAttribute("data-theme") === "dark" ? "dark" : "light";
-  const layout = currentLayoutSettings();
+  const workbenchLayout = workbench.snapshot();
+  const layout = {
+    sidebarWidth: workbenchLayout.parts.primarySidebar.size,
+    outlineHeight: workbenchLayout.views.outline.size ?? DEFAULT_LAYOUT.outlineHeight,
+    splitRatio: currentSplitRatio(),
+  };
   const paneLayout = typeof paneWorkspace === "undefined" ? null : paneWorkspace.snapshot();
   const openTabs = paneLayout?.panes.flatMap((pane) => pane.openTabs) ?? [];
-  return { theme, lastFolder: currentFolder, openTabs, locale: getLocale(), editorWidth: currentEditorWidth(), editorMode, sidebarWidth: layout.sidebarWidth, layout, paneLayout, uiScale: currentUiScale(), editorFontScale: currentEditorFontScale() };
+  return { theme, lastFolder: currentFolder, openTabs, locale: getLocale(), editorWidth: currentEditorWidth(), editorMode, sidebarWidth: layout.sidebarWidth, layout, workbenchLayout, paneLayout, uiScale: currentUiScale(), editorFontScale: currentEditorFontScale() };
 }
 function applyTheme(theme: "light" | "dark"): void {
   document.documentElement.setAttribute("data-theme", theme);
@@ -176,51 +176,18 @@ function clampRatio(value: number): number {
   if (!Number.isFinite(value)) return SPLIT_RATIO_DEFAULT;
   return Math.min(SPLIT_RATIO_MAX, Math.max(SPLIT_RATIO_MIN, value));
 }
-function maxSidebarWidth(): number {
-  return Math.max(SIDEBAR_MIN, window.innerWidth - MAIN_MIN);
-}
-function clampSidebarWidth(width: number): number {
-  if (!Number.isFinite(width)) return SIDEBAR_DEFAULT;
-  return Math.min(maxSidebarWidth(), Math.max(SIDEBAR_MIN, Math.round(width)));
-}
-function maxOutlineHeight(): number {
-  const sidebar = document.getElementById("sidebar");
-  const height = sidebar?.clientHeight || window.innerHeight - 80;
-  return Math.max(OUTLINE_MIN, height - FILETREE_MIN - 6);
-}
-function clampOutlineHeight(height: number): number {
-  if (!Number.isFinite(height)) return OUTLINE_DEFAULT;
-  return Math.min(maxOutlineHeight(), Math.max(OUTLINE_MIN, Math.round(height)));
-}
-function currentSidebarWidth(): number {
-  const raw = getComputedStyle(document.documentElement).getPropertyValue("--sidebar-width");
-  const parsed = Number.parseFloat(raw);
-  return clampSidebarWidth(parsed);
-}
-function currentOutlineHeight(): number {
-  const raw = getComputedStyle(document.documentElement).getPropertyValue("--outline-height");
-  const parsed = Number.parseFloat(raw);
-  return clampOutlineHeight(parsed);
-}
 function currentSplitRatio(): number {
   const raw = getComputedStyle(document.documentElement).getPropertyValue("--split-source-width").trim();
   if (raw.endsWith("%")) return clampRatio(Number.parseFloat(raw) / 100);
   return SPLIT_RATIO_DEFAULT;
 }
 function currentLayoutSettings(): ResolvedLayoutSettings {
+  const workbenchLayout = workbench.snapshot();
   return {
-    sidebarWidth: currentSidebarWidth(),
-    outlineHeight: currentOutlineHeight(),
+    sidebarWidth: workbenchLayout.parts.primarySidebar.size,
+    outlineHeight: workbenchLayout.views.outline.size ?? DEFAULT_LAYOUT.outlineHeight,
     splitRatio: currentSplitRatio(),
   };
-}
-function applySidebarWidth(width: number, persist = true): void {
-  document.documentElement.style.setProperty("--sidebar-width", `${clampSidebarWidth(width)}px`);
-  if (persist) scheduleSaveSettings();
-}
-function applyOutlineHeight(height: number, persist = true): void {
-  document.documentElement.style.setProperty("--outline-height", `${clampOutlineHeight(height)}px`);
-  if (persist) scheduleSaveSettings();
 }
 function applySplitRatio(ratio: number, persist = true): void {
   const clamped = clampRatio(ratio);
@@ -230,8 +197,15 @@ function applySplitRatio(ratio: number, persist = true): void {
 }
 function applyLayoutSettings(layout: Partial<LayoutSettings>, persist = true): void {
   const normalized = normalizeLayoutSettings(layout);
-  applySidebarWidth(normalized.sidebarWidth, false);
-  applyOutlineHeight(normalized.outlineHeight, false);
+  const workbenchLayout = workbench.snapshot();
+  workbenchLayout.parts.primarySidebar.size = normalized.sidebarWidth;
+  workbenchLayout.views.outline.size = normalized.outlineHeight;
+  suppressWorkbenchSave = !persist;
+  try {
+    workbench.restore(workbenchLayout);
+  } finally {
+    suppressWorkbenchSave = false;
+  }
   applySplitRatio(normalized.splitRatio, false);
   if (persist) scheduleSaveSettings();
 }
@@ -617,14 +591,20 @@ findReplacePanel = mountFindReplacePanel({
 });
 async function restore(): Promise<void> {
   const res = await commands.loadSettings();
-  const s = res.status === "ok" ? res.data : { theme: null, lastFolder: null, openTabs: [], locale: null, editorWidth: null, editorMode: null, sidebarWidth: null, layout: null, paneLayout: null, uiScale: null, editorFontScale: null };
+  const s = res.status === "ok" ? res.data : { theme: null, lastFolder: null, openTabs: [], locale: null, editorWidth: null, editorMode: null, sidebarWidth: null, layout: null, workbenchLayout: null, paneLayout: null, uiScale: null, editorFontScale: null };
   document.documentElement.setAttribute("data-theme", s.theme === "light" || s.theme === "dark" ? s.theme : (prefersDark() ? "dark" : "light"));
   document.documentElement.setAttribute("data-editor-width", s.editorWidth === "wide" ? "wide" : "readable");
   editorMode = normalizeEditorMode(s.editorMode);
   document.documentElement.setAttribute("data-editor-mode", editorMode);
   paneWorkspace.setEditorMode(editorMode);
   layoutModeControl?.setMode(editorMode);
-  applyLayoutSettings(s.layout ?? { sidebarWidth: s.sidebarWidth }, false);
+  suppressWorkbenchSave = true;
+  try {
+    workbench.restore(normalizePersistedWorkbenchLayout(s.workbenchLayout, s.layout, s.sidebarWidth));
+  } finally {
+    suppressWorkbenchSave = false;
+  }
+  applySplitRatio(s.layout?.splitRatio ?? DEFAULT_LAYOUT.splitRatio, false);
   applyUiScale(s.uiScale ?? UI_SCALE_DEFAULT, false);
   applyEditorFontScale(s.editorFontScale ?? EDITOR_FONT_DEFAULT, false);
 
@@ -659,7 +639,7 @@ async function restore(): Promise<void> {
   syncActiveUI();
 
   // Persist startup-only migrations after folder fallback has stabilized lastFolder.
-  if (firstRun || !s.paneLayout || loadedRestoredFolder) { void commands.saveSettings(settingsSnapshot()); }
+  if (firstRun || !s.workbenchLayout || !s.paneLayout || loadedRestoredFolder) { void commands.saveSettings(settingsSnapshot()); }
 
   // If Rune was launched by double-clicking a .md (file association), open it.
   const launch = await commands.takeLaunchFile();
@@ -855,7 +835,7 @@ bindNativeFileDrop();
 void restore();
 
 window.addEventListener("blur", () => { void paneWorkspace.flushSaves(); });
-window.addEventListener("resize", () => applyLayoutSettings(currentLayoutSettings(), false));
+window.addEventListener("resize", () => applySplitRatio(currentSplitRatio(), false));
 window.addEventListener("keydown", (e) => {
   if (e.key === "F1") { e.preventDefault(); helpPanel.toggle(); return; }
   const mod = e.ctrlKey || e.metaKey;

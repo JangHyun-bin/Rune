@@ -63,6 +63,7 @@ pub struct Settings {
     pub ui_scale: Option<f32>,
     pub editor_font_scale: Option<f32>,
     pub layout: Option<LayoutSettings>,
+    pub workbench_layout: Option<serde_json::Value>,
     #[serde(default, deserialize_with = "deserialize_pane_layout_lossy")]
     pub pane_layout: Option<PaneWorkspaceSnapshot>,
 }
@@ -95,6 +96,7 @@ mod tests {
         assert_eq!(load(&p).sidebar_width, None);
         assert!(load(&p).layout.is_none());
         assert!(load(&p).pane_layout.is_none());
+        assert!(load(&p).workbench_layout.is_none());
         std::fs::write(
             &p,
             r#"{"theme":"light","openTabs":["/w/legacy.md"],"layout":{"sidebarWidth":280}}"#,
@@ -118,6 +120,10 @@ mod tests {
                 outline_height: Some(180),
                 split_ratio: Some(0.6),
             }),
+            workbench_layout: Some(serde_json::json!({
+                "version": 7,
+                "custom": { "future": ["shape", 42] }
+            })),
             pane_layout: Some(PaneWorkspaceSnapshot {
                 version: 1,
                 root: PaneLayoutNode::Split {
@@ -159,6 +165,13 @@ mod tests {
             raw_json["paneLayout"]["panes"][0]["openTabs"][0],
             serde_json::json!("/w/a.md")
         );
+        assert_eq!(
+            raw_json["workbenchLayout"],
+            serde_json::json!({
+                "version": 7,
+                "custom": { "future": ["shape", 42] }
+            })
+        );
         let got = load(&p);
         assert_eq!(got.theme.as_deref(), Some("dark"));
         assert_eq!(got.open_tabs, vec!["/w/a.md".to_string()]);
@@ -167,6 +180,13 @@ mod tests {
         assert_eq!(got.sidebar_width, Some(320));
         assert_eq!(got.ui_scale, Some(1.25));
         assert_eq!(got.editor_font_scale, Some(1.1));
+        assert_eq!(
+            got.workbench_layout,
+            Some(serde_json::json!({
+                "version": 7,
+                "custom": { "future": ["shape", 42] }
+            }))
+        );
         let layout = got.layout.unwrap();
         assert_eq!(layout.sidebar_width, Some(330));
         assert_eq!(layout.outline_height, Some(180));
@@ -199,6 +219,10 @@ mod tests {
                 "theme": "dark",
                 "openTabs": ["/w/a.md"],
                 "layout": { "sidebarWidth": 280, "splitRatio": 0.6 },
+                "workbenchLayout": {
+                    "version": 1,
+                    "futureContainer": { "arbitrary": true }
+                },
                 "paneLayout": {
                     "version": 1,
                     "root": { "type": "pane", "paneId": 42 },
@@ -216,6 +240,13 @@ mod tests {
         assert_eq!(layout.sidebar_width, Some(280));
         assert_eq!(layout.split_ratio, Some(0.6));
         assert!(got.pane_layout.is_none());
+        assert_eq!(
+            got.workbench_layout,
+            Some(serde_json::json!({
+                "version": 1,
+                "futureContainer": { "arbitrary": true }
+            }))
+        );
         assert!(got.ui_scale.is_none());
         assert!(got.editor_font_scale.is_none());
     }

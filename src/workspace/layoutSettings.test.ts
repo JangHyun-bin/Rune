@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_LAYOUT, normalizeLayoutSettings, parseLayoutSettingsJson, serializeLayoutSettings } from "./layoutSettings";
+import {
+  DEFAULT_LAYOUT,
+  normalizeLayoutSettings,
+  normalizePersistedWorkbenchLayout,
+  parseLayoutSettingsJson,
+  serializeLayoutSettings,
+} from "./layoutSettings";
 
 describe("layout settings", () => {
   it("fills missing values with defaults", () => {
@@ -28,5 +34,27 @@ describe("layout settings", () => {
 
   it("rejects json without layout values", () => {
     expect(parseLayoutSettingsJson('{"foo":1}')).toBeNull();
+  });
+
+  it("migrates legacy sizes when workbench layout is missing", () => {
+    const workbench = normalizePersistedWorkbenchLayout(null, {
+      sidebarWidth: 318,
+      outlineHeight: 176,
+      splitRatio: 0.5,
+    }, null);
+
+    expect(workbench.parts.primarySidebar.size).toBe(318);
+    expect(workbench.views.outline.size).toBe(176);
+  });
+
+  it("migrates legacy sizes when workbench layout is invalid", () => {
+    const workbench = normalizePersistedWorkbenchLayout({ version: 99 }, {
+      sidebarWidth: null,
+      outlineHeight: 184,
+      splitRatio: 0.5,
+    }, 326);
+
+    expect(workbench.parts.primarySidebar.size).toBe(326);
+    expect(workbench.views.outline.size).toBe(184);
   });
 });
