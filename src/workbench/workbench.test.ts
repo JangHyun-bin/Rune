@@ -563,6 +563,25 @@ describe("workbench", () => {
     expect(onDidChange).not.toHaveBeenCalled();
   });
 
+  it("silently applies final 80% geometry before restoring a size valid only at that scale", () => {
+    const { primarySidebar, workbench, onDidChange } = setup();
+    (primarySidebar as unknown as TestElement).rectHeight = 400;
+    testRootFontSize = 12.8;
+
+    workbench.reflow({ emitChange: false });
+
+    expect(workbench.snapshot().views.outline.size).toBe(198);
+    expect(onDidChange).not.toHaveBeenCalled();
+
+    const saved = workbench.snapshot();
+    saved.views.outline.size = 190;
+    workbench.restore(saved);
+
+    expect(workbench.snapshot().views.outline.size).toBe(190);
+    expect(onDidChange).toHaveBeenCalledTimes(1);
+    expect(onDidChange.mock.calls[0][0].views.outline.size).toBe(190);
+  });
+
   it("removes the Workbench resize listener when destroyed", () => {
     const { workbench } = setup();
     expect(testWindow.listenerCount("resize")).toBe(1);

@@ -246,7 +246,7 @@ function currentEditorFontScale(): number {
 }
 function applyUiScale(scale: number, persist = true): void {
   document.documentElement.style.setProperty("--ui-scale", String(clampUiScale(scale)));
-  workbench.reflow();
+  workbench.reflow({ emitChange: persist });
   if (persist) scheduleSaveSettings();
 }
 function currentUiScale(): number {
@@ -599,9 +599,9 @@ async function restore(): Promise<void> {
   document.documentElement.setAttribute("data-editor-mode", editorMode);
   paneWorkspace.setEditorMode(editorMode);
   layoutModeControl?.setMode(editorMode);
+  applyUiScale(s.uiScale ?? UI_SCALE_DEFAULT, false);
   workbench.restore(normalizePersistedWorkbenchLayout(s.workbenchLayout, s.layout, s.sidebarWidth));
   applySplitRatio(s.layout?.splitRatio ?? DEFAULT_LAYOUT.splitRatio, false);
-  applyUiScale(s.uiScale ?? UI_SCALE_DEFAULT, false);
   applyEditorFontScale(s.editorFontScale ?? EDITOR_FONT_DEFAULT, false);
 
   // Resolve the UI language BEFORE loading any content, so the app never flashes

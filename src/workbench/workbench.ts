@@ -24,7 +24,7 @@ export interface Workbench {
   activateContainer(id: WorkbenchContainerId): void;
   resetViewVisibility(): void;
   setPrimarySidebarSize(size: number): void;
-  reflow(): void;
+  reflow(options?: { emitChange?: boolean }): void;
   relabel(): void;
   destroy(): void;
 }
@@ -353,12 +353,17 @@ export function mountWorkbench(options: {
     },
     resetViewVisibility: () => commit(resetLayoutViewVisibility(state)),
     setPrimarySidebarSize: (size) => commit(setPartSize(state, "primarySidebar", size)),
-    reflow: () => {
+    reflow: (reflowOptions) => {
       const previousPrimary = state.parts.primarySidebar.size;
       const previousOutline = state.views.outline.size;
       const next = boundState(state);
       if (next.parts.primarySidebar.size !== previousPrimary || next.views.outline.size !== previousOutline) {
-        commit(next);
+        if (reflowOptions?.emitChange === false) {
+          state = next;
+          render();
+        } else {
+          commit(next);
+        }
       } else {
         render();
       }
