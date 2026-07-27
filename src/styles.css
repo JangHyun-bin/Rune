@@ -56,7 +56,7 @@ body { background: var(--bg); color: var(--text); font-family: var(--sans); }
   flex-direction:column; background:var(--faint); font-size:0.8125rem; min-width:96px; max-width:calc(100vw - 3rem - 226px); }
 #primary-sidebar-resizer, #secondary-sidebar-resizer { width:6px; flex:0 0 6px; cursor:col-resize; background:var(--faint);
   border-left:1px solid var(--border);
-  border-right:1px solid var(--border); touch-action:none; transition:background var(--dur) var(--ease), border-color var(--dur) var(--ease); }
+  border-right:1px solid var(--border); box-sizing:border-box; touch-action:none; transition:background var(--dur) var(--ease), border-color var(--dur) var(--ease); }
 #primary-sidebar-resizer:hover, #primary-sidebar-resizer.dragging,
 #secondary-sidebar-resizer:hover, #secondary-sidebar-resizer.dragging { background:var(--accent-soft); border-right-color:var(--accent); }
 body.resizing-sidebar, body.resizing-editor-split, body.resizing-pane-split-row { cursor:col-resize; user-select:none; }

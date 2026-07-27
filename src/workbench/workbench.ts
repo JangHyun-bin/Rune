@@ -24,12 +24,14 @@ export interface Workbench {
   activateContainer(id: WorkbenchContainerId): void;
   resetViewVisibility(): void;
   setPrimarySidebarSize(size: number): void;
+  reflow(): void;
   relabel(): void;
   destroy(): void;
 }
 
 interface ViewShell {
   section: HTMLElement;
+  header: HTMLElement;
   title: HTMLElement;
   collapse: HTMLButtonElement;
   close: HTMLButtonElement;
@@ -52,27 +54,43 @@ export function mountWorkbench(options: {
   let state = normalizeWorkbenchLayout(options.initialState);
   let destroyed = false;
   const viewShells = new Map<WorkbenchViewId, ViewShell>();
+  let primaryContainerTitlebar: HTMLElement | null = null;
+  let outlineResizer: HTMLElement | null = null;
   const OUTLINE_DEFAULT_SIZE = 220;
   const MIN_EDITOR_WIDTH = 220;
   const MIN_WORKSPACE_HEIGHT = 120;
   const ACTIVITY_BAR_FALLBACK_WIDTH = 48;
   const RESIZER_FALLBACK_SIZE = 6;
-  const CONTAINER_TITLEBAR_FALLBACK_HEIGHT = 34;
-  const VIEW_HEADER_FALLBACK_HEIGHT = 30;
 
   const measuredSize = (size: number, fallback: number): number =>
     Number.isFinite(size) && size > 0 ? size : fallback;
 
+  const outerSize = (element: HTMLElement | null, dimension: "width" | "height", fallback: number): number => {
+    if (!element) return fallback;
+    const rectSize = element.getBoundingClientRect()[dimension];
+    const offsetSize = dimension === "width" ? element.offsetWidth : element.offsetHeight;
+    return measuredSize(rectSize, measuredSize(offsetSize, fallback));
+  };
+
+  const rootFontSize = (): number => {
+    if (typeof getComputedStyle !== "function" || !document.documentElement) return 16;
+    return measuredSize(Number.parseFloat(getComputedStyle(document.documentElement).fontSize), 16);
+  };
+
   const primarySidebarMax = (): number => {
-    const rootWidth = measuredSize(
-      options.primarySidebar.parentElement?.clientWidth ?? 0,
-      measuredSize(window.innerWidth, 1024),
+    const rootWidth = outerSize(
+      options.primarySidebar.parentElement,
+      "width",
+      measuredSize(
+        options.primarySidebar.parentElement?.clientWidth ?? 0,
+        measuredSize(window.innerWidth, 1024),
+      ),
     );
-    const activityBarWidth = measuredSize(options.activityBar.clientWidth, ACTIVITY_BAR_FALLBACK_WIDTH);
-    const primaryResizerWidth = measuredSize(options.primaryResizer.clientWidth, RESIZER_FALLBACK_SIZE);
+    const activityBarWidth = outerSize(options.activityBar, "width", ACTIVITY_BAR_FALLBACK_WIDTH);
+    const primaryResizerWidth = outerSize(options.primaryResizer, "width", RESIZER_FALLBACK_SIZE);
     const secondaryWidth = state.parts.secondarySidebar.visible
-      ? measuredSize(options.secondarySidebar.clientWidth, state.parts.secondarySidebar.size)
-        + measuredSize(options.secondaryResizer.clientWidth, RESIZER_FALLBACK_SIZE)
+      ? outerSize(options.secondarySidebar, "width", state.parts.secondarySidebar.size)
+        + outerSize(options.secondaryResizer, "width", RESIZER_FALLBACK_SIZE)
       : 0;
     const available = Math.floor(
       rootWidth - activityBarWidth - primaryResizerWidth - secondaryWidth - MIN_EDITOR_WIDTH,
@@ -81,26 +99,30 @@ export function mountWorkbench(options: {
   };
 
   const outlineMax = (): number => {
-    const sidebarHeight = measuredSize(
-      options.primarySidebar.clientHeight,
+    const sidebarHeight = outerSize(
+      options.primarySidebar,
+      "height",
       measuredSize(
-        options.primarySidebar.parentElement?.clientHeight ?? 0,
-        measuredSize(window.innerHeight, 820),
+        options.primarySidebar.clientHeight,
+        measuredSize(
+          options.primarySidebar.parentElement?.clientHeight ?? 0,
+          measuredSize(window.innerHeight, 820),
+        ),
       ),
     );
-    const fixedChrome = CONTAINER_TITLEBAR_FALLBACK_HEIGHT
-      + (2 * VIEW_HEADER_FALLBACK_HEIGHT)
-      + RESIZER_FALLBACK_SIZE;
-    const available = Math.floor(sidebarHeight - MIN_WORKSPACE_HEIGHT - fixedChrome);
+    const rem = rootFontSize();
+    const chromeHeight = outerSize(primaryContainerTitlebar, "height", 2.125 * rem)
+      + outerSize(viewShells.get("workspace")?.header ?? null, "height", 1.875 * rem)
+      + outerSize(viewShells.get("outline")?.header ?? null, "height", 1.875 * rem)
+      + outerSize(outlineResizer, "height", RESIZER_FALLBACK_SIZE);
+    const available = Math.floor(sidebarHeight - MIN_WORKSPACE_HEIGHT - chromeHeight);
     return Math.max(64, Math.min(600, available));
   };
 
   const boundState = (value: WorkbenchLayoutSnapshot): WorkbenchLayoutSnapshot => {
     const next = normalizeWorkbenchLayout(value);
     next.parts.primarySidebar.size = Math.min(next.parts.primarySidebar.size, primarySidebarMax());
-    if (next.views.outline.size !== null) {
-      next.views.outline.size = Math.min(next.views.outline.size, outlineMax());
-    }
+    next.views.outline.size = Math.min(next.views.outline.size ?? OUTLINE_DEFAULT_SIZE, outlineMax());
     return normalizeWorkbenchLayout(next);
   };
 
@@ -149,7 +171,7 @@ export function mountWorkbench(options: {
     body.className = "workbench-view-body";
     section.appendChild(header);
     section.appendChild(body);
-    shell = { section, title, collapse, close, body };
+    shell = { section, header, title, collapse, close, body };
     viewShells.set(view.id, shell);
     return shell;
   };
@@ -203,6 +225,7 @@ export function mountWorkbench(options: {
   const renderPrimarySidebar = (): void => {
     const part = state.parts.primarySidebar;
     const maxSize = primarySidebarMax();
+    let renderedOutlineResizer: HTMLElement | null = null;
     options.primarySidebar.classList.toggle("hidden", !part.visible);
     options.primaryResizer.classList.toggle("hidden", !part.visible);
     options.primarySidebar.setAttribute("aria-hidden", String(!part.visible));
@@ -213,6 +236,8 @@ export function mountWorkbench(options: {
 
     const contribution = options.registry.containers().find((container) => container.id === part.activeContainerId);
     if (!contribution) {
+      primaryContainerTitlebar = null;
+      outlineResizer = null;
       options.primarySidebar.replaceChildren();
       return;
     }
@@ -239,6 +264,7 @@ export function mountWorkbench(options: {
       if (view.id === "outline") {
         const size = state.views.outline.size ?? OUTLINE_DEFAULT_SIZE;
         const resizer = document.createElement("div");
+        renderedOutlineResizer = resizer;
         resizer.className = "outline-view-resizer";
         resizer.dataset.resizesView = "outline";
         resizer.setAttribute("role", "separator");
@@ -257,6 +283,8 @@ export function mountWorkbench(options: {
     container.appendChild(titlebar);
     container.appendChild(body);
     options.primarySidebar.replaceChildren(container);
+    primaryContainerTitlebar = titlebar;
+    outlineResizer = renderedOutlineResizer;
   };
 
   const renderOtherParts = (): void => {
@@ -325,6 +353,16 @@ export function mountWorkbench(options: {
     },
     resetViewVisibility: () => commit(resetLayoutViewVisibility(state)),
     setPrimarySidebarSize: (size) => commit(setPartSize(state, "primarySidebar", size)),
+    reflow: () => {
+      const previousPrimary = state.parts.primarySidebar.size;
+      const previousOutline = state.views.outline.size;
+      const next = boundState(state);
+      if (next.parts.primarySidebar.size !== previousPrimary || next.views.outline.size !== previousOutline) {
+        commit(next);
+      } else {
+        render();
+      }
+    },
     relabel: () => {
       options.registry.relabel();
       render();
@@ -447,14 +485,7 @@ export function mountWorkbench(options: {
   };
 
   const onWindowResize = (): void => {
-    const previousPrimary = state.parts.primarySidebar.size;
-    const previousOutline = state.views.outline.size;
-    const next = boundState(state);
-    if (next.parts.primarySidebar.size !== previousPrimary || next.views.outline.size !== previousOutline) {
-      commit(next);
-    } else {
-      render();
-    }
+    workbench.reflow();
   };
 
   options.primaryResizer.addEventListener("pointerdown", onPointerDown);

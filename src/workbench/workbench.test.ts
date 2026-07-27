@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { setLocale, type Locale } from "../i18n/i18n";
 import { DEFAULT_WORKBENCH_LAYOUT } from "./workbenchLayout";
 import { createViewRegistry } from "./viewRegistry";
@@ -10,6 +10,10 @@ class TestElement {
   className = "";
   clientHeight = 0;
   clientWidth = 0;
+  offsetHeight = 0;
+  offsetWidth = 0;
+  rectHeight = 0;
+  rectWidth = 0;
   children: TestElement[] = [];
   dataset: Record<string, string> = {};
   parentElement: TestElement | null = null;
@@ -82,6 +86,20 @@ class TestElement {
     testDocument.activeElement = this;
   }
 
+  getBoundingClientRect(): DOMRect {
+    return {
+      bottom: this.rectHeight,
+      height: this.rectHeight,
+      left: 0,
+      right: this.rectWidth,
+      top: 0,
+      width: this.rectWidth,
+      x: 0,
+      y: 0,
+      toJSON: () => ({}),
+    };
+  }
+
   setAttribute(name: string, value: string): void {
     this.attributes.set(name, value);
   }
@@ -130,14 +148,20 @@ class TestWindow {
     const event = { type, ...values } as unknown as Event;
     for (const listener of this.listeners.get(type) ?? []) listener(event);
   }
+
+  listenerCount(type: string): number {
+    return (this.listeners.get(type) ?? []).length;
+  }
 }
 
 const testDocument = {
   activeElement: null as TestElement | null,
   body: new TestElement("body"),
+  documentElement: new TestElement("html"),
   createElement: (tagName: string) => new TestElement(tagName),
 };
 let testWindow: TestWindow;
+let testRootFontSize = 16;
 
 function walk(root: TestElement): TestElement[] {
   return [root, ...root.children.flatMap(walk)];
@@ -187,9 +211,14 @@ function setup({ rootWidth = 1024, sidebarHeight = 820 } = {}) {
   const workbenchHost = document.createElement("div") as unknown as TestElement;
   workbenchHost.clientWidth = rootWidth;
   workbenchHost.clientHeight = sidebarHeight;
+  workbenchHost.rectWidth = rootWidth;
+  workbenchHost.rectHeight = sidebarHeight;
   (hosts.activityBar as unknown as TestElement).clientWidth = 48;
+  (hosts.activityBar as unknown as TestElement).rectWidth = 48;
   (hosts.primaryResizer as unknown as TestElement).clientWidth = 6;
+  (hosts.primaryResizer as unknown as TestElement).rectWidth = 6;
   (hosts.primarySidebar as unknown as TestElement).clientHeight = sidebarHeight;
+  (hosts.primarySidebar as unknown as TestElement).rectHeight = sidebarHeight;
   for (const host of Object.values(hosts)) workbenchHost.appendChild(host as unknown as TestElement);
   const focusEditor = vi.fn();
   const onDidChange = vi.fn();
@@ -221,10 +250,15 @@ beforeEach(() => {
   setLocale("en");
   testDocument.activeElement = null;
   testDocument.body = new TestElement("body");
+  testDocument.documentElement = new TestElement("html");
   testWindow = new TestWindow();
+  testRootFontSize = 16;
   vi.stubGlobal("document", testDocument);
   vi.stubGlobal("window", testWindow);
+  vi.stubGlobal("getComputedStyle", () => ({ fontSize: `${testRootFontSize}px` }));
 });
+
+afterEach(() => vi.unstubAllGlobals());
 
 describe("workbench", () => {
   it("mounts Workspace and Outline in Explorer order", () => {
@@ -437,6 +471,19 @@ describe("workbench", () => {
     expect(onDidChange.mock.calls.at(-1)?.[0].parts.primarySidebar.size).toBe(226);
   });
 
+  it("uses bordered outer widths when reserving editor space", () => {
+    const { activityBar, primaryResizer, workbench } = setup({ rootWidth: 500 });
+    (activityBar as unknown as TestElement).rectWidth = 50;
+    (primaryResizer as unknown as TestElement).rectWidth = 8;
+    const restored = workbench.snapshot();
+    restored.parts.primarySidebar.size = 720;
+
+    workbench.restore(restored);
+
+    expect(workbench.snapshot().parts.primarySidebar.size).toBe(222);
+    expect((primaryResizer as unknown as TestElement).getAttribute("aria-valuemax")).toBe("222");
+  });
+
   it("clamps Outline height to preserve Workspace and shell controls in a short sidebar", () => {
     const { primarySidebar, workbench, onDidChange } = setup({ sidebarHeight: 400 });
     const restored = workbench.snapshot();
@@ -451,6 +498,78 @@ describe("workbench", () => {
     expect(resizer.getAttribute("aria-valuenow")).toBe("180");
     expect(viewById(root, "outline").style["--outline-height"]).toBe("180px");
     expect(onDidChange.mock.calls.at(-1)?.[0].views.outline.size).toBe(180);
+  });
+
+  it("uses scaled outer chrome heights when bounding Outline", () => {
+    const { primarySidebar, workbench } = setup({ sidebarHeight: 400 });
+    const root = primarySidebar as unknown as TestElement;
+    byClass(root, "view-container-titlebar")[0].rectHeight = 51;
+    viewById(root, "workspace").children[0].rectHeight = 45;
+    viewById(root, "outline").children[0].rectHeight = 45;
+    byClass(root, "outline-view-resizer")[0].rectHeight = 6;
+    const restored = workbench.snapshot();
+    restored.views.outline.size = 600;
+
+    workbench.restore(restored);
+
+    expect(workbench.snapshot().views.outline.size).toBe(133);
+    expect(byClass(root, "outline-view-resizer")[0].getAttribute("aria-valuemax")).toBe("133");
+  });
+
+  it("uses the scaled root font for unmeasured Outline chrome fallbacks", () => {
+    testRootFontSize = 24;
+
+    const { workbench } = setup({ sidebarHeight: 400 });
+
+    expect(workbench.snapshot().views.outline.size).toBe(133);
+  });
+
+  it("bounds a null Outline size through the default before render and ARIA", () => {
+    const { primarySidebar, workbench, onDidChange } = setup({ sidebarHeight: 400 });
+    const restored = workbench.snapshot();
+    restored.views.outline.size = null;
+
+    workbench.restore(restored);
+
+    const root = primarySidebar as unknown as TestElement;
+    const resizer = byClass(root, "outline-view-resizer")[0];
+    expect(workbench.snapshot().views.outline.size).toBe(180);
+    expect(resizer.getAttribute("aria-valuenow")).toBe("180");
+    expect(viewById(root, "outline").style["--outline-height"]).toBe("180px");
+    expect(onDidChange.mock.calls.at(-1)?.[0].views.outline.size).toBe(180);
+  });
+
+  it("reflows scaled chrome through the public Workbench API and persists one changed bound", () => {
+    const { primarySidebar, workbench, onDidChange } = setup({ sidebarHeight: 400 });
+    const root = primarySidebar as unknown as TestElement;
+    byClass(root, "view-container-titlebar")[0].rectHeight = 51;
+    viewById(root, "workspace").children[0].rectHeight = 45;
+    viewById(root, "outline").children[0].rectHeight = 45;
+    byClass(root, "outline-view-resizer")[0].rectHeight = 6;
+
+    workbench.reflow();
+
+    expect(workbench.snapshot().views.outline.size).toBe(133);
+    expect(onDidChange).toHaveBeenCalledTimes(1);
+    expect(onDidChange.mock.calls[0][0].views.outline.size).toBe(133);
+  });
+
+  it("does not persist an unchanged public reflow or window resize", () => {
+    const { workbench, onDidChange } = setup();
+
+    workbench.reflow();
+    testWindow.dispatch("resize");
+
+    expect(onDidChange).not.toHaveBeenCalled();
+  });
+
+  it("removes the Workbench resize listener when destroyed", () => {
+    const { workbench } = setup();
+    expect(testWindow.listenerCount("resize")).toBe(1);
+
+    workbench.destroy();
+
+    expect(testWindow.listenerCount("resize")).toBe(0);
   });
 
   it("restores and persists one clamped Outline size on pointer release", () => {

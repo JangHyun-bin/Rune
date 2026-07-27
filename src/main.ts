@@ -246,6 +246,7 @@ function currentEditorFontScale(): number {
 }
 function applyUiScale(scale: number, persist = true): void {
   document.documentElement.style.setProperty("--ui-scale", String(clampUiScale(scale)));
+  workbench.reflow();
   if (persist) scheduleSaveSettings();
 }
 function currentUiScale(): number {
