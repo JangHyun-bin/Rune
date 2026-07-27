@@ -116,7 +116,9 @@ function isLayout(value: unknown): value is WorkbenchLayoutSnapshot {
   }
   return partIds.every((id) => {
     const part = parts[id];
-    return isRecord(part) && part.visible !== undefined && typeof part.visible === "boolean" && isFiniteNumber(part.size) && isContainerId(part.activeContainerId) && isRecord(containers[part.activeContainerId]) && containers[part.activeContainerId].part === id;
+    if (!isRecord(part) || typeof part.visible !== "boolean" || !isFiniteNumber(part.size) || !isContainerId(part.activeContainerId)) return false;
+    const activeContainer = containers[part.activeContainerId];
+    return isRecord(activeContainer) && activeContainer.part === id;
   }) && containerIds.every((id) => {
     const container = containers[id];
     return isRecord(container) && isPartId(container.part) && isFiniteNumber(container.order);
