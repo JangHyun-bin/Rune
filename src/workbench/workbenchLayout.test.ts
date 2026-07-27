@@ -25,6 +25,17 @@ describe("workbench layout", () => {
     expect(normalizeWorkbenchLayout({ version: 1, parts: null })).toEqual(DEFAULT_WORKBENCH_LAYOUT);
   });
 
+  it("rejects a part whose active container belongs to another part", () => {
+    const invalid = {
+      ...DEFAULT_WORKBENCH_LAYOUT,
+      parts: {
+        ...DEFAULT_WORKBENCH_LAYOUT.parts,
+        primarySidebar: { ...DEFAULT_WORKBENCH_LAYOUT.parts.primarySidebar, activeContainerId: "panel" },
+      },
+    };
+    expect(normalizeWorkbenchLayout(invalid)).toEqual(DEFAULT_WORKBENCH_LAYOUT);
+  });
+
   it("closes and reopens a view without changing its container", () => {
     const closed = closeView(DEFAULT_WORKBENCH_LAYOUT, "outline");
     expect(closed.views.outline.visible).toBe(false);
