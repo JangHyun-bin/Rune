@@ -821,7 +821,13 @@ paneWorkspace = createPaneWorkspace({
   canCloseDirtyTab: () => confirm(tr("confirm.closeDirty")),
 });
 bindNativeFileDrop();
-void restore().then(() => settingsSaveScheduler.enable());
+void restore().then(
+  () => settingsSaveScheduler.enable(),
+  (error) => {
+    settingsSaveScheduler.enable(false);
+    throw error;
+  },
+);
 
 window.addEventListener("blur", () => { void paneWorkspace.flushSaves(); });
 window.addEventListener("resize", () => applySplitRatio(currentSplitRatio(), false));

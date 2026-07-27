@@ -82,9 +82,10 @@ export function createSettingsSaveScheduler(save: () => void, delay: number) {
   return {
     schedule,
     saveNow,
-    enable(): void {
+    enable(flushPending = true): void {
       enabled = true;
-      if (pending) saveNow();
+      if (pending && flushPending) saveNow();
+      else pending = false;
     },
   };
 }

@@ -90,4 +90,29 @@ describe("layout settings", () => {
       vi.useRealTimers();
     }
   });
+
+  it("discards restore-time saves after rejection and reopens for later changes", async () => {
+    vi.useFakeTimers();
+    try {
+      const save = vi.fn();
+      const scheduler = createSettingsSaveScheduler(save, 500);
+      const restore = (async () => {
+        scheduler.schedule();
+        throw new Error("restore failed");
+      })();
+      await restore.then(
+        () => scheduler.enable(),
+        () => scheduler.enable(false),
+      );
+
+      await vi.advanceTimersByTimeAsync(500);
+      expect(save).not.toHaveBeenCalled();
+
+      scheduler.schedule();
+      await vi.advanceTimersByTimeAsync(500);
+      expect(save).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
