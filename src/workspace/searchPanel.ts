@@ -18,10 +18,16 @@ export function mountSearchPanel(
   card.append(input, list); host.appendChild(card);
 
   const baseName = (p: string) => { const i = Math.max(p.lastIndexOf("/"), p.lastIndexOf("\\")); return i >= 0 ? p.slice(i + 1) : p; };
-  const msg = (text: string) => { const e = document.createElement("div"); e.className = "sp-empty"; e.textContent = text; list.replaceChildren(e); };
+  type MessageKey = "search.noFolder" | "search.empty";
+  let messageKey: MessageKey | null = null;
+  const msg = (key: MessageKey | null) => {
+    messageKey = key;
+    const e = document.createElement("div"); e.className = "sp-empty"; e.textContent = key ? t(key) : ""; list.replaceChildren(e);
+  };
 
   function renderHits(hits: SearchHit[], q: string) {
-    if (hits.length === 0) { msg(q ? t("search.empty") : ""); return; }
+    if (hits.length === 0) { msg(q ? "search.empty" : null); return; }
+    messageKey = null;
     list.replaceChildren();
     for (const h of hits) {
       const row = document.createElement("div"); row.className = "sp-row";
@@ -35,7 +41,7 @@ export function mountSearchPanel(
   let timer: number | undefined;
   function runSearch() {
     const folder = getFolder();
-    if (!folder) { msg(t("search.noFolder")); return; }
+    if (!folder) { msg("search.noFolder"); return; }
     const q = input.value.trim();
     if (timer !== undefined) clearTimeout(timer);
     timer = window.setTimeout(async () => {
@@ -47,7 +53,10 @@ export function mountSearchPanel(
   input.addEventListener("input", runSearch);
   return {
     focus() { input.focus(); },
-    relabel() { input.placeholder = t("search.placeholder"); },
+    relabel() {
+      input.placeholder = t("search.placeholder");
+      if (messageKey) msg(messageKey);
+    },
     dispose() {
       if (timer !== undefined) clearTimeout(timer);
       host.replaceChildren();

@@ -137,4 +137,50 @@ describe("mountSearchPanel", () => {
     panel.dispose();
     expect(host.children).toHaveLength(0);
   });
+
+  it("relabels a visible no-folder message without resetting the query", () => {
+    const testDocument = createTestDocument();
+    vi.stubGlobal("document", testDocument);
+    vi.stubGlobal("window", {
+      setTimeout: globalThis.setTimeout,
+      clearTimeout: globalThis.clearTimeout,
+    });
+    const host = document.createElement("div");
+    const panel = mountSearchPanel(host, () => null, vi.fn());
+    const input = host.querySelector(".sp-input") as unknown as TestNode;
+    input.value = "needle";
+    input.dispatch("input");
+    expect(host.textContent).toContain("Open a folder first");
+
+    setLocale("ko");
+    panel.relabel();
+
+    expect(host.textContent).toContain("폴더를 먼저 여세요");
+    expect(input.value).toBe("needle");
+    expect(search).not.toHaveBeenCalled();
+  });
+
+  it("relabels a visible empty-result message without refetching", async () => {
+    search.mockResolvedValue({ status: "ok", data: [] });
+    const testDocument = createTestDocument();
+    vi.stubGlobal("document", testDocument);
+    vi.stubGlobal("window", {
+      setTimeout: globalThis.setTimeout,
+      clearTimeout: globalThis.clearTimeout,
+    });
+    const host = document.createElement("div");
+    const panel = mountSearchPanel(host, () => "C:/w", vi.fn());
+    const input = host.querySelector(".sp-input") as unknown as TestNode;
+    input.value = "needle";
+    input.dispatch("input");
+    await vi.advanceTimersByTimeAsync(200);
+    expect(host.textContent).toContain("No results");
+
+    setLocale("ko");
+    panel.relabel();
+
+    expect(host.textContent).toContain("결과 없음");
+    expect(input.value).toBe("needle");
+    expect(search).toHaveBeenCalledOnce();
+  });
 });
