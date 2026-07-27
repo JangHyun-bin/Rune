@@ -250,6 +250,17 @@ describe("workbench", () => {
     expect(focusEditor).toHaveBeenCalledTimes(1);
   });
 
+  it("returns focus to the editor when the focused close button hides its view", () => {
+    const { primarySidebar, focusEditor } = setup();
+    const outline = byData(primarySidebar as unknown as TestElement, "viewId", "outline");
+    const close = byClass(outline, "view-close")[0];
+    close.focus();
+
+    close.dispatch("click");
+
+    expect(focusEditor).toHaveBeenCalledTimes(1);
+  });
+
   it("emits the latest snapshot after every user action", () => {
     const { activityBar, primarySidebar, onDidChange } = setup();
     const outline = byData(primarySidebar as unknown as TestElement, "viewId", "outline");

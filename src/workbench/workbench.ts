@@ -49,7 +49,6 @@ export function mountWorkbench(options: {
   let state = normalizeWorkbenchLayout(options.initialState);
   let destroyed = false;
   const viewShells = new Map<WorkbenchViewId, ViewShell>();
-  const viewElements = new Map<WorkbenchViewId, HTMLElement>();
 
   const contributions = (): ViewContribution[] => {
     const values = new Map<WorkbenchViewId, ViewContribution>();
@@ -114,7 +113,6 @@ export function mountWorkbench(options: {
     }
     if (layout.visible) {
       const instance = options.registry.resolveView(view.id);
-      viewElements.set(view.id, instance.element);
       shell.body.appendChild(instance.element);
     }
     return shell.section;
@@ -207,8 +205,7 @@ export function mountWorkbench(options: {
     restore: (snapshot) => commit(normalizeWorkbenchLayout(snapshot)),
     openView: (id) => commit(openLayoutView(state, id)),
     closeView: (id) => {
-      const element = viewElements.get(id);
-      const ownedFocus = !!element && (element === document.activeElement || element.contains(document.activeElement));
+      const ownedFocus = viewShells.get(id)?.section.contains(document.activeElement) ?? false;
       commit(closeLayoutView(state, id));
       if (ownedFocus) options.focusEditor();
     },
