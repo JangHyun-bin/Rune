@@ -53,12 +53,12 @@ Rune은 **입력하는 즉시** 서식이 적용되는 크로스플랫폼 마크
 
 | OS | 다운로드 |
 |----|----------|
-| **macOS** · Apple Silicon | [`Rune_0.1.11_aarch64.dmg`](https://github.com/JangHyun-bin/Rune/releases/download/v0.1.11/Rune_0.1.11_aarch64.dmg) |
-| **macOS** · Intel | [`Rune_0.1.11_x64.dmg`](https://github.com/JangHyun-bin/Rune/releases/download/v0.1.11/Rune_0.1.11_x64.dmg) |
-| **Windows** | [`.msi`](https://github.com/JangHyun-bin/Rune/releases/download/v0.1.11/Rune_0.1.11_x64_en-US.msi) · [`.exe`](https://github.com/JangHyun-bin/Rune/releases/download/v0.1.11/Rune_0.1.11_x64-setup.exe) |
-| **Linux** | [`.deb`](https://github.com/JangHyun-bin/Rune/releases/download/v0.1.11/Rune_0.1.11_amd64.deb) · [`.rpm`](https://github.com/JangHyun-bin/Rune/releases/download/v0.1.11/Rune-0.1.11-1.x86_64.rpm) · [`.AppImage`](https://github.com/JangHyun-bin/Rune/releases/download/v0.1.11/Rune_0.1.11_amd64.AppImage) |
+| **macOS** · Apple Silicon | [`Rune_0.1.15_aarch64.dmg`](https://github.com/JangHyun-bin/Rune/releases/download/v0.1.15/Rune_0.1.15_aarch64.dmg) |
+| **macOS** · Intel | [`Rune_0.1.15_x64.dmg`](https://github.com/JangHyun-bin/Rune/releases/download/v0.1.15/Rune_0.1.15_x64.dmg) |
+| **Windows** | [`.msi`](https://github.com/JangHyun-bin/Rune/releases/download/v0.1.15/Rune_0.1.15_x64_en-US.msi) · [`.exe`](https://github.com/JangHyun-bin/Rune/releases/download/v0.1.15/Rune_0.1.15_x64-setup.exe) |
+| **Linux** | [`.deb`](https://github.com/JangHyun-bin/Rune/releases/download/v0.1.15/Rune_0.1.15_amd64.deb) · [`.rpm`](https://github.com/JangHyun-bin/Rune/releases/download/v0.1.15/Rune-0.1.15-1.x86_64.rpm) · [`.AppImage`](https://github.com/JangHyun-bin/Rune/releases/download/v0.1.15/Rune_0.1.15_amd64.AppImage) |
 
-> **macOS:** CI에서 서명된 DMG를 빌드합니다. 공증은 현재 릴리스 후 수동 단계로 처리합니다.
+> **macOS:** CI에서 Apple Silicon·Intel DMG를 서명·공증·스테이플링하고 설치 검증까지 수행합니다.
 
 ## 왜 Rune?
 
@@ -87,7 +87,6 @@ npm run tauri build          # 현재 OS용 설치본 빌드
 
 ## 로드맵
 
-- macOS 공증(notarization)
 - 성능 · 번들 코드 스플리팅
 - IME / CJK 입력 보정
 - 플러그인 시스템 (검토 중)
