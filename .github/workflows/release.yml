@@ -26,8 +26,6 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
-          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
         run: |
           set -euo pipefail
           missing=()
@@ -39,9 +37,7 @@ jobs:
             APPLE_SIGNING_IDENTITY \
             APPLE_ID \
             APPLE_PASSWORD \
-            APPLE_TEAM_ID \
-            WINDOWS_CERTIFICATE \
-            WINDOWS_CERTIFICATE_PASSWORD
+            APPLE_TEAM_ID
           do
             if [[ -z "${!name:-}" ]]; then
               missing+=("$name")
@@ -129,7 +125,7 @@ jobs:
             os: windows
             target: x86_64-pc-windows-msvc
             args: ""
-            config_args: "--config src-tauri/tauri.windows-signing.conf.json"
+            config_args: ""
 
     runs-on: ${{ matrix.platform }}
     steps:
@@ -198,48 +194,7 @@ jobs:
           )
           PY
 
-      - name: Import Windows code-signing certificate
-        if: matrix.os == 'windows'
-        shell: pwsh
-        env:
-          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
-          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
-        run: |
-          $pfxPath = Join-Path $env:RUNNER_TEMP "rune-release.pfx"
-          [IO.File]::WriteAllBytes(
-            $pfxPath,
-            [Convert]::FromBase64String($env:WINDOWS_CERTIFICATE)
-          )
-          $password = ConvertTo-SecureString `
-            -String $env:WINDOWS_CERTIFICATE_PASSWORD `
-            -Force `
-            -AsPlainText
-          $certificate = Import-PfxCertificate `
-            -FilePath $pfxPath `
-            -CertStoreLocation Cert:\CurrentUser\My `
-            -Password $password
-          Remove-Item -LiteralPath $pfxPath
-
-          if (-not $certificate.HasPrivateKey) {
-            throw "The Windows signing certificate has no private key."
-          }
-          if ($certificate.NotAfter -le (Get-Date).AddDays(1)) {
-            throw "The Windows signing certificate is expired or expires within 24 hours."
-          }
-
-          $config = @{
-            bundle = @{
-              windows = @{
-                certificateThumbprint = $certificate.Thumbprint
-                digestAlgorithm = "sha256"
-                timestampUrl = "http://timestamp.digicert.com"
-              }
-            }
-          }
-          $config | ConvertTo-Json -Depth 4 |
-            Set-Content -LiteralPath "src-tauri/tauri.windows-signing.conf.json"
-
-      - name: Build, sign, notarize, and upload
+      - name: Build and upload
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -302,7 +257,7 @@ jobs:
           kill "${app_pid}"
           wait "${app_pid}" || true
 
-      - name: Verify signed Windows install and launch
+      - name: Verify Windows install and launch
         if: matrix.os == 'windows'
         shell: pwsh
         run: |
@@ -317,13 +272,6 @@ jobs:
           if (-not $installer -or -not $msi) {
             throw "Windows NSIS or MSI installer was not produced."
           }
-          foreach ($artifact in @($installer, $msi)) {
-            $signature = Get-AuthenticodeSignature -LiteralPath $artifact.FullName
-            if ($signature.Status -ne "Valid") {
-              throw "$($artifact.Name) Authenticode status: $($signature.Status)"
-            }
-          }
-
           $install = Start-Process `
             -FilePath $installer.FullName `
             -ArgumentList "/S" `
@@ -346,11 +294,6 @@ jobs:
             Select-Object -First 1
           if (-not $app) {
             throw "Rune executable was not found after installation."
-          }
-
-          $appSignature = Get-AuthenticodeSignature -LiteralPath $app.FullName
-          if ($appSignature.Status -ne "Valid") {
-            throw "Installed Rune executable is not Authenticode signed."
           }
 
           $process = Start-Process -FilePath $app.FullName -PassThru
