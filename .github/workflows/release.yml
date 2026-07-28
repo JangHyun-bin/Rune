@@ -1,39 +1,77 @@
 name: release
 
-# 태그(v*)를 푸시하거나 Actions 탭에서 수동 실행하면
-# Windows(.msi/.exe) · macOS(.dmg/.app) · Linux(.deb/.AppImage) 설치본을 빌드해
-# 초안(draft) GitHub Release에 첨부합니다.
 on:
   push:
     tags:
       - "v*"
-  workflow_dispatch:
 
 permissions:
   contents: write
 
-jobs:
-  build:
-    timeout-minutes: 30   # self-kill if notarization hangs (Apple notary -1009), instead of GitHub's 6h default
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - platform: macos-latest   # Apple Silicon (.dmg)
-            args: "--target aarch64-apple-darwin"
-          - platform: macos-latest   # Intel (.dmg)
-            args: "--target x86_64-apple-darwin"
-          - platform: ubuntu-22.04   # .deb / .AppImage
-            args: ""
-          - platform: windows-latest # .msi / .exe(NSIS)
-            args: ""
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
 
-    runs-on: ${{ matrix.platform }}
+jobs:
+  preflight:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Require release signing credentials
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+        run: |
+          set -euo pipefail
+          missing=()
+          for name in \
+            TAURI_SIGNING_PRIVATE_KEY \
+            TAURI_SIGNING_PRIVATE_KEY_PASSWORD \
+            APPLE_CERTIFICATE \
+            APPLE_CERTIFICATE_PASSWORD \
+            APPLE_SIGNING_IDENTITY \
+            APPLE_ID \
+            APPLE_PASSWORD \
+            APPLE_TEAM_ID \
+            WINDOWS_CERTIFICATE \
+            WINDOWS_CERTIFICATE_PASSWORD
+          do
+            if [[ -z "${!name:-}" ]]; then
+              missing+=("$name")
+            fi
+          done
+          if (( ${#missing[@]} > 0 )); then
+            printf 'Missing required release secrets: %s\n' "${missing[*]}" >&2
+            exit 1
+          fi
+
+  verify-source:
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
 
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: "./src-tauri -> target"
+
       - name: Install Linux dependencies
-        if: matrix.platform == 'ubuntu-22.04'
         run: |
           sudo apt-get update
           sudo apt-get install -y \
@@ -43,41 +81,176 @@ jobs:
             patchelf \
             build-essential
 
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Verify tag and project versions
+        run: |
+          set -euo pipefail
+          package_version="$(node -p "require('./package.json').version")"
+          tauri_version="$(node -p "require('./src-tauri/tauri.conf.json').version")"
+          cargo_version="$(sed -n 's/^version = "\(.*\)"/\1/p' src-tauri/Cargo.toml | head -1)"
+          test "${GITHUB_REF_NAME}" = "v${package_version}"
+          test "${package_version}" = "${tauri_version}"
+          test "${package_version}" = "${cargo_version}"
+
+      - name: Test frontend
+        run: npm test -- --run
+
+      - name: Test Rust
+        run: cargo test --manifest-path src-tauri/Cargo.toml
+
+      - name: Build frontend
+        run: npm run build
+
+  build:
+    needs: [preflight, verify-source]
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos-15
+            os: macos
+            target: aarch64-apple-darwin
+            args: "--target aarch64-apple-darwin"
+            config_args: ""
+          - platform: macos-15-intel
+            os: macos
+            target: x86_64-apple-darwin
+            args: "--target x86_64-apple-darwin"
+            config_args: ""
+          - platform: ubuntu-22.04
+            os: linux
+            target: x86_64-unknown-linux-gnu
+            args: ""
+            config_args: ""
+          - platform: windows-latest
+            os: windows
+            target: x86_64-pc-windows-msvc
+            args: ""
+            config_args: "--config src-tauri/tauri.windows-signing.conf.json"
+
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Linux dependencies
+        if: matrix.os == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            build-essential \
+            dbus-x11 \
+            rpm \
+            xvfb
+
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: 20
+          cache: npm
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+          targets: ${{ matrix.target }}
 
       - name: Rust cache
         uses: swatinem/rust-cache@v2
         with:
           workspaces: "./src-tauri -> target"
 
-      - name: Install frontend deps
+      - name: Install frontend dependencies
         run: npm ci
 
-      - name: Build + bundle + release
+      - name: Verify Apple notarization access
+        if: matrix.os == 'macos'
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          python3 - <<'PY'
+          import os
+          import subprocess
+
+          subprocess.run(
+              [
+                  "xcrun",
+                  "notarytool",
+                  "history",
+                  "--apple-id",
+                  os.environ["APPLE_ID"],
+                  "--password",
+                  os.environ["APPLE_PASSWORD"],
+                  "--team-id",
+                  os.environ["APPLE_TEAM_ID"],
+                  "--output-format",
+                  "json",
+              ],
+              check=True,
+              timeout=180,
+          )
+          PY
+
+      - name: Import Windows code-signing certificate
+        if: matrix.os == 'windows'
+        shell: pwsh
+        env:
+          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+        run: |
+          $pfxPath = Join-Path $env:RUNNER_TEMP "rune-release.pfx"
+          [IO.File]::WriteAllBytes(
+            $pfxPath,
+            [Convert]::FromBase64String($env:WINDOWS_CERTIFICATE)
+          )
+          $password = ConvertTo-SecureString `
+            -String $env:WINDOWS_CERTIFICATE_PASSWORD `
+            -Force `
+            -AsPlainText
+          $certificate = Import-PfxCertificate `
+            -FilePath $pfxPath `
+            -CertStoreLocation Cert:\CurrentUser\My `
+            -Password $password
+          Remove-Item -LiteralPath $pfxPath
+
+          if (-not $certificate.HasPrivateKey) {
+            throw "The Windows signing certificate has no private key."
+          }
+          if ($certificate.NotAfter -le (Get-Date).AddDays(1)) {
+            throw "The Windows signing certificate is expired or expires within 24 hours."
+          }
+
+          $config = @{
+            bundle = @{
+              windows = @{
+                certificateThumbprint = $certificate.Thumbprint
+                digestAlgorithm = "sha256"
+                timestampUrl = "http://timestamp.digicert.com"
+              }
+            }
+          }
+          $config | ConvertTo-Json -Depth 4 |
+            Set-Content -LiteralPath "src-tauri/tauri.windows-signing.conf.json"
+
+      - name: Build, sign, notarize, and upload
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-          # macOS 코드 서명 (Developer ID) — 이 3개로 .app/.dmg를 서명합니다.
-          # (비어 있으면 tauri-action이 미서명으로 진행하고, 다른 OS에선 무시됨)
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-          # macOS 공증(notarize) — 비활성화. GitHub 러너↔Apple notary 연결이 지속적으로 hang됨
-          # (notarytool이 제출 단계에서 출력 없이 멈춰 30분 타임아웃에 killed; -1009 no-route).
-          # 인프라(러너↔Apple) 문제라 앱/자격증명과 무관. 재시도하려면 아래 3줄 주석 해제.
-          # APPLE_ID: ${{ secrets.APPLE_ID }}
-          # APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-          # APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         with:
           tagName: ${{ github.ref_name }}
           releaseName: "Rune ${{ github.ref_name }}"
@@ -85,22 +258,208 @@ jobs:
             Download: Choose the installer for your OS from the Assets below.
 
             다운로드: 아래 Assets에서 OS에 맞는 설치본을 받으세요.
-          # Publish immediately (not draft): a draft release is NOT findable by tag,
-          # which makes concurrent matrix jobs race and drop assets. Published =
-          # findable by tag → every platform job attaches its installer reliably.
           releaseDraft: false
-          # Keep the in-progress matrix release out of /releases/latest until
-          # every platform has uploaded installers and latest.json.
           prerelease: true
+          generateReleaseNotes: true
           updaterJsonPreferNsis: true
-          args: ${{ matrix.args }}
+          args: ${{ matrix.args }} ${{ matrix.config_args }}
+
+      - name: Verify notarized macOS install and launch
+        if: matrix.os == 'macos'
+        run: |
+          set -euo pipefail
+          bundle_dir="src-tauri/target/${{ matrix.target }}/release/bundle"
+          dmg="$(find "${bundle_dir}/dmg" -maxdepth 1 -name '*.dmg' -print -quit)"
+          test -n "${dmg}"
+          hdiutil verify "${dmg}"
+          mount_point="$(
+            hdiutil attach "${dmg}" -nobrowse -readonly |
+              sed -n 's|^.*\(/Volumes/.*\)$|\1|p' |
+              tail -1
+          )"
+          test -n "${mount_point}"
+          trap 'hdiutil detach "${mount_point}" || true' EXIT
+
+          source_app="${mount_point}/Rune.app"
+          installed_app="${RUNNER_TEMP}/Rune.app"
+          test -d "${source_app}"
+          ditto "${source_app}" "${installed_app}"
+          hdiutil detach "${mount_point}"
+          trap - EXIT
+
+          codesign --verify --deep --strict --verbose=2 "${installed_app}"
+          xcrun stapler validate "${installed_app}"
+          xattr -w com.apple.quarantine "0081;$(date +%s);GitHubActions;" "${installed_app}"
+          spctl --assess --type execute --verbose=4 "${installed_app}"
+
+          "${installed_app}/Contents/MacOS/rune" >"${RUNNER_TEMP}/rune-macos.log" 2>&1 &
+          app_pid=$!
+          sleep 8
+          if ! kill -0 "${app_pid}" 2>/dev/null; then
+            cat "${RUNNER_TEMP}/rune-macos.log"
+            exit 1
+          fi
+          kill "${app_pid}"
+          wait "${app_pid}" || true
+
+      - name: Verify signed Windows install and launch
+        if: matrix.os == 'windows'
+        shell: pwsh
+        run: |
+          $bundleRoot = "src-tauri\target\release\bundle"
+          $installer = Get-ChildItem -LiteralPath $bundleRoot -Recurse `
+            -Filter "*-setup.exe" |
+            Select-Object -First 1
+          $msi = Get-ChildItem -LiteralPath $bundleRoot -Recurse `
+            -Filter "*.msi" |
+            Select-Object -First 1
+
+          if (-not $installer -or -not $msi) {
+            throw "Windows NSIS or MSI installer was not produced."
+          }
+          foreach ($artifact in @($installer, $msi)) {
+            $signature = Get-AuthenticodeSignature -LiteralPath $artifact.FullName
+            if ($signature.Status -ne "Valid") {
+              throw "$($artifact.Name) Authenticode status: $($signature.Status)"
+            }
+          }
+
+          $install = Start-Process `
+            -FilePath $installer.FullName `
+            -ArgumentList "/S" `
+            -Wait `
+            -PassThru
+          if ($install.ExitCode -ne 0) {
+            throw "NSIS installer exited with $($install.ExitCode)."
+          }
+
+          $installRoots = @(
+            (Join-Path $env:LOCALAPPDATA "Rune"),
+            (Join-Path $env:ProgramFiles "Rune")
+          )
+          $app = $installRoots |
+            Where-Object { Test-Path -LiteralPath $_ } |
+            ForEach-Object {
+              Get-ChildItem -LiteralPath $_ -Recurse -Filter "rune.exe" |
+                Select-Object -First 1
+            } |
+            Select-Object -First 1
+          if (-not $app) {
+            throw "Rune executable was not found after installation."
+          }
+
+          $appSignature = Get-AuthenticodeSignature -LiteralPath $app.FullName
+          if ($appSignature.Status -ne "Valid") {
+            throw "Installed Rune executable is not Authenticode signed."
+          }
+
+          $process = Start-Process -FilePath $app.FullName -PassThru
+          Start-Sleep -Seconds 8
+          if ($process.HasExited) {
+            throw "Rune exited during the Windows launch smoke test."
+          }
+          Stop-Process -Id $process.Id -Force
+
+      - name: Verify Linux packages and launch
+        if: matrix.os == 'linux'
+        run: |
+          set -euo pipefail
+          bundle_dir="src-tauri/target/release/bundle"
+          deb="$(find "${bundle_dir}/deb" -maxdepth 1 -name '*.deb' -print -quit)"
+          rpm_file="$(find "${bundle_dir}/rpm" -maxdepth 1 -name '*.rpm' -print -quit)"
+          appimage="$(find "${bundle_dir}/appimage" -maxdepth 1 -name '*.AppImage' -print -quit)"
+          test -n "${deb}"
+          test -n "${rpm_file}"
+          test -n "${appimage}"
+
+          dpkg-deb --info "${deb}" >/dev/null
+          rpm -qpl "${rpm_file}" >/dev/null
+          chmod +x "${appimage}"
+
+          set +e
+          APPIMAGE_EXTRACT_AND_RUN=1 xvfb-run -a timeout 12s "${appimage}" \
+            >"${RUNNER_TEMP}/rune-linux.log" 2>&1
+          app_status=$?
+          set -e
+          if [[ "${app_status}" -ne 124 ]]; then
+            cat "${RUNNER_TEMP}/rune-linux.log"
+            exit 1
+          fi
+
+          sudo dpkg -i "${deb}"
+          set +e
+          xvfb-run -a timeout 12s rune >"${RUNNER_TEMP}/rune-deb.log" 2>&1
+          deb_status=$?
+          set -e
+          if [[ "${deb_status}" -ne 124 ]]; then
+            cat "${RUNNER_TEMP}/rune-deb.log"
+            exit 1
+          fi
+
+  verify-release-assets:
+    needs: build
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Verify complete updater release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          mapfile -t assets < <(
+            gh release view "${GITHUB_REF_NAME}" \
+              --repo "${GITHUB_REPOSITORY}" \
+              --json assets \
+              --jq '.assets[].name'
+          )
+          required=(
+            "latest.json"
+            "Rune_${version}_aarch64.dmg"
+            "Rune_${version}_x64.dmg"
+            "Rune_aarch64.app.tar.gz"
+            "Rune_aarch64.app.tar.gz.sig"
+            "Rune_x64.app.tar.gz"
+            "Rune_x64.app.tar.gz.sig"
+            "Rune_${version}_x64-setup.exe"
+            "Rune_${version}_x64-setup.exe.sig"
+            "Rune_${version}_x64_en-US.msi"
+            "Rune_${version}_x64_en-US.msi.sig"
+            "Rune_${version}_amd64.AppImage"
+            "Rune_${version}_amd64.AppImage.sig"
+            "Rune_${version}_amd64.deb"
+            "Rune_${version}_amd64.deb.sig"
+            "Rune-${version}-1.x86_64.rpm"
+            "Rune-${version}-1.x86_64.rpm.sig"
+          )
+          for expected in "${required[@]}"; do
+            if ! printf '%s\n' "${assets[@]}" | grep -Fxq "${expected}"; then
+              echo "Missing release asset: ${expected}" >&2
+              exit 1
+            fi
+          done
+
+          gh release download "${GITHUB_REF_NAME}" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --pattern latest.json \
+            --dir "${RUNNER_TEMP}"
+          jq -e \
+            --arg version "${version}" \
+            '.version == $version and
+             (.platforms["darwin-aarch64"].url | length > 0) and
+             (.platforms["darwin-x86_64"].url | length > 0) and
+             (.platforms["linux-x86_64"].url | length > 0) and
+             (.platforms["windows-x86_64"].url | length > 0)' \
+            "${RUNNER_TEMP}/latest.json"
 
   promote:
-    needs: build
-    if: startsWith(github.ref, 'refs/tags/v')
-    runs-on: ubuntu-latest
+    needs: verify-release-assets
+    runs-on: ubuntu-22.04
     steps:
       - name: Mark release as latest
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release edit "${GITHUB_REF_NAME}" --repo "${GITHUB_REPOSITORY}" --prerelease=false --latest
+        run: |
+          gh release edit "${GITHUB_REF_NAME}" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --prerelease=false \
+            --latest
