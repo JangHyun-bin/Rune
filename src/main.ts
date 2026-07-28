@@ -107,6 +107,7 @@ viewRegistry.registerView({
     const panel = mountSearchPanel(
       element,
       () => currentFolder,
+      () => typeof paneWorkspace === "undefined" ? null : activePane().activePath(),
       (path, line) => { void (async () => { if (await openPath(path)) jumpToLine(line); })(); },
     );
     return {

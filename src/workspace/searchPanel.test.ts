@@ -110,7 +110,7 @@ describe("mountSearchPanel", () => {
     });
     const host = document.createElement("div");
     const openHit = vi.fn();
-    const panel = mountSearchPanel(host, () => "C:/w", openHit);
+    const panel = mountSearchPanel(host, () => "C:/w", () => null, openHit);
 
     expect(host.querySelector(".sp-card")).not.toBeNull();
     expect(testDocument.body.children).toHaveLength(0);
@@ -127,7 +127,7 @@ describe("mountSearchPanel", () => {
     expect(search).toHaveBeenCalledOnce();
     expect(search).toHaveBeenCalledWith("C:/w", "needle");
 
-    (host.querySelector(".sp-row") as unknown as TestNode).dispatch("mousedown");
+    (host.querySelector(".sp-row") as unknown as TestNode).dispatch("click");
     expect(openHit).toHaveBeenCalledWith("C:/w/guide.md", 7);
 
     setLocale("ko");
@@ -146,7 +146,7 @@ describe("mountSearchPanel", () => {
       clearTimeout: globalThis.clearTimeout,
     });
     const host = document.createElement("div");
-    const panel = mountSearchPanel(host, () => null, vi.fn());
+    const panel = mountSearchPanel(host, () => null, () => null, vi.fn());
     const input = host.querySelector(".sp-input") as unknown as TestNode;
     input.value = "needle";
     input.dispatch("input");
@@ -169,7 +169,7 @@ describe("mountSearchPanel", () => {
       clearTimeout: globalThis.clearTimeout,
     });
     const host = document.createElement("div");
-    const panel = mountSearchPanel(host, () => "C:/w", vi.fn());
+    const panel = mountSearchPanel(host, () => "C:/w", () => null, vi.fn());
     const input = host.querySelector(".sp-input") as unknown as TestNode;
     input.value = "needle";
     input.dispatch("input");
@@ -182,5 +182,35 @@ describe("mountSearchPanel", () => {
     expect(host.textContent).toContain("결과 없음");
     expect(input.value).toBe("needle");
     expect(search).toHaveBeenCalledOnce();
+  });
+
+  it("groups results by file with the active document first", async () => {
+    search.mockResolvedValue({
+      status: "ok",
+      data: [
+        { path: "C:/w/other.md", line: 8, snippet: "other" },
+        { path: "C:\\w\\current.md", line: 4, snippet: "first" },
+        { path: "C:\\w\\current.md", line: 12, snippet: "second" },
+      ],
+    });
+    const testDocument = createTestDocument();
+    vi.stubGlobal("document", testDocument);
+    vi.stubGlobal("window", {
+      setTimeout: globalThis.setTimeout,
+      clearTimeout: globalThis.clearTimeout,
+    });
+    const host = document.createElement("div");
+    mountSearchPanel(host, () => "C:/w", () => "c:/w/current.md", vi.fn());
+    const input = host.querySelector(".sp-input") as unknown as TestNode;
+    input.value = "needle";
+    input.dispatch("input");
+    await vi.advanceTimersByTimeAsync(200);
+
+    expect(host.querySelectorAll(".sp-file").map((node) => node.textContent)).toEqual([
+      "current.md",
+      "other.md",
+    ]);
+    expect(host.querySelectorAll(".sp-group")[0].className).toContain("current");
+    expect(host.querySelectorAll(".sp-count").map((node) => node.textContent)).toEqual(["2", "1"]);
   });
 });

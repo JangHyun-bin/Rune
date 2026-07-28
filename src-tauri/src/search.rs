@@ -10,7 +10,7 @@ pub struct SearchHit {
 }
 
 /// root 아래 .md/.markdown을 스캔해 query(대소문자 무시) 포함 줄을 반환.
-/// 파일당 최대 5줄, 전체 최대 200. 빈 query는 빈 결과.
+/// 전체 최대 200줄. 빈 query는 빈 결과.
 pub fn search_files(root: &Path, query: &str) -> Vec<SearchHit> {
     let q = query.to_lowercase();
     let mut hits: Vec<SearchHit> = vec![];
@@ -34,7 +34,6 @@ pub fn search_files(root: &Path, query: &str) -> Vec<SearchHit> {
                 continue;
             }
             let Ok(content) = std::fs::read_to_string(&p) else { continue };
-            let mut per_file = 0;
             for (i, line) in content.lines().enumerate() {
                 if line.to_lowercase().contains(&q) {
                     hits.push(SearchHit {
@@ -42,8 +41,7 @@ pub fn search_files(root: &Path, query: &str) -> Vec<SearchHit> {
                         line: i + 1,
                         snippet: line.trim().chars().take(160).collect(),
                     });
-                    per_file += 1;
-                    if per_file >= 5 || hits.len() >= 200 {
+                    if hits.len() >= 200 {
                         break;
                     }
                 }
@@ -73,5 +71,19 @@ mod tests {
         let d = tempfile::tempdir().unwrap();
         std::fs::write(d.path().join("a.md"), "x").unwrap();
         assert!(search_files(d.path(), "  ").is_empty());
+    }
+    #[test]
+    fn returns_all_matches_from_one_file_up_to_the_global_limit() {
+        let d = tempfile::tempdir().unwrap();
+        std::fs::write(
+            d.path().join("a.md"),
+            (1..=8)
+                .map(|i| format!("needle {i}"))
+                .collect::<Vec<_>>()
+                .join("\n"),
+        )
+        .unwrap();
+        let hits = search_files(d.path(), "needle");
+        assert_eq!(hits.len(), 8);
     }
 }
