@@ -169,6 +169,7 @@ export function mountWorkbench(options: {
     header.appendChild(close);
     const body = document.createElement("div");
     body.className = "workbench-view-body";
+    body.style.overflow = "auto";
     section.appendChild(header);
     section.appendChild(body);
     shell = { section, header, title, collapse, close, body };

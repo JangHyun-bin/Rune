@@ -269,6 +269,14 @@ describe("workbench", () => {
     expect(views.map((view) => view.dataset.viewId)).toEqual(["workspace", "outline"]);
   });
 
+  it("keeps long Outline content inside its own scroll container", () => {
+    const { primarySidebar } = setup();
+    const outline = viewById(primarySidebar as unknown as TestElement, "outline");
+    const body = byClass(outline, "workbench-view-body")[0];
+
+    expect(body.style.overflow).toBe("auto");
+  });
+
   it("closes and reopens Outline without recreating its element", () => {
     const { primarySidebar, workbench, createOutline } = setup();
     const outline = byData(primarySidebar as unknown as TestElement, "viewId", "outline");
