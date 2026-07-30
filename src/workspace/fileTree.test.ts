@@ -9,6 +9,11 @@ class TestNode {
   className = "";
   children: TestNode[] = [];
   parentElement: TestNode | null = null;
+  disabled = false;
+  focused = false;
+  focusCalls = 0;
+  placeholder = "";
+  scrollIntoViewCalls = 0;
   style = {
     values: {} as Record<string, string>,
     setProperty: (name: string, value: string) => {
@@ -16,8 +21,10 @@ class TestNode {
     },
   };
   tagName: string;
+  tabIndex = 0;
   title = "";
   type = "";
+  value = "";
   private attributes = new Map<string, string>();
   private listeners = new Map<string, Listener[]>();
   private text = "";
@@ -58,6 +65,10 @@ class TestNode {
     return this.attributes.get(name) ?? null;
   }
 
+  removeAttribute(name: string): void {
+    this.attributes.delete(name);
+  }
+
   addEventListener(type: string, listener: Listener): void {
     const listeners = this.listeners.get(type) ?? [];
     listeners.push(listener);
@@ -68,6 +79,19 @@ class TestNode {
     for (const listener of this.listeners.get("click") ?? []) {
       listener(new Event("click"));
     }
+  }
+
+  dispatch(type: string, event = new Event(type)): void {
+    for (const listener of this.listeners.get(type) ?? []) listener(event);
+  }
+
+  focus(): void {
+    this.focused = true;
+    this.focusCalls += 1;
+  }
+
+  scrollIntoView(): void {
+    this.scrollIntoViewCalls += 1;
   }
 
   get classList() {
@@ -207,5 +231,127 @@ describe("mountOutlinePanel", () => {
 
     outline.dispose();
     expect(host.children).toHaveLength(0);
+  });
+
+  it("renders a collapsible heading tree", () => {
+    vi.stubGlobal("document", createTestDocument());
+    const host = document.createElement("div");
+    const outline = mountOutlinePanel(host, vi.fn());
+    outline.render([
+      { level: 1, text: "Chapter", line: 1 },
+      { level: 2, text: "Background", line: 2 },
+      { level: 3, text: "Details", line: 3 },
+      { level: 1, text: "Next", line: 4 },
+    ]);
+
+    const rows = host.querySelectorAll(".outline-row");
+    expect(rows.map((row) => row.getAttribute("aria-level"))).toEqual(["1", "2", "3", "1"]);
+    expect(rows[0].getAttribute("aria-expanded")).toBe("true");
+
+    const toggle = host.querySelector(".outline-toggle") as unknown as TestNode;
+    expect(toggle.tabIndex).toBe(-1);
+    toggle.click();
+
+    expect(host.querySelectorAll(".outline-row").map((row) => row.textContent)).toEqual(["Chapter", "Next"]);
+    expect(host.querySelector(".outline-row")?.getAttribute("aria-expanded")).toBe("false");
+  });
+
+  it("filters headings while preserving the matching ancestor path", () => {
+    vi.stubGlobal("document", createTestDocument());
+    const host = document.createElement("div");
+    const outline = mountOutlinePanel(host, vi.fn());
+    outline.render([
+      { level: 1, text: "Chapter", line: 1 },
+      { level: 2, text: "Background", line: 2 },
+      { level: 3, text: "Network Model", line: 3 },
+      { level: 2, text: "Results", line: 4 },
+    ]);
+
+    const filter = host.querySelector(".outline-filter") as unknown as TestNode;
+    filter.value = "network";
+    filter.dispatch("input");
+
+    expect(host.querySelectorAll(".outline-row").map((row) => row.textContent)).toEqual([
+      "Chapter",
+      "Background",
+      "Network Model",
+    ]);
+  });
+
+  it("keeps the existing rows when the heading structure is unchanged", () => {
+    vi.stubGlobal("document", createTestDocument());
+    const host = document.createElement("div");
+    const outline = mountOutlinePanel(host, vi.fn());
+    const headings = [
+      { level: 1, text: "Chapter", line: 1 },
+      { level: 2, text: "Background", line: 2 },
+    ];
+    outline.render(headings);
+    const firstRow = host.querySelector(".outline-row");
+
+    outline.render(headings.map((heading) => ({ ...heading })));
+
+    expect(host.querySelector(".outline-row")).toBe(firstRow);
+  });
+
+  it("reveals the active visible heading and supports arrow-key navigation", () => {
+    vi.stubGlobal("document", createTestDocument());
+    const host = document.createElement("div");
+    const outline = mountOutlinePanel(host, vi.fn());
+    outline.render([
+      { level: 1, text: "First", line: 1 },
+      { level: 2, text: "Second", line: 3 },
+      { level: 1, text: "Third", line: 5 },
+    ]);
+
+    outline.setActiveLine(4);
+
+    const rows = host.querySelectorAll(".outline-row") as TestNode[];
+    expect(rows[1].className).toBe("outline-row active");
+    expect(rows[1].scrollIntoViewCalls).toBe(1);
+
+    const down = Object.assign(new Event("keydown"), { key: "ArrowDown" });
+    rows[0].dispatch("keydown", down);
+    expect(rows[1].focused).toBe(true);
+  });
+
+  it("moves tree focus upward with ArrowUp", () => {
+    vi.stubGlobal("document", createTestDocument());
+    const host = document.createElement("div");
+    const outline = mountOutlinePanel(host, vi.fn());
+    outline.render([
+      { level: 1, text: "First", line: 1 },
+      { level: 1, text: "Second", line: 2 },
+    ]);
+
+    const rows = host.querySelectorAll(".outline-row") as TestNode[];
+    rows[1].dispatch("keydown", Object.assign(new Event("keydown"), { key: "ArrowUp" }));
+
+    expect(rows[0].focused).toBe(true);
+  });
+
+  it("collapses, expands, and enters heading branches with horizontal arrow keys", () => {
+    vi.stubGlobal("document", createTestDocument());
+    const host = document.createElement("div");
+    const outline = mountOutlinePanel(host, vi.fn());
+    outline.render([
+      { level: 1, text: "Chapter", line: 1 },
+      { level: 2, text: "Child", line: 2 },
+      { level: 1, text: "Next", line: 3 },
+    ]);
+
+    let rows = host.querySelectorAll(".outline-row") as TestNode[];
+    rows[0].dispatch("keydown", Object.assign(new Event("keydown"), { key: "ArrowLeft" }));
+    rows = host.querySelectorAll(".outline-row") as TestNode[];
+    expect(rows.map((row) => row.textContent)).toEqual(["Chapter", "Next"]);
+    expect(rows[0].focused).toBe(true);
+
+    rows[0].dispatch("keydown", Object.assign(new Event("keydown"), { key: "ArrowRight" }));
+    rows = host.querySelectorAll(".outline-row") as TestNode[];
+    expect(rows.map((row) => row.textContent)).toEqual(["Chapter", "Child", "Next"]);
+
+    const childFocusCalls = rows[1].focusCalls;
+    rows[0].dispatch("keydown", Object.assign(new Event("keydown"), { key: "ArrowRight" }));
+    expect(rows[1].focusCalls).toBe(childFocusCalls + 1);
   });
 });

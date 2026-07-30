@@ -4,6 +4,10 @@ export interface HeadingItem {
   text: string;
 }
 
+export interface OutlineNode extends HeadingItem {
+  children: OutlineNode[];
+}
+
 function isFence(line: string): boolean {
   return /^\s*(```|~~~)/.test(line);
 }
@@ -34,4 +38,31 @@ export function parseHeadings(markdown: string): HeadingItem[] {
   }
 
   return headings;
+}
+
+export function buildOutlineTree(items: HeadingItem[]): OutlineNode[] {
+  const roots: OutlineNode[] = [];
+  const stack: OutlineNode[] = [];
+
+  for (const item of items) {
+    const node: OutlineNode = { ...item, children: [] };
+    while (stack.length > 0 && stack[stack.length - 1].level >= node.level) stack.pop();
+    const parent = stack[stack.length - 1];
+    (parent?.children ?? roots).push(node);
+    stack.push(node);
+  }
+
+  return roots;
+}
+
+export function filterOutlineTree(nodes: OutlineNode[], query: string): OutlineNode[] {
+  const needle = query.trim().toLocaleLowerCase();
+  if (!needle) return nodes;
+
+  return nodes.flatMap((node) => {
+    const children = filterOutlineTree(node.children, needle);
+    return node.text.toLocaleLowerCase().includes(needle) || children.length > 0
+      ? [{ ...node, children }]
+      : [];
+  });
 }
