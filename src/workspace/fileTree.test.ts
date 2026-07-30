@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { mountFileTree } from "./fileTree";
 import { mountOutlinePanel } from "./outlinePanel";
+import { mountCommandPalette } from "./commandPalette";
 import { setLocale } from "../i18n/i18n";
 
 type Listener = (event: Event) => void;
@@ -12,6 +13,7 @@ class TestNode {
   disabled = false;
   focused = false;
   focusCalls = 0;
+  onFocus: (() => void) | null = null;
   placeholder = "";
   scrollIntoViewCalls = 0;
   style = {
@@ -88,6 +90,7 @@ class TestNode {
   focus(): void {
     this.focused = true;
     this.focusCalls += 1;
+    this.onFocus?.();
   }
 
   scrollIntoView(): void {
@@ -96,6 +99,15 @@ class TestNode {
 
   get classList() {
     return {
+      add: (name: string) => {
+        const names = new Set(this.className.split(/\s+/).filter(Boolean));
+        names.add(name);
+        this.className = [...names].join(" ");
+      },
+      contains: (name: string) => this.className.split(/\s+/).includes(name),
+      remove: (name: string) => {
+        this.className = this.className.split(/\s+/).filter((item) => item && item !== name).join(" ");
+      },
       toggle: (name: string, force?: boolean) => {
         const names = new Set(this.className.split(/\s+/).filter(Boolean));
         const enabled = force ?? !names.has(name);
@@ -128,16 +140,47 @@ class TestNode {
 }
 
 function createTestDocument() {
-  return {
-    createElement: (tagName: string) => new TestNode(tagName),
-    createElementNS: (_namespace: string, tagName: string) => new TestNode(tagName),
+  const fakeDocument = {
+    activeElement: null as TestNode | null,
+    body: null as unknown as TestNode,
+    createElement: (tagName: string) => createNode(tagName),
+    createElementNS: (_namespace: string, tagName: string) => createNode(tagName),
     createTextNode: (text: string) => {
-      const node = new TestNode("#text");
+      const node = createNode("#text");
       node.textContent = text;
       return node;
     },
   };
+  function createNode(tagName: string): TestNode {
+    const node = new TestNode(tagName);
+    node.onFocus = () => { fakeDocument.activeElement = node; };
+    return node;
+  }
+  fakeDocument.body = createNode("body");
+  return fakeDocument;
 }
+
+describe("mountCommandPalette", () => {
+  afterEach(() => {
+    setLocale("en");
+    vi.unstubAllGlobals();
+  });
+
+  it("returns focus to the previous element when Escape closes it", () => {
+    const testDocument = createTestDocument();
+    vi.stubGlobal("document", testDocument);
+    const editor = document.createElement("button");
+    document.body.appendChild(editor);
+    editor.focus();
+    const palette = mountCommandPalette(() => []);
+
+    palette.toggle();
+    const input = document.body.querySelector(".cp-input") as unknown as TestNode;
+    input.dispatch("keydown", Object.assign(new Event("keydown"), { key: "Escape" }));
+
+    expect(testDocument.activeElement).toBe(editor);
+  });
+});
 
 describe("mountFileTree", () => {
   afterEach(() => {

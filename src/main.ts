@@ -15,7 +15,7 @@ import { listen, type Event } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { mountConflictBanner } from "./workspace/conflictBanner";
 import { mountErrorBanner } from "./workspace/errorBanner";
-import { mountCommandPalette, type PaletteItem } from "./workspace/commandPalette";
+import { headingPaletteItems, mountCommandPalette, type PaletteItem } from "./workspace/commandPalette";
 import { exportHtml, exportPdf } from "./export/exportDoc";
 import { mountSearchPanel } from "./workspace/searchPanel";
 import { mountFindReplacePanel, type FindReplacePanel } from "./workspace/findReplacePanel";
@@ -541,8 +541,11 @@ function paletteItems(): PaletteItem[] {
     { label: tr("cmd.help"), run: () => helpPanel.open() },
     ...LOCALES.map(({ code, label }) => ({ label: `${tr("cmd.language")}: ${label}`, run: () => applyLocale(code) })),
   ];
+  const headings = typeof paneWorkspace === "undefined"
+    ? []
+    : headingPaletteItems(activeView().state.doc.toString(), jumpToLine);
   const files: PaletteItem[] = workspaceFiles.map((f) => ({ label: f.name, hint: f.path, run: () => void openPath(f.path) }));
-  return [...cmds, ...files];
+  return [...cmds, ...headings, ...files];
 }
 const palette = mountCommandPalette(paletteItems);
 function jumpToLine(n: number): void {
