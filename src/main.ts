@@ -1,7 +1,7 @@
 import "./styles.css";
 import { type EditorMode } from "./editor/editor";
 import { commands } from "./ipc/bindings";
-import { open, save } from "@tauri-apps/plugin-dialog";
+import { confirm as confirmDialog, open, save } from "@tauri-apps/plugin-dialog";
 import { revealItemInDir, openUrl } from "@tauri-apps/plugin-opener";
 import { check } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
@@ -15,7 +15,14 @@ import { listen, type Event } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { mountConflictBanner } from "./workspace/conflictBanner";
 import { mountErrorBanner } from "./workspace/errorBanner";
-import { headingPaletteItems, mountCommandPalette, type PaletteItem } from "./workspace/commandPalette";
+import {
+  collectWorkspaceHeadings,
+  headingPaletteItems,
+  mountCommandPalette,
+  workspaceHeadingPaletteItems,
+  type PaletteItem,
+  type WorkspaceHeading,
+} from "./workspace/commandPalette";
 import { exportHtml, exportPdf } from "./export/exportDoc";
 import { mountSearchPanel } from "./workspace/searchPanel";
 import { mountFindReplacePanel, type FindReplacePanel } from "./workspace/findReplacePanel";
@@ -39,6 +46,17 @@ import { handleNativeFileDrop, type ResolvedDropTarget } from "./workspace/fileD
 import { createViewRegistry } from "./workbench/viewRegistry";
 import { mountWorkbench } from "./workbench/workbench";
 import { DEFAULT_WORKBENCH_LAYOUT } from "./workbench/workbenchLayout";
+import {
+  captureNamedLayout,
+  deleteSavedLayout,
+  namedLayoutChoices,
+  normalizeSavedLayouts,
+  resolveNamedLayout,
+  upsertSavedLayout,
+  type NamedLayoutChoice,
+  type SavedNamedLayout,
+} from "./workspace/namedLayouts";
+import { writingModesExtension } from "./editor/writingModes";
 
 const chrome = mountChrome(document.getElementById("titlebar")!, document.getElementById("statusbar")!, {
   onTogglePrimarySidebar: () => workbench.togglePrimarySidebar(),
@@ -53,9 +71,16 @@ document.body.appendChild(dropOverlay);
 let paneWorkspace: PaneWorkspace;
 let currentFolder: string | null = null;
 let workspaceFiles: { name: string; path: string }[] = [];
+let workspaceHeadings: WorkspaceHeading[] = [];
+let workspaceHeadingLoad = 0;
 let editorMode: EditorMode = "preview";
 let findReplacePanel: FindReplacePanel | null = null;
 let layoutModeControl: LayoutModeControl | null = null;
+let namedLayouts: SavedNamedLayout[] = [];
+let activeNamedLayout: string | null = null;
+let focusMode = false;
+let typewriterMode = false;
+let focusLayout = false;
 let tree: FileTree;
 let outlinePanel: OutlinePanel;
 
@@ -109,6 +134,8 @@ viewRegistry.registerView({
       () => currentFolder,
       () => typeof paneWorkspace === "undefined" ? null : activePane().activePath(),
       (path, line) => { void (async () => { if (await openPath(path)) jumpToLine(line); })(); },
+      () => typeof paneWorkspace === "undefined" ? null : activeView().state.doc.toString(),
+      jumpToLine,
     );
     return {
       element,
@@ -131,7 +158,7 @@ const workbench = mountWorkbench({
   registry: viewRegistry,
   initialState: DEFAULT_WORKBENCH_LAYOUT,
   focusEditor: () => { if (typeof paneWorkspace !== "undefined") activeView().focus(); },
-  onDidChange: scheduleSaveSettings,
+  onDidChange: () => { activeNamedLayout = null; scheduleSaveSettings(); },
 });
 
 const SPLIT_RATIO_DEFAULT = DEFAULT_LAYOUT.splitRatio;
@@ -151,7 +178,7 @@ function settingsSnapshot() {
   };
   const paneLayout = typeof paneWorkspace === "undefined" ? null : paneWorkspace.snapshot();
   const openTabs = paneLayout?.panes.flatMap((pane) => pane.openTabs) ?? [];
-  return { theme, lastFolder: currentFolder, openTabs, locale: getLocale(), editorWidth: currentEditorWidth(), editorMode, sidebarWidth: layout.sidebarWidth, layout, workbenchLayout, paneLayout, uiScale: currentUiScale(), editorFontScale: currentEditorFontScale() };
+  return { theme, lastFolder: currentFolder, openTabs, locale: getLocale(), editorWidth: currentEditorWidth(), editorMode, sidebarWidth: layout.sidebarWidth, layout, workbenchLayout, namedLayouts, activeNamedLayout, focusMode, typewriterMode, paneLayout, uiScale: currentUiScale(), editorFontScale: currentEditorFontScale() };
 }
 function applyTheme(theme: "light" | "dark"): void {
   document.documentElement.setAttribute("data-theme", theme);
@@ -163,9 +190,9 @@ function currentTheme(): "light" | "dark" {
 function currentEditorWidth(): "readable" | "wide" {
   return document.documentElement.getAttribute("data-editor-width") === "wide" ? "wide" : "readable";
 }
-function applyEditorWidth(w: "readable" | "wide"): void {
+function applyEditorWidth(w: "readable" | "wide", persist = true): void {
   document.documentElement.setAttribute("data-editor-width", w);
-  scheduleSaveSettings();
+  if (persist) { activeNamedLayout = null; scheduleSaveSettings(); }
 }
 function flipEditorWidth(): void {
   applyEditorWidth(currentEditorWidth() === "wide" ? "readable" : "wide");
@@ -194,7 +221,7 @@ function applySplitRatio(ratio: number, persist = true): void {
   const clamped = clampRatio(ratio);
   document.documentElement.style.setProperty("--split-source-width", `${Math.round(clamped * 1000) / 10}%`);
   if (typeof paneWorkspace !== "undefined") paneWorkspace.setSplitRatio(clamped);
-  if (persist) scheduleSaveSettings();
+  if (persist) { activeNamedLayout = null; scheduleSaveSettings(); }
 }
 function applyLayoutSettings(layout: Partial<LayoutSettings>): void {
   const normalized = normalizeLayoutSettings(layout);
@@ -223,8 +250,60 @@ function layoutSummary(): string {
   const layout = currentLayoutSettings();
   return `${layout.sidebarWidth}px / ${layout.outlineHeight}px / ${Math.round(layout.splitRatio * 100)}%`;
 }
+function currentNamedLayoutState() {
+  return {
+    workbenchLayout: workbench.snapshot(),
+    layout: currentLayoutSettings(),
+    editorWidth: currentEditorWidth(),
+    editorMode: currentEditorMode(),
+    paneLayout: paneWorkspace.snapshot(),
+  };
+}
+function namedLayoutLabel(choice: NamedLayoutChoice): string {
+  return choice.builtIn ? tr(`layout.builtIn.${choice.name}`) : choice.name;
+}
+async function loadNamedLayout(value: string): Promise<boolean> {
+  const layout = resolveNamedLayout(value, namedLayouts);
+  if (!layout) return false;
+  if (layout.paneLayout) {
+    await paneWorkspace.flushSaves();
+    if (paneWorkspace.hasDirtyTabs() && !(await confirmDialog(tr("layout.restoreTabsConfirm"), { title: "Rune", kind: "warning" }))) return false;
+  }
+  workbench.restore(layout.workbenchLayout);
+  applySplitRatio(layout.layout.splitRatio, false);
+  applyEditorWidth(layout.editorWidth, false);
+  applyEditorMode(layout.editorMode, false);
+  if (layout.paneLayout) await paneWorkspace.restore(layout.paneLayout);
+  activeNamedLayout = value;
+  syncActiveUI();
+  saveSettingsNow();
+  return true;
+}
+async function saveNamedLayout(includeTabs: boolean): Promise<boolean> {
+  const name = await promptModal({ title: tr("layout.namePrompt") });
+  if (!name) return false;
+  const existing = namedLayouts.find((layout) => layout.name.toLowerCase() === name.toLowerCase());
+  if (existing && !(await confirmDialog(tr("layout.overwriteConfirm", { name: existing.name }), { title: "Rune", kind: "warning" }))) return false;
+  const saved = captureNamedLayout(name, currentNamedLayoutState(), includeTabs);
+  if (!saved) return false;
+  namedLayouts = upsertSavedLayout(namedLayouts, saved);
+  activeNamedLayout = `saved:${saved.name}`;
+  saveSettingsNow();
+  return true;
+}
+async function deleteNamedLayout(value: string): Promise<boolean> {
+  if (!value.startsWith("saved:")) return false;
+  const name = value.slice("saved:".length);
+  if (!namedLayouts.some((layout) => layout.name === name)) return false;
+  if (!(await confirmDialog(tr("layout.deleteConfirm", { name }), { title: "Rune", kind: "warning" }))) return false;
+  namedLayouts = deleteSavedLayout(namedLayouts, name);
+  if (activeNamedLayout === value) activeNamedLayout = null;
+  saveSettingsNow();
+  return true;
+}
 function applyEditorMode(mode: EditorMode, persist = true): void {
   if (editorMode === mode) return;
+  if (persist) activeNamedLayout = null;
   editorMode = mode;
   document.documentElement.setAttribute("data-editor-mode", mode);
   if (typeof paneWorkspace !== "undefined") paneWorkspace.setEditorMode(mode);
@@ -235,6 +314,23 @@ function applyEditorMode(mode: EditorMode, persist = true): void {
 }
 function flipEditorMode(): void {
   applyEditorMode(currentEditorMode() === "preview" ? "source" : "preview");
+}
+function applyFocusMode(enabled: boolean, persist = true): void {
+  focusMode = enabled;
+  document.documentElement.setAttribute("data-focus-mode", String(enabled));
+  if (typeof paneWorkspace !== "undefined") paneWorkspace.refreshWritingModes();
+  if (persist) scheduleSaveSettings();
+}
+function applyTypewriterMode(enabled: boolean, persist = true): void {
+  typewriterMode = enabled;
+  document.documentElement.setAttribute("data-typewriter-mode", String(enabled));
+  if (typeof paneWorkspace !== "undefined") paneWorkspace.refreshWritingModes();
+  if (persist) scheduleSaveSettings();
+}
+function applyFocusLayout(enabled: boolean): void {
+  focusLayout = enabled;
+  document.documentElement.setAttribute("data-focus-layout", String(enabled));
+  if (typeof paneWorkspace !== "undefined") activeView().requestMeasure();
 }
 function applyEditorFontScale(scale: number, persist = true): void {
   document.documentElement.style.setProperty("--editor-font-scale", String(clampEditorFontScale(scale)));
@@ -267,12 +363,20 @@ const settingsPanel = mountSettingsPanel({
   getEditorWidth: currentEditorWidth,
   onEditorMode: (mode) => applyEditorMode(mode),
   getEditorMode: currentEditorMode,
+  onFocusMode: (enabled) => applyFocusMode(enabled),
+  getFocusMode: () => focusMode,
+  onTypewriterMode: (enabled) => applyTypewriterMode(enabled),
+  getTypewriterMode: () => typewriterMode,
   onUiScale: (scale) => { applyUiScale(scale); settingsPanel.refresh(); },
   getUiScale: currentUiScale,
   onHelp: () => helpPanel.open(),
   onSetDefault: () => void commands.openDefaultAppsSettings(),
   onCheckUpdates: () => void checkForUpdates(true),
-  onSaveLayout: () => saveSettingsNow(),
+  getNamedLayouts: () => namedLayoutChoices(namedLayouts),
+  getActiveNamedLayout: () => activeNamedLayout,
+  onLoadNamedLayout: loadNamedLayout,
+  onSaveNamedLayout: saveNamedLayout,
+  onDeleteNamedLayout: deleteNamedLayout,
   onExportLayout: exportLayoutSettings,
   onImportLayout: importLayoutSettings,
   onResetLayout: resetLayoutSettings,
@@ -318,6 +422,7 @@ function extraExts() {
       }
     }),
     findHighlightExtension(),
+    writingModesExtension(() => ({ focus: focusMode, typewriter: typewriterMode })),
     Prec.highest(keymap.of([{ key: "Mod-k", run: () => { palette.toggle(); return true; }, preventDefault: true }])),
   ];
 }
@@ -396,12 +501,44 @@ function flattenFiles(nodes: import("./ipc/bindings").FileNode[]): { name: strin
   walk(nodes);
   return out;
 }
-async function loadFolder(dir: string): Promise<void> {
+async function refreshWorkspaceHeadings(
+  dir: string,
+  files: { name: string; path: string }[],
+  changedPaths?: string[],
+): Promise<void> {
+  const load = ++workspaceHeadingLoad;
+  let indexed = changedPaths
+    ? await commands.updateWorkspaceIndex(dir, changedPaths)
+    : await commands.rebuildWorkspaceIndex(dir);
+  if (changedPaths && indexed.status === "error") {
+    indexed = await commands.rebuildWorkspaceIndex(dir);
+  }
+  if (indexed.status === "ok") {
+    const result = await commands.workspaceIndexHeadings(dir);
+    if (result.status === "ok") {
+      if (load === workspaceHeadingLoad && currentFolder && samePath(currentFolder, dir)) {
+        workspaceHeadings = result.data;
+      }
+      return;
+    }
+  }
+  const headings = await collectWorkspaceHeadings(files, async (path) => {
+    const result = await commands.readFile(path);
+    return result.status === "ok" ? result.data : null;
+  });
+  if (load === workspaceHeadingLoad && currentFolder && samePath(currentFolder, dir)) workspaceHeadings = headings;
+}
+async function refreshFolderContents(dir: string): Promise<void> {
   const res = await commands.listDir(dir);
   if (res.status === "error") { console.error(res.error); errorBanner.show(tr("error.openFolder", { msg: res.error })); tree.showError(); throw new Error(res.error); }
   tree.render(res.data, dir);
   workspaceFiles = flattenFiles(res.data);
+}
+async function loadFolder(dir: string): Promise<void> {
+  await refreshFolderContents(dir);
   currentFolder = dir;
+  workspaceHeadings = [];
+  await refreshWorkspaceHeadings(dir, workspaceFiles);
   void commands.watchFolder(dir);
 }
 async function openFolder(): Promise<void> {
@@ -411,7 +548,7 @@ async function openFolder(): Promise<void> {
   scheduleSaveSettings();
 }
 async function refreshTree(): Promise<void> {
-  if (currentFolder) await loadFolder(currentFolder).catch(() => {});
+  if (currentFolder) await refreshFolderContents(currentFolder).catch(() => {});
 }
 async function copyPath(p: string): Promise<void> {
   try { await navigator.clipboard.writeText(p); } catch (e) { console.error(e); }
@@ -516,6 +653,7 @@ function flipTheme(): void {
   scheduleSaveSettings();
 }
 function paletteItems(): PaletteItem[] {
+  const layoutChoices = namedLayoutChoices(namedLayouts);
   const cmds: PaletteItem[] = [
     { label: tr("cmd.newTab"), run: () => newDoc() },
     { label: tr("cmd.openFile"), run: () => void openFile() },
@@ -526,6 +664,9 @@ function paletteItems(): PaletteItem[] {
     { label: tr("cmd.toggleTheme"), run: () => flipTheme() },
     { label: tr("cmd.toggleWidth"), run: () => flipEditorWidth() },
     { label: tr("cmd.toggleSourceMode"), run: () => flipEditorMode() },
+    { label: tr("cmd.toggleFocusMode"), run: () => applyFocusMode(!focusMode) },
+    { label: tr("cmd.toggleTypewriterMode"), run: () => applyTypewriterMode(!typewriterMode) },
+    { label: tr("cmd.toggleFocusLayout"), run: () => applyFocusLayout(!focusLayout) },
     { label: tr("cmd.closeTab"), run: () => { const id = activePane().activeTabId(); if (id) requestClose(id); } },
     { label: tr("cmd.exportHtml"), run: () => void exportHtml(activeView().state.doc.toString(), exportTitle()) },
     { label: tr("cmd.exportPdf"), run: () => void exportPdf(activeView().state.doc.toString(), exportTitle()) },
@@ -538,14 +679,22 @@ function paletteItems(): PaletteItem[] {
     { label: tr("workbench.resetViewVisibility"), run: () => workbench.resetViewVisibility() },
     { label: tr("cmd.reveal"), run: () => revealActive() },
     { label: tr("settings.title"), run: () => settingsPanel.open() },
+    ...layoutChoices.map((choice) => ({ label: `${tr("layout.load")}: ${namedLayoutLabel(choice)}`, run: () => void loadNamedLayout(choice.value) })),
+    { label: tr("layout.saveAs"), run: () => void saveNamedLayout(false) },
+    ...namedLayouts.map(({ name }) => ({ label: `${tr("layout.delete")}: ${name}`, run: () => void deleteNamedLayout(`saved:${name}`) })),
     { label: tr("cmd.help"), run: () => helpPanel.open() },
     ...LOCALES.map(({ code, label }) => ({ label: `${tr("cmd.language")}: ${label}`, run: () => applyLocale(code) })),
   ];
   const headings = typeof paneWorkspace === "undefined"
     ? []
     : headingPaletteItems(activeView().state.doc.toString(), jumpToLine);
+  const workspaceSymbols = typeof paneWorkspace === "undefined"
+    ? []
+    : workspaceHeadingPaletteItems(workspaceHeadings, activePane().activePath(), (path, line) => {
+      void (async () => { if (await openPath(path)) jumpToLine(line); })();
+    });
   const files: PaletteItem[] = workspaceFiles.map((f) => ({ label: f.name, hint: f.path, run: () => void openPath(f.path) }));
-  return [...cmds, ...headings, ...files];
+  return [...cmds, ...headings, ...workspaceSymbols, ...files];
 }
 const palette = mountCommandPalette(paletteItems);
 function jumpToLine(n: number): void {
@@ -596,17 +745,23 @@ findReplacePanel = mountFindReplacePanel({
 });
 async function restore(): Promise<void> {
   const res = await commands.loadSettings();
-  const s = res.status === "ok" ? res.data : { theme: null, lastFolder: null, openTabs: [], locale: null, editorWidth: null, editorMode: null, sidebarWidth: null, layout: null, workbenchLayout: null, paneLayout: null, uiScale: null, editorFontScale: null };
+  const s = res.status === "ok" ? res.data : { theme: null, lastFolder: null, openTabs: [], locale: null, editorWidth: null, editorMode: null, sidebarWidth: null, layout: null, workbenchLayout: null, namedLayouts: null, activeNamedLayout: null, focusMode: null, typewriterMode: null, paneLayout: null, uiScale: null, editorFontScale: null };
   document.documentElement.setAttribute("data-theme", s.theme === "light" || s.theme === "dark" ? s.theme : (prefersDark() ? "dark" : "light"));
   document.documentElement.setAttribute("data-editor-width", s.editorWidth === "wide" ? "wide" : "readable");
   editorMode = normalizeEditorMode(s.editorMode);
   document.documentElement.setAttribute("data-editor-mode", editorMode);
   paneWorkspace.setEditorMode(editorMode);
+  applyFocusMode(s.focusMode === true, false);
+  applyTypewriterMode(s.typewriterMode === true, false);
   layoutModeControl?.setMode(editorMode);
   applyUiScale(s.uiScale ?? UI_SCALE_DEFAULT, false);
   workbench.restore(normalizePersistedWorkbenchLayout(s.workbenchLayout, s.layout, s.sidebarWidth));
   applySplitRatio(s.layout?.splitRatio ?? DEFAULT_LAYOUT.splitRatio, false);
   applyEditorFontScale(s.editorFontScale ?? EDITOR_FONT_DEFAULT, false);
+  namedLayouts = normalizeSavedLayouts(s.namedLayouts);
+  activeNamedLayout = typeof s.activeNamedLayout === "string" && resolveNamedLayout(s.activeNamedLayout, namedLayouts)
+    ? s.activeNamedLayout
+    : null;
 
   // Resolve the UI language BEFORE loading any content, so the app never flashes
   // a language the user didn't choose. On first run (no saved locale) we ask once
@@ -698,15 +853,25 @@ async function reloadActive(): Promise<void> {
   syncActiveUI();
 }
 let fsTimer: number | undefined;
+const pendingFsPaths = new Set<string>();
 let nativeDragHasMarkdown = false;
 let nativeDragPreviousTarget: ResolvedDropTarget | null = null;
 function onFsChange(paths: string[]): void {
+  paths.forEach((path) => pendingFsPaths.add(path));
   if (fsTimer !== undefined) clearTimeout(fsTimer);
   fsTimer = window.setTimeout(async () => {
-    if (currentFolder) await loadFolder(currentFolder).catch(() => {});
+    const changedPaths = [...pendingFsPaths];
+    pendingFsPaths.clear();
+    const folder = currentFolder;
+    if (folder) {
+      await refreshFolderContents(folder).catch(() => {});
+      if (currentFolder && samePath(currentFolder, folder)) {
+        void refreshWorkspaceHeadings(folder, workspaceFiles, changedPaths);
+      }
+    }
     const pane = activePane();
     const path = pane.activePath();
-    if (path && paths.some((p) => samePath(p, path))) {
+    if (path && changedPaths.some((p) => samePath(p, path))) {
       if (!pane.activeDirty()) await reloadActive();
       else banner.show();
     }
@@ -844,6 +1009,9 @@ window.addEventListener("blur", () => { void paneWorkspace.flushSaves(); });
 window.addEventListener("resize", () => applySplitRatio(currentSplitRatio(), false));
 window.addEventListener("keydown", (e) => {
   if (e.key === "F1") { e.preventDefault(); helpPanel.toggle(); return; }
+  if (e.key === "F8") { e.preventDefault(); applyFocusMode(!focusMode); return; }
+  if (e.key === "F9") { e.preventDefault(); applyTypewriterMode(!typewriterMode); return; }
+  if (e.key === "F10") { e.preventDefault(); applyFocusLayout(!focusLayout); return; }
   const mod = e.ctrlKey || e.metaKey;
   if (mod && (e.key === "-" || e.key === "_")) { e.preventDefault(); zoomEditorFont(-1); return; }
   if (mod && (e.key === "=" || e.key === "+")) { e.preventDefault(); zoomEditorFont(1); return; }

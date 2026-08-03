@@ -90,18 +90,15 @@ function normalizePaneSnapshot(value: unknown, paneIds: Set<PaneId>): PaneSnapsh
   return { id: value.id, openTabs, activePath };
 }
 
-export function normalizePaneWorkspaceSnapshot(
-  value: unknown,
-  legacyOpenTabs: string[],
-): PaneWorkspaceSnapshot {
-  if (!isRecord(value) || value.version !== 1) return singlePaneFromLegacy(legacyOpenTabs);
+export function parsePaneWorkspaceSnapshot(value: unknown): PaneWorkspaceSnapshot | null {
+  if (!isRecord(value) || value.version !== 1) return null;
 
   const root = normalizeLayoutNode(value.root);
-  if (!root) return singlePaneFromLegacy(legacyOpenTabs);
+  if (!root) return null;
 
   const paneIds = flattenPaneIds(root);
-  if (paneIds.length === 0) return singlePaneFromLegacy(legacyOpenTabs);
-  if (new Set(paneIds).size !== paneIds.length) return singlePaneFromLegacy(legacyOpenTabs);
+  if (paneIds.length === 0) return null;
+  if (new Set(paneIds).size !== paneIds.length) return null;
 
   const paneIdSet = new Set(paneIds);
   const seenPaneIds = new Set<PaneId>();
@@ -113,7 +110,7 @@ export function normalizePaneWorkspaceSnapshot(
       return true;
     });
 
-  if (panes.length === 0) return singlePaneFromLegacy(legacyOpenTabs);
+  if (panes.length === 0) return null;
 
   const normalizedPaneIds = new Set(panes.map((pane) => pane.id));
   const activePaneId =
@@ -122,6 +119,13 @@ export function normalizePaneWorkspaceSnapshot(
       : panes[0].id;
 
   return { version: 1, root, activePaneId, panes };
+}
+
+export function normalizePaneWorkspaceSnapshot(
+  value: unknown,
+  legacyOpenTabs: string[],
+): PaneWorkspaceSnapshot {
+  return parsePaneWorkspaceSnapshot(value) ?? singlePaneFromLegacy(legacyOpenTabs);
 }
 
 export function serializePaneWorkspaceSnapshot(snapshot: PaneWorkspaceSnapshot): string {

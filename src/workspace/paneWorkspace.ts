@@ -46,7 +46,9 @@ export interface PaneWorkspace {
   ): Promise<PaneId | null>;
   setActivePane(paneId: PaneId): void;
   setEditorMode(mode: EditorMode): void;
+  refreshWritingModes(): void;
   flushSaves(): Promise<void>;
+  hasDirtyTabs(): boolean;
   setSplitRatio(ratio: number): void;
   splitRatio(): number;
   snapshot(): PaneWorkspaceSnapshot;
@@ -359,6 +361,14 @@ export function createPaneWorkspace(options: PaneWorkspaceOptions): PaneWorkspac
     await Promise.all([...panes.values()].map((pane) => pane.flushSaves()));
   }
 
+  function refreshWritingModes(): void {
+    for (const pane of panes.values()) pane.refreshWritingModes();
+  }
+
+  function hasDirtyTabs(): boolean {
+    return [...panes.values()].some((pane) => pane.hasDirtyTabs());
+  }
+
   function setSplitRatio(ratio: number): void {
     for (const pane of panes.values()) pane.setSplitRatio(ratio);
   }
@@ -444,7 +454,9 @@ export function createPaneWorkspace(options: PaneWorkspaceOptions): PaneWorkspac
     splitPaneAndOpen,
     setActivePane,
     setEditorMode,
+    refreshWritingModes,
     flushSaves,
+    hasDirtyTabs,
     setSplitRatio,
     splitRatio,
     snapshot,

@@ -2,6 +2,7 @@ use crate::fs_ops;
 use notify::{RecursiveMode, Watcher};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::Ordering;
+use std::sync::Arc;
 use tauri::{AppHandle, Emitter, Manager};
 
 #[tauri::command]
@@ -63,8 +64,125 @@ pub fn watch_folder(app: AppHandle, state: tauri::State<crate::WatcherState>, pa
 }
 
 #[tauri::command]
-pub fn search(root: String, query: String) -> Result<Vec<crate::search::SearchHit>, String> {
-    Ok(crate::search::search_files(std::path::Path::new(&root), &query))
+pub async fn search(
+    state: tauri::State<'_, crate::SearchState>,
+    root: String,
+    query: String,
+    request_id: u64,
+) -> Result<crate::search::SearchResults, String> {
+    let canceled = state.0.clone();
+    let canceled_for_scan = canceled.clone();
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        crate::search::search_files_until(std::path::Path::new(&root), &query, || {
+            canceled_for_scan
+                .lock()
+                .map(|requests| requests.contains(&request_id))
+                .unwrap_or(true)
+        })
+    })
+    .await
+    .map_err(|error| error.to_string())?;
+    if let Ok(mut requests) = canceled.lock() {
+        requests.remove(&request_id);
+    }
+    Ok(result)
+}
+
+#[tauri::command]
+pub fn cancel_search(
+    state: tauri::State<'_, crate::SearchState>,
+    request_id: u64,
+) -> Result<(), String> {
+    state
+        .0
+        .lock()
+        .map_err(|error| error.to_string())?
+        .insert(request_id);
+    Ok(())
+}
+
+fn current_workspace_index(
+    state: &tauri::State<'_, crate::WorkspaceIndexState>,
+    root: &str,
+) -> Result<Arc<crate::workspace_index::WorkspaceIndex>, String> {
+    let index = state.0.lock().map_err(|error| error.to_string())?
+        .clone().ok_or("workspace index is not ready")?;
+    if index.root() != Path::new(root) {
+        return Err("workspace index belongs to a different folder".into());
+    }
+    Ok(index)
+}
+
+#[tauri::command]
+pub async fn rebuild_workspace_index(
+    state: tauri::State<'_, crate::WorkspaceIndexState>,
+    root: String,
+) -> Result<crate::workspace_index::IndexStats, String> {
+    let index = tauri::async_runtime::spawn_blocking(move || {
+        crate::workspace_index::WorkspaceIndex::build(Path::new(&root))
+    }).await.map_err(|error| error.to_string())??;
+    let stats = index.stats();
+    *state.0.lock().map_err(|error| error.to_string())? = Some(Arc::new(index));
+    Ok(stats)
+}
+
+#[tauri::command]
+pub async fn update_workspace_index(
+    state: tauri::State<'_, crate::WorkspaceIndexState>,
+    root: String,
+    paths: Vec<String>,
+) -> Result<crate::workspace_index::IndexStats, String> {
+    let index = current_workspace_index(&state, &root)?;
+    let source = index.clone();
+    let paths: Vec<PathBuf> = paths.into_iter().map(PathBuf::from).collect();
+    let updated = tauri::async_runtime::spawn_blocking(move || source.updated(&paths))
+        .await.map_err(|error| error.to_string())??;
+    let stats = updated.stats();
+    let mut current = state.0.lock().map_err(|error| error.to_string())?;
+    if !current.as_ref().is_some_and(|current| Arc::ptr_eq(current, &index)) {
+        return Err("workspace index changed while updating".into());
+    }
+    *current = Some(Arc::new(updated));
+    Ok(stats)
+}
+
+#[tauri::command]
+pub async fn search_workspace_index(
+    index_state: tauri::State<'_, crate::WorkspaceIndexState>,
+    search_state: tauri::State<'_, crate::SearchState>,
+    root: String,
+    scope_root: Option<String>,
+    query: String,
+    active_path: Option<String>,
+    request_id: u64,
+) -> Result<crate::search::SearchResults, String> {
+    let index = current_workspace_index(&index_state, &root)?;
+    let canceled = search_state.0.clone();
+    let canceled_for_search = canceled.clone();
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        index.search_under(
+            &query,
+            scope_root.as_deref().map(Path::new),
+            active_path.as_deref().map(Path::new),
+            || canceled_for_search.lock()
+                .map(|requests| requests.contains(&request_id))
+                .unwrap_or(true),
+        )
+    }).await;
+    if let Ok(mut requests) = canceled.lock() {
+        requests.remove(&request_id);
+    }
+    result.map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn workspace_index_headings(
+    state: tauri::State<'_, crate::WorkspaceIndexState>,
+    root: String,
+) -> Result<Vec<crate::workspace_index::IndexedHeading>, String> {
+    let index = current_workspace_index(&state, &root)?;
+    tauri::async_runtime::spawn_blocking(move || index.headings())
+        .await.map_err(|error| error.to_string())
 }
 
 /// Return (and clear) the file Rune was launched with via file association, if any.

@@ -155,8 +155,11 @@ interface MockPane {
   root: HTMLElement;
   openPath: ReturnType<typeof vi.fn>;
   activePath: ReturnType<typeof vi.fn>;
+  activeDirty: ReturnType<typeof vi.fn>;
+  hasDirtyTabs: ReturnType<typeof vi.fn>;
   tabsSnapshot: ReturnType<typeof vi.fn>;
   setEditorMode: ReturnType<typeof vi.fn>;
+  refreshWritingModes: ReturnType<typeof vi.fn>;
   destroy: ReturnType<typeof vi.fn>;
 }
 
@@ -201,8 +204,10 @@ const editorPaneMock = vi.hoisted(() => {
       activePath: vi.fn(() => activePath),
       activeText: vi.fn(() => ""),
       activeDirty: vi.fn(() => false),
+      hasDirtyTabs: vi.fn(() => false),
       tabsSnapshot: vi.fn(() => ({ openTabs: [...openTabs], activePath })),
       setEditorMode: vi.fn(),
+      refreshWritingModes: vi.fn(),
       saveActive: vi.fn(async () => {}),
       destroy: vi.fn(() => {
         root.remove();
@@ -286,6 +291,27 @@ describe("pane workspace", () => {
     expect(workspace.snapshot().panes[0].openTabs).toEqual(["/w/a.md"]);
     expect(workspace.snapshot().panes[0].activePath).toBe("/w/a.md");
 
+    workspace.destroy();
+  });
+
+  it("reports dirty tabs across every pane before a layout restore", async () => {
+    const { workspace } = makeWorkspace();
+    await workspace.splitActivePaneAndOpen("/w/b.md", "row", "after");
+    editorPaneMock.panes.get("pane-1")!.hasDirtyTabs.mockReturnValue(true);
+
+    expect(workspace.hasDirtyTabs()).toBe(true);
+
+    workspace.destroy();
+  });
+
+  it("refreshes writing modes in every pane", async () => {
+    const { workspace } = makeWorkspace();
+    await workspace.splitActivePaneAndOpen("/w/b.md", "row", "after");
+
+    workspace.refreshWritingModes();
+
+    expect(editorPaneMock.panes.get("pane-1")!.refreshWritingModes).toHaveBeenCalledOnce();
+    expect(editorPaneMock.panes.get("pane-2")!.refreshWritingModes).toHaveBeenCalledOnce();
     workspace.destroy();
   });
 

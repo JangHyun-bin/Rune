@@ -2,12 +2,18 @@ mod fs_ops;
 mod commands;
 mod settings;
 mod search;
+mod workspace_index;
 
-use std::sync::Mutex;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::collections::HashSet;
+use std::sync::{Arc, Mutex};
+use std::sync::atomic::AtomicBool;
+#[cfg(target_os = "macos")]
+use std::sync::atomic::Ordering;
 use tauri::{Emitter, Manager};
 
 pub struct WatcherState(pub Mutex<Option<notify::RecommendedWatcher>>);
+pub struct SearchState(pub Arc<Mutex<HashSet<u64>>>);
+pub struct WorkspaceIndexState(pub Mutex<Option<Arc<workspace_index::WorkspaceIndex>>>);
 /// A file path Rune was launched with (double-clicked .md via file association),
 /// pending until the frontend is ready to open it.
 pub struct LaunchFile(pub Mutex<Option<String>>);
@@ -54,6 +60,8 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .manage(WatcherState(Mutex::new(None)))
+        .manage(SearchState(Arc::new(Mutex::new(HashSet::new()))))
+        .manage(WorkspaceIndexState(Mutex::new(None)))
         .manage(LaunchFile(Mutex::new(initial)))
         .manage(AppReady(AtomicBool::new(false)))
         .invoke_handler(tauri::generate_handler![
@@ -65,6 +73,11 @@ pub fn run() {
             commands::save_settings,
             commands::watch_folder,
             commands::search,
+            commands::cancel_search,
+            commands::rebuild_workspace_index,
+            commands::update_workspace_index,
+            commands::search_workspace_index,
+            commands::workspace_index_headings,
             commands::take_launch_file,
             commands::open_default_apps_settings,
             commands::rename_path,

@@ -104,7 +104,7 @@ function clampOutlineSize(size: number): number {
   return Math.round(Math.max(64, Math.min(600, size)));
 }
 
-function isLayout(value: unknown): value is WorkbenchLayoutSnapshot {
+export function isWorkbenchLayoutSnapshot(value: unknown): value is WorkbenchLayoutSnapshot {
   if (!isRecord(value) || value.version !== 1 || !isRecord(value.parts) || !isRecord(value.containers) || !isRecord(value.views)) {
     return false;
   }
@@ -129,8 +129,8 @@ function isLayout(value: unknown): value is WorkbenchLayoutSnapshot {
 }
 
 export function normalizeWorkbenchLayout(value: unknown, legacy?: LegacyLayout): WorkbenchLayoutSnapshot {
-  const layout = isLayout(value) ? cloneLayout(value) : cloneLayout(DEFAULT_WORKBENCH_LAYOUT);
-  if (!isLayout(value) && legacy) {
+  const layout = isWorkbenchLayoutSnapshot(value) ? cloneLayout(value) : cloneLayout(DEFAULT_WORKBENCH_LAYOUT);
+  if (!isWorkbenchLayoutSnapshot(value) && legacy) {
     if (isFiniteNumber(legacy.sidebarWidth)) layout.parts.primarySidebar.size = clampPartSize("primarySidebar", legacy.sidebarWidth);
     if (isFiniteNumber(legacy.outlineHeight)) layout.views.outline.size = clampOutlineSize(legacy.outlineHeight);
   }

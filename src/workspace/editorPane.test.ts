@@ -557,6 +557,49 @@ describe("editor pane", () => {
     pane.destroy();
   });
 
+  it("reports a dirty inactive tab", async () => {
+    const host = document.createElement("div");
+    const pane = createEditorPane({
+      id: "pane-1",
+      host,
+      editorMode: "source",
+      readFile: vi.fn(async (path: string) => ({ status: "ok" as const, data: `# ${path}` })),
+      writeFile: vi.fn(async () => ({ status: "ok" as const, data: null })),
+      onActiveChange: vi.fn(),
+      onDirtyChange: vi.fn(),
+      onRequestSaveSettings: vi.fn(),
+    });
+
+    await pane.openPath("/w/a.md");
+    editActiveText(pane, "changed");
+    await pane.openPath("/w/b.md");
+
+    expect(pane.activeDirty()).toBe(false);
+    expect(pane.hasDirtyTabs()).toBe(true);
+
+    pane.destroy();
+  });
+
+  it("keeps an untitled tab dirty after pending saves are flushed", async () => {
+    const host = document.createElement("div");
+    const pane = createEditorPane({
+      id: "pane-1",
+      host,
+      editorMode: "source",
+      readFile: vi.fn(async () => ({ status: "ok" as const, data: "" })),
+      writeFile: vi.fn(async () => ({ status: "ok" as const, data: null })),
+      onActiveChange: vi.fn(),
+      onDirtyChange: vi.fn(),
+      onRequestSaveSettings: vi.fn(),
+    });
+
+    editActiveText(pane, "unsaved");
+    await pane.flushSaves();
+
+    expect(pane.hasDirtyTabs()).toBe(true);
+    pane.destroy();
+  });
+
   it("saves an untitled active tab to a chosen path", async () => {
     const host = document.createElement("div");
     const writeFile = vi.fn(async () => ({ status: "ok" as const, data: null }));

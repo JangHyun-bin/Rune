@@ -74,6 +74,10 @@ describe("help panel", () => {
 
     panel.open();
 
+    const text = walk(body).map((element) => element.textContent);
+    expect(text).toContain("Toggle focus layout");
+    expect(text).toContain("F10");
+
     let note = walk(body).find((element) => element.className === "help-note");
     expect(note?.textContent).toBe("Use the Activity Bar to switch views. Use the Sidebar button in the title bar to show or hide the sidebar.");
     expect(note?.children).toHaveLength(0);

@@ -1,6 +1,8 @@
 import { t, getLocale, LOCALES, type Locale } from "../i18n/i18n";
 import type { EditorMode } from "../editor/editor";
 import { UI_SCALE_STEPS } from "../theme/scale";
+import type { NamedLayoutChoice } from "./namedLayouts";
+import { selectedNamedLayoutValue } from "./namedLayouts";
 
 export interface SettingsPanel { open: () => void; close: () => void; refresh: () => void; setUpdateStatus: (text: string) => void; }
 
@@ -12,12 +14,20 @@ export function mountSettingsPanel(handlers: {
   getEditorWidth: () => "readable" | "wide";
   onEditorMode: (mode: EditorMode) => void;
   getEditorMode: () => EditorMode;
+  onFocusMode: (enabled: boolean) => void;
+  getFocusMode: () => boolean;
+  onTypewriterMode: (enabled: boolean) => void;
+  getTypewriterMode: () => boolean;
   onUiScale: (scale: number) => void;
   getUiScale: () => number;
   onHelp: () => void;
   onSetDefault: () => void;
   onCheckUpdates: () => void;
-  onSaveLayout: () => void;
+  getNamedLayouts: () => NamedLayoutChoice[];
+  getActiveNamedLayout: () => string | null;
+  onLoadNamedLayout: (value: string) => Promise<boolean>;
+  onSaveNamedLayout: (includeTabs: boolean) => Promise<boolean>;
+  onDeleteNamedLayout: (value: string) => Promise<boolean>;
   onExportLayout: () => string;
   onImportLayout: (text: string) => boolean;
   onResetLayout: () => void;
@@ -101,6 +111,21 @@ export function mountSettingsPanel(handlers: {
     modeSel.addEventListener("change", () => handlers.onEditorMode(modeSel.value as EditorMode));
     modeRow.append(modeLabel, modeSel); card.appendChild(modeRow);
 
+    const writingRow = document.createElement("div"); writingRow.className = "settings-row";
+    const writingLabel = document.createElement("label"); writingLabel.textContent = t("settings.writingModes");
+    const writingToggles = document.createElement("div"); writingToggles.className = "settings-writing-modes";
+    for (const [key, checked, onChange] of [
+      ["writing.focusMode", handlers.getFocusMode(), handlers.onFocusMode],
+      ["writing.typewriterMode", handlers.getTypewriterMode(), handlers.onTypewriterMode],
+    ] as const) {
+      const label = document.createElement("label");
+      const input = document.createElement("input"); input.type = "checkbox"; input.checked = checked;
+      input.addEventListener("change", () => onChange(input.checked));
+      label.append(input, document.createTextNode(t(key)));
+      writingToggles.appendChild(label);
+    }
+    writingRow.append(writingLabel, writingToggles); card.appendChild(writingRow);
+
     // UI size
     const uiRow = document.createElement("div"); uiRow.className = "settings-row";
     const uiLabel = document.createElement("label"); uiLabel.textContent = t("settings.uiScale");
@@ -115,12 +140,34 @@ export function mountSettingsPanel(handlers: {
 
     // Layout
     const layoutRow = document.createElement("div"); layoutRow.className = "settings-row settings-row-layout";
-    const layoutLabel = document.createElement("label"); layoutLabel.textContent = t("settings.layout");
+    const layoutLabel = document.createElement("label"); layoutLabel.textContent = t("settings.layout"); layoutLabel.htmlFor = "settings-named-layout";
     const layoutWrap = document.createElement("div"); layoutWrap.className = "settings-layout";
     const layoutSummary = document.createElement("div"); layoutSummary.className = "settings-layout-summary"; layoutSummary.textContent = handlers.getLayoutSummary();
+    const namedLayoutPicker = document.createElement("div"); namedLayoutPicker.className = "settings-layout-picker";
+    const namedLayoutSelect = document.createElement("select"); namedLayoutSelect.id = "settings-named-layout"; namedLayoutSelect.setAttribute("aria-label", t("layout.named"));
+    const namedLayoutChoices = handlers.getNamedLayouts();
+    for (const choice of namedLayoutChoices) {
+      const option = document.createElement("option"); option.value = choice.value;
+      option.textContent = choice.builtIn
+        ? `${t("layout.builtIn")}: ${t(`layout.builtIn.${choice.name}`)}`
+        : choice.name;
+      namedLayoutSelect.appendChild(option);
+    }
+    namedLayoutSelect.value = selectedNamedLayoutValue(namedLayoutChoices, handlers.getActiveNamedLayout());
+    const loadNamedLayoutBtn = document.createElement("button"); loadNamedLayoutBtn.type = "button"; loadNamedLayoutBtn.className = "btn btn-secondary"; loadNamedLayoutBtn.textContent = t("layout.load");
+    loadNamedLayoutBtn.addEventListener("click", () => { void handlers.onLoadNamedLayout(namedLayoutSelect.value).then((loaded) => { if (loaded) { build(); setLayoutStatus("layout.loaded"); } }); });
+    const deleteNamedLayoutBtn = document.createElement("button"); deleteNamedLayoutBtn.type = "button"; deleteNamedLayoutBtn.className = "btn btn-secondary"; deleteNamedLayoutBtn.textContent = t("layout.delete");
+    const syncDeleteState = () => { deleteNamedLayoutBtn.disabled = namedLayoutSelect.value.startsWith("builtin:"); };
+    namedLayoutSelect.addEventListener("change", syncDeleteState);
+    deleteNamedLayoutBtn.addEventListener("click", () => { void handlers.onDeleteNamedLayout(namedLayoutSelect.value).then((deleted) => { if (deleted) { build(); setLayoutStatus("layout.deleted"); } }); });
+    syncDeleteState();
+    namedLayoutPicker.append(namedLayoutSelect, loadNamedLayoutBtn, deleteNamedLayoutBtn);
+    const includeTabsLabel = document.createElement("label"); includeTabsLabel.className = "settings-layout-tabs";
+    const includeTabs = document.createElement("input"); includeTabs.type = "checkbox";
+    includeTabsLabel.append(includeTabs, document.createTextNode(t("layout.includeTabs")));
     const layoutActions = document.createElement("div"); layoutActions.className = "settings-layout-actions";
-    const saveLayoutBtn = document.createElement("button"); saveLayoutBtn.type = "button"; saveLayoutBtn.className = "btn btn-secondary"; saveLayoutBtn.textContent = t("layout.save");
-    saveLayoutBtn.addEventListener("click", () => { handlers.onSaveLayout(); setLayoutStatus("layout.saved"); });
+    const saveLayoutBtn = document.createElement("button"); saveLayoutBtn.type = "button"; saveLayoutBtn.className = "btn btn-secondary"; saveLayoutBtn.textContent = t("layout.saveAs");
+    saveLayoutBtn.addEventListener("click", () => { void handlers.onSaveNamedLayout(includeTabs.checked).then((saved) => { if (saved) { build(); setLayoutStatus("layout.saved"); } }); });
     const exportLayoutBtn = document.createElement("button"); exportLayoutBtn.type = "button"; exportLayoutBtn.className = "btn btn-secondary"; exportLayoutBtn.textContent = t("layout.export");
     exportLayoutBtn.addEventListener("click", exportLayoutFile);
     const importLayoutBtn = document.createElement("button"); importLayoutBtn.type = "button"; importLayoutBtn.className = "btn btn-secondary"; importLayoutBtn.textContent = t("layout.import");
@@ -147,7 +194,7 @@ export function mountSettingsPanel(handlers: {
     });
     layoutStatusEl = document.createElement("div"); layoutStatusEl.className = "settings-status";
     layoutActions.append(saveLayoutBtn, exportLayoutBtn, importLayoutBtn, resetLayoutBtn, importInput);
-    layoutWrap.append(layoutSummary, layoutActions, layoutStatusEl);
+    layoutWrap.append(layoutSummary, namedLayoutPicker, includeTabsLabel, layoutActions, layoutStatusEl);
     layoutRow.append(layoutLabel, layoutWrap); card.appendChild(layoutRow);
 
     // Shortcuts & help

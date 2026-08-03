@@ -1,7 +1,15 @@
 import { t } from "../i18n/i18n";
 import { parseHeadings } from "../editor/outline";
+import { isMarkdownPath } from "./dropTargets";
 
-export interface PaletteItem { label: string; hint?: string; scope?: "heading"; run: () => void; }
+export interface PaletteItem { label: string; hint?: string; scope?: "heading" | "workspaceHeading"; run: () => void; }
+export interface WorkspaceHeading {
+  text: string;
+  level: number;
+  line: number;
+  name: string;
+  path: string;
+}
 
 function fuzzy(query: string, label: string): boolean {
   const source = label.toLowerCase();
@@ -16,12 +24,44 @@ function fuzzy(query: string, label: string): boolean {
 
 export function filterPaletteItems(items: PaletteItem[], query: string): PaletteItem[] {
   const trimmed = query.trim();
-  const headingsOnly = trimmed.startsWith("@");
-  const target = headingsOnly ? trimmed.slice(1).trim() : trimmed;
+  const scope = trimmed.startsWith("@")
+    ? "heading"
+    : trimmed.startsWith("#") ? "workspaceHeading" : undefined;
+  const target = scope ? trimmed.slice(1).trim() : trimmed;
   return items
-    .filter((item) => (item.scope === "heading") === headingsOnly)
+    .filter((item) => item.scope === scope)
     .filter((item) => target === "" || fuzzy(target, item.label) || (item.hint ? fuzzy(target, item.hint) : false))
     .slice(0, 50);
+}
+
+export async function collectWorkspaceHeadings(
+  files: { name: string; path: string }[],
+  readFile: (path: string) => Promise<string | null>,
+): Promise<WorkspaceHeading[]> {
+  const groups = await Promise.all(files.filter((file) => isMarkdownPath(file.path)).map(async (file) => {
+    const markdown = await readFile(file.path).catch(() => null);
+    if (markdown === null) return [];
+    return parseHeadings(markdown).map((heading) => ({ ...heading, ...file }));
+  }));
+  return groups.flat();
+}
+
+export function workspaceHeadingPaletteItems(
+  headings: WorkspaceHeading[],
+  activePath: string | null,
+  onJump: (path: string, line: number) => void,
+): PaletteItem[] {
+  return [...headings]
+    .sort((a, b) =>
+      Number(b.path === activePath) - Number(a.path === activePath)
+      || a.name.localeCompare(b.name)
+      || a.line - b.line)
+    .map((heading) => ({
+      label: heading.text,
+      hint: `${heading.name} · H${heading.level} · L${heading.line}`,
+      scope: "workspaceHeading",
+      run: () => onJump(heading.path, heading.line),
+    }));
 }
 
 export function headingPaletteItems(markdown: string, onJump: (line: number) => void): PaletteItem[] {

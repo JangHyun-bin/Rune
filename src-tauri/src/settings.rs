@@ -64,6 +64,10 @@ pub struct Settings {
     pub editor_font_scale: Option<f32>,
     pub layout: Option<LayoutSettings>,
     pub workbench_layout: Option<serde_json::Value>,
+    pub named_layouts: Option<serde_json::Value>,
+    pub active_named_layout: Option<String>,
+    pub focus_mode: Option<bool>,
+    pub typewriter_mode: Option<bool>,
     #[serde(default, deserialize_with = "deserialize_pane_layout_lossy")]
     pub pane_layout: Option<PaneWorkspaceSnapshot>,
 }
@@ -124,6 +128,10 @@ mod tests {
                 "version": 7,
                 "custom": { "future": ["shape", 42] }
             })),
+            named_layouts: None,
+            active_named_layout: None,
+            focus_mode: None,
+            typewriter_mode: None,
             pane_layout: Some(PaneWorkspaceSnapshot {
                 version: 1,
                 root: PaneLayoutNode::Split {
@@ -249,5 +257,43 @@ mod tests {
         );
         assert!(got.ui_scale.is_none());
         assert!(got.editor_font_scale.is_none());
+    }
+
+    #[test]
+    fn named_layouts_roundtrip_as_frontend_owned_data() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join("settings.json");
+        let named_layouts = serde_json::json!([{
+            "version": 1,
+            "name": "Writing",
+            "workbenchLayout": { "version": 1 },
+            "layout": { "sidebarWidth": 240, "outlineHeight": 220, "splitRatio": 0.5 },
+            "editorWidth": "readable",
+            "editorMode": "preview"
+        }]);
+        std::fs::write(
+            &p,
+            serde_json::json!({
+                "namedLayouts": named_layouts,
+                "activeNamedLayout": "saved:Writing",
+                "focusMode": true,
+                "typewriterMode": false
+            })
+            .to_string(),
+        )
+        .unwrap();
+
+        let loaded = load(&p);
+        assert_eq!(loaded.named_layouts, Some(named_layouts.clone()));
+        assert_eq!(loaded.active_named_layout.as_deref(), Some("saved:Writing"));
+        assert_eq!(loaded.focus_mode, Some(true));
+        assert_eq!(loaded.typewriter_mode, Some(false));
+        save(&p, &loaded).unwrap();
+        let saved: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&p).unwrap()).unwrap();
+        assert_eq!(saved["namedLayouts"], named_layouts);
+        assert_eq!(saved["activeNamedLayout"], "saved:Writing");
+        assert_eq!(saved["focusMode"], true);
+        assert_eq!(saved["typewriterMode"], false);
     }
 }

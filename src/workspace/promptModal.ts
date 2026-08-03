@@ -4,6 +4,7 @@ import { t } from "../i18n/i18n";
  *  cancels (Escape / Cancel / backdrop) or submits an empty value. */
 export function promptModal(opts: { title: string; value?: string; }): Promise<string | null> {
   return new Promise((resolve) => {
+    const previousFocus = document.activeElement as HTMLElement | null;
     const backdrop = document.createElement("div");
     backdrop.className = "prompt-backdrop";
     backdrop.setAttribute("role", "dialog");
@@ -17,6 +18,7 @@ export function promptModal(opts: { title: string; value?: string; }): Promise<s
     const input = document.createElement("input");
     input.className = "prompt-input";
     input.type = "text";
+    input.setAttribute("aria-label", opts.title);
     input.value = opts.value ?? "";
     const row = document.createElement("div");
     row.className = "prompt-row";
@@ -38,6 +40,7 @@ export function promptModal(opts: { title: string; value?: string; }): Promise<s
       if (done) return;
       done = true;
       backdrop.remove();
+      previousFocus?.focus();
       resolve(result);
     };
     const submit = () => {

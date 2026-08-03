@@ -11,8 +11,11 @@ export type PaneLayoutNode =
   | { type: "split"; direction: "row" | "column"; children: PaneLayoutNode[]; ratios: number[] };
 export interface PaneSnapshot { id: string; openTabs: string[]; activePath: string | null; }
 export interface PaneWorkspaceSnapshot { version: 1; root: PaneLayoutNode; activePaneId: string; panes: PaneSnapshot[]; }
-export interface Settings { theme: string | null; lastFolder: string | null; openTabs: string[]; locale: string | null; editorWidth: string | null; editorMode: string | null; sidebarWidth: number | null; layout: LayoutSettings | null; workbenchLayout: unknown | null; paneLayout: PaneWorkspaceSnapshot | null; uiScale: number | null; editorFontScale: number | null; }
+export interface Settings { theme: string | null; lastFolder: string | null; openTabs: string[]; locale: string | null; editorWidth: string | null; editorMode: string | null; sidebarWidth: number | null; layout: LayoutSettings | null; workbenchLayout: unknown | null; namedLayouts: unknown | null; activeNamedLayout: string | null; focusMode: boolean | null; typewriterMode: boolean | null; paneLayout: PaneWorkspaceSnapshot | null; uiScale: number | null; editorFontScale: number | null; }
 export interface SearchHit { path: string; line: number; snippet: string; }
+export interface SearchResults { hits: SearchHit[]; truncated: boolean; }
+export interface WorkspaceIndexStats { documents: number; bytes: number; }
+export interface WorkspaceIndexHeading { path: string; name: string; text: string; level: number; line: number; }
 
 async function call<T>(cmd: string, args: Record<string, unknown>): Promise<Result<T>> {
   try {
@@ -32,7 +35,14 @@ export const commands = {
   loadSettings: () => call<Settings>("load_settings", {}),
   saveSettings: (settings: Settings) => call<null>("save_settings", { settings }),
   watchFolder: (path: string) => call<null>("watch_folder", { path }),
-  search: (root: string, query: string) => call<SearchHit[]>("search", { root, query }),
+  search: (root: string, query: string, requestId: number) =>
+    call<SearchResults>("search", { root, query, requestId }),
+  cancelSearch: (requestId: number) => call<null>("cancel_search", { requestId }),
+  rebuildWorkspaceIndex: (root: string) => call<WorkspaceIndexStats>("rebuild_workspace_index", { root }),
+  updateWorkspaceIndex: (root: string, paths: string[]) => call<WorkspaceIndexStats>("update_workspace_index", { root, paths }),
+  searchWorkspaceIndex: (root: string, scopeRoot: string | null, query: string, activePath: string | null, requestId: number) =>
+    call<SearchResults>("search_workspace_index", { root, scopeRoot, query, activePath, requestId }),
+  workspaceIndexHeadings: (root: string) => call<WorkspaceIndexHeading[]>("workspace_index_headings", { root }),
   takeLaunchFile: () => call<string | null>("take_launch_file", {}),
   openDefaultAppsSettings: () => call<null>("open_default_apps_settings", {}),
   renamePath: (path: string, newName: string) =>

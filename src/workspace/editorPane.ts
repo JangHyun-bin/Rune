@@ -64,8 +64,10 @@ export interface EditorPane {
   activePath(): string | null;
   activeText(): string;
   activeDirty(): boolean;
+  hasDirtyTabs(): boolean;
   tabsSnapshot(): { openTabs: string[]; activePath: string | null };
   setEditorMode(mode: EditorMode): void;
+  refreshWritingModes(): void;
   saveActive(): Promise<void>;
   saveActiveAs(path: string): Promise<CommandResult<null> | CommandError | null>;
   replaceActiveText(text: string, options?: { markSaved?: boolean }): void;
@@ -164,6 +166,10 @@ export function createEditorPane(options: EditorPaneOptions): EditorPane {
   function activeDirty(): boolean {
     const tab = activeTab(tabs);
     return tab ? tabDirty(tab) : false;
+  }
+
+  function hasDirtyTabs(): boolean {
+    return tabs.tabs.some(tabDirty);
   }
 
   function activeTabId(): string | null {
@@ -616,8 +622,12 @@ export function createEditorPane(options: EditorPaneOptions): EditorPane {
     activePath,
     activeText,
     activeDirty,
+    hasDirtyTabs,
     tabsSnapshot,
     setEditorMode,
+    refreshWritingModes() {
+      currentView().dispatch({});
+    },
     saveActive,
     saveActiveAs,
     replaceActiveText,

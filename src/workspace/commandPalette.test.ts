@@ -1,5 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
-import { filterPaletteItems, headingPaletteItems, type PaletteItem } from "./commandPalette";
+import {
+  collectWorkspaceHeadings,
+  filterPaletteItems,
+  headingPaletteItems,
+  workspaceHeadingPaletteItems,
+  type PaletteItem,
+} from "./commandPalette";
 
 describe("Command Palette heading navigation", () => {
   it("uses @ to show only matching headings from the current document", () => {
@@ -30,5 +36,64 @@ describe("Command Palette heading navigation", () => {
 
     items[1].run();
     expect(jump).toHaveBeenCalledWith(3);
+  });
+
+  it("uses # to show only matching workspace headings", () => {
+    const items: PaletteItem[] = [
+      { label: "Open File", run: vi.fn() },
+      { label: "Network Model", scope: "heading", run: vi.fn() },
+      { label: "Network Model", scope: "workspaceHeading", hint: "design.md · H2 · L8", run: vi.fn() },
+    ];
+
+    expect(filterPaletteItems(items, "# net").map((item) => item.hint)).toEqual([
+      "design.md · H2 · L8",
+    ]);
+  });
+
+  it("collects headings from readable workspace files and skips failures", async () => {
+    const read = vi.fn(async (path: string) => {
+      if (path === "C:/w/broken.md") return null;
+      return path.endsWith("active.md") ? "# Active\n## Details" : "# Other";
+    });
+
+    await expect(collectWorkspaceHeadings([
+      { name: "active.md", path: "C:/w/active.md" },
+      { name: "other.md", path: "C:/w/other.md" },
+      { name: "broken.md", path: "C:/w/broken.md" },
+    ], read)).resolves.toEqual([
+      { text: "Active", level: 1, line: 1, name: "active.md", path: "C:/w/active.md" },
+      { text: "Details", level: 2, line: 2, name: "active.md", path: "C:/w/active.md" },
+      { text: "Other", level: 1, line: 1, name: "other.md", path: "C:/w/other.md" },
+    ]);
+  });
+
+  it("reads only Markdown files when collecting workspace headings", async () => {
+    const read = vi.fn(async () => "# Heading");
+
+    await collectWorkspaceHeadings([
+      { name: "notes.md", path: "C:/w/notes.md" },
+      { name: "hero.png", path: "C:/w/hero.png" },
+      { name: "draft.MARKDOWN", path: "C:/w/draft.MARKDOWN" },
+    ], read);
+
+    expect(read.mock.calls.map(([path]) => path)).toEqual([
+      "C:/w/notes.md",
+      "C:/w/draft.MARKDOWN",
+    ]);
+  });
+
+  it("ranks the active document first and opens the exact heading", () => {
+    const jump = vi.fn();
+    const items = workspaceHeadingPaletteItems([
+      { text: "Shared", level: 1, line: 4, name: "other.md", path: "C:/w/other.md" },
+      { text: "Shared", level: 2, line: 7, name: "active.md", path: "C:/w/active.md" },
+    ], "C:/w/active.md", jump);
+
+    expect(items.map((item) => item.hint)).toEqual([
+      "active.md · H2 · L7",
+      "other.md · H1 · L4",
+    ]);
+    items[0].run();
+    expect(jump).toHaveBeenCalledWith("C:/w/active.md", 7);
   });
 });
