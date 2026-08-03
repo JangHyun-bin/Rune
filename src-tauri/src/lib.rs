@@ -78,6 +78,8 @@ pub fn run() {
             commands::update_workspace_index,
             commands::search_workspace_index,
             commands::workspace_index_headings,
+            commands::workspace_index_link_targets,
+            commands::workspace_index_backlinks,
             commands::take_launch_file,
             commands::open_default_apps_settings,
             commands::rename_path,

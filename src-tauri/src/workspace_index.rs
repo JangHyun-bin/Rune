@@ -19,6 +19,34 @@ pub struct IndexedHeading {
     pub line: usize,
 }
 
+#[derive(Serialize, Debug, Clone, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct LinkTargetHeading {
+    pub text: String,
+    pub level: usize,
+    pub line: usize,
+}
+
+#[derive(Serialize, Debug, Clone, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct LinkTarget {
+    pub path: String,
+    pub relative_path: String,
+    pub href: String,
+    pub name: String,
+    pub title: String,
+    pub headings: Vec<LinkTargetHeading>,
+}
+
+#[derive(Serialize, Debug, Clone, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct Backlink {
+    pub path: String,
+    pub name: String,
+    pub line: usize,
+    pub href: String,
+}
+
 #[derive(Debug, Clone)]
 struct DocumentHeading {
     text: String,
@@ -39,7 +67,7 @@ struct IndexedDocument {
     #[allow(dead_code)]
     tags: Vec<String>,
     #[allow(dead_code)]
-    outbound_links: Vec<String>,
+    outbound_links: Vec<OutboundLink>,
     body: String,
     headings: Vec<DocumentHeading>,
 }
@@ -91,6 +119,48 @@ impl WorkspaceIndex {
                     text: heading.text.clone(),
                     level: heading.level,
                     line: heading.line,
+                })
+            })
+            .collect()
+    }
+
+    pub fn link_targets(&self, source_path: Option<&Path>) -> Vec<LinkTarget> {
+        self.documents
+            .iter()
+            .map(|document| LinkTarget {
+                path: document.path.to_string_lossy().into_owned(),
+                relative_path: document.relative_path.replace('\\', "/"),
+                href: relative_href(source_path, &document.path, &self.root),
+                name: document.name.clone(),
+                title: document.title.clone(),
+                headings: document
+                    .headings
+                    .iter()
+                    .map(|heading| LinkTargetHeading {
+                        text: heading.text.clone(),
+                        level: heading.level,
+                        line: heading.line,
+                    })
+                    .collect(),
+            })
+            .collect()
+    }
+
+    pub fn backlinks(&self, target_path: &Path) -> Vec<Backlink> {
+        let target = target_path
+            .canonicalize()
+            .unwrap_or_else(|_| target_path.to_path_buf());
+        self.documents
+            .iter()
+            .flat_map(|document| {
+                let target = target.clone();
+                document.outbound_links.iter().filter_map(move |link| {
+                    (resolve_link_path(&document.path, &link.href)? == target).then(|| Backlink {
+                        path: document.path.to_string_lossy().into_owned(),
+                        name: document.name.clone(),
+                        line: link.line,
+                        href: link.href.clone(),
+                    })
                 })
             })
             .collect()
@@ -221,6 +291,30 @@ impl WorkspaceIndex {
             truncated: total > 200,
         }
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct OutboundLink {
+    href: String,
+    line: usize,
+}
+
+fn relative_href(source_path: Option<&Path>, target: &Path, root: &Path) -> String {
+    let base = source_path.and_then(Path::parent).unwrap_or(root);
+    let base_components: Vec<_> = base.components().collect();
+    let target_components: Vec<_> = target.components().collect();
+    let common = base_components
+        .iter()
+        .zip(&target_components)
+        .take_while(|(left, right)| left == right)
+        .count();
+    let mut parts = vec!["..".to_string(); base_components.len().saturating_sub(common)];
+    parts.extend(
+        target_components[common..]
+            .iter()
+            .map(|component| component.as_os_str().to_string_lossy().into_owned()),
+    );
+    parts.join("/")
 }
 
 fn is_markdown_path(path: &Path) -> bool {
@@ -386,10 +480,10 @@ fn clean_metadata_value(value: &str) -> String {
     value.trim().trim_matches(['\'', '"']).to_string()
 }
 
-fn parse_outbound_links(markdown: &str) -> Vec<String> {
+fn parse_outbound_links(markdown: &str) -> Vec<OutboundLink> {
     let mut links = Vec::new();
     let mut in_fence = false;
-    for line in markdown.lines() {
+    for (line_index, line) in markdown.lines().enumerate() {
         let start = line.trim_start();
         if start.starts_with("```") || start.starts_with("~~~") {
             in_fence = !in_fence;
@@ -409,14 +503,70 @@ fn parse_outbound_links(markdown: &str) -> Vec<String> {
                 target.split_whitespace().next().unwrap_or_default()
             };
             if !target.is_empty() {
-                links.push(target.to_string());
+                links.push(OutboundLink {
+                    href: target.to_string(),
+                    line: line_index + 1,
+                });
             }
             rest = &rest[close + 1..];
         }
     }
-    links.sort();
-    links.dedup();
     links
+}
+
+fn resolve_link_path(source_path: &Path, href: &str) -> Option<PathBuf> {
+    if href.starts_with("//") || has_uri_scheme(href) {
+        return None;
+    }
+    let raw_path = href.split('#').next().unwrap_or_default();
+    if raw_path.is_empty() {
+        return source_path.canonicalize().ok();
+    }
+    let decoded = percent_decode(raw_path)?;
+    let path = Path::new(&decoded);
+    if path.is_absolute() {
+        return None;
+    }
+    source_path.parent()?.join(path).canonicalize().ok()
+}
+
+fn has_uri_scheme(value: &str) -> bool {
+    let Some(colon) = value.find(':') else {
+        return false;
+    };
+    let scheme = &value[..colon];
+    !scheme.is_empty()
+        && scheme.as_bytes()[0].is_ascii_alphabetic()
+        && scheme
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'+' | b'-' | b'.'))
+}
+
+fn percent_decode(value: &str) -> Option<String> {
+    let bytes = value.as_bytes();
+    let mut decoded = Vec::with_capacity(bytes.len());
+    let mut index = 0;
+    while index < bytes.len() {
+        if bytes[index] != b'%' {
+            decoded.push(bytes[index]);
+            index += 1;
+            continue;
+        }
+        let high = hex_value(*bytes.get(index + 1)?)?;
+        let low = hex_value(*bytes.get(index + 2)?)?;
+        decoded.push((high << 4) | low);
+        index += 3;
+    }
+    String::from_utf8(decoded).ok()
+}
+
+fn hex_value(byte: u8) -> Option<u8> {
+    match byte {
+        b'0'..=b'9' => Some(byte - b'0'),
+        b'a'..=b'f' => Some(byte - b'a' + 10),
+        b'A'..=b'F' => Some(byte - b'A' + 10),
+        _ => None,
+    }
 }
 
 #[cfg(test)]
@@ -472,8 +622,90 @@ mod tests {
         assert_eq!(document.relative_path, "notes.md");
         assert_eq!(document.title, "Document title");
         assert_eq!(document.tags, vec!["alpha", "beta"]);
-        assert_eq!(document.outbound_links, vec!["guide.md"]);
+        assert_eq!(
+            document.outbound_links,
+            vec![OutboundLink {
+                href: "guide.md".into(),
+                line: 5,
+            }]
+        );
         assert!(document.modified_millis > 0);
+    }
+
+    #[test]
+    fn returns_relative_markdown_link_targets_with_headings() {
+        let dir = tempfile::tempdir().unwrap();
+        let notes = dir.path().join("notes");
+        std::fs::create_dir(&notes).unwrap();
+        let source = notes.join("draft.md");
+        let guide = dir.path().join("안내 문서.md");
+        std::fs::write(&source, "# Draft\n").unwrap();
+        std::fs::write(&guide, "# 시작\n## 세부 항목\n").unwrap();
+        let index = WorkspaceIndex::build(dir.path()).unwrap();
+
+        let targets = index.link_targets(Some(&source));
+        let target = targets
+            .iter()
+            .find(|target| target.path == guide.to_string_lossy())
+            .unwrap();
+
+        assert_eq!(target.href, "../안내 문서.md");
+        assert_eq!(target.title, "시작");
+        assert_eq!(target.headings.len(), 2);
+        assert_eq!(target.headings[1].text, "세부 항목");
+        assert_eq!(target.headings[1].line, 2);
+    }
+
+    #[test]
+    fn returns_backlinks_with_source_lines() {
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("안내 문서.md");
+        let source = dir.path().join("notes.md");
+        std::fs::write(&target, "# Guide\n").unwrap();
+        std::fs::write(
+            &source,
+            "# Notes\nRead [the guide](%EC%95%88%EB%82%B4%20%EB%AC%B8%EC%84%9C.md#guide).\n",
+        )
+        .unwrap();
+        let index = WorkspaceIndex::build(dir.path()).unwrap();
+
+        assert_eq!(
+            index.backlinks(&target),
+            vec![Backlink {
+                path: source.to_string_lossy().into_owned(),
+                name: "notes.md".into(),
+                line: 2,
+                href: "%EC%95%88%EB%82%B4%20%EB%AC%B8%EC%84%9C.md#guide".into(),
+            }]
+        );
+    }
+
+    #[test]
+    fn refreshes_link_queries_after_rename_delete_and_external_edit() {
+        let dir = tempfile::tempdir().unwrap();
+        let old_target = dir.path().join("guide.md");
+        let new_target = dir.path().join("renamed.md");
+        let source = dir.path().join("notes.md");
+        std::fs::write(&old_target, "# Guide\n").unwrap();
+        std::fs::write(&source, "[guide](guide.md)\n").unwrap();
+        let index = WorkspaceIndex::build(dir.path()).unwrap();
+        assert_eq!(index.backlinks(&old_target).len(), 1);
+
+        std::fs::rename(&old_target, &new_target).unwrap();
+        let index = index.updated(&[old_target, new_target.clone()]).unwrap();
+        assert!(index.backlinks(&new_target).is_empty());
+        assert!(index
+            .link_targets(Some(&source))
+            .iter()
+            .any(|target| target.href == "renamed.md"));
+
+        std::fs::write(&source, "[guide](renamed.md)\n").unwrap();
+        let index = index.updated(std::slice::from_ref(&source)).unwrap();
+        assert_eq!(index.backlinks(&new_target).len(), 1);
+
+        std::fs::remove_file(&new_target).unwrap();
+        let index = index.updated(std::slice::from_ref(&new_target)).unwrap();
+        assert!(index.backlinks(&new_target).is_empty());
     }
 
     #[test]
@@ -706,5 +938,36 @@ mod tests {
 
         assert!(result.hits.len() < 100);
         assert_eq!(checks.get(), 3);
+    }
+
+    #[test]
+    #[ignore = "manual performance baseline"]
+    fn measures_link_query_performance() {
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("target.md");
+        std::fs::write(&target, "# Target\n## Section\n").unwrap();
+        for index in 0..1_000 {
+            std::fs::write(
+                dir.path().join(format!("note-{index:04}.md")),
+                "[target](target.md#section)\n",
+            )
+            .unwrap();
+        }
+
+        let started = std::time::Instant::now();
+        let workspace = WorkspaceIndex::build(dir.path()).unwrap();
+        let build = started.elapsed();
+        let started = std::time::Instant::now();
+        let targets = workspace.link_targets(Some(&target));
+        let target_query = started.elapsed();
+        let started = std::time::Instant::now();
+        let backlinks = workspace.backlinks(&target);
+        let backlink_query = started.elapsed();
+
+        assert_eq!(targets.len(), 1_001);
+        assert_eq!(backlinks.len(), 1_000);
+        eprintln!(
+            "link baseline: build={build:?}, targets={target_query:?}, backlinks={backlink_query:?}"
+        );
     }
 }

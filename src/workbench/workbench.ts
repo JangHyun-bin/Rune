@@ -177,7 +177,7 @@ export function mountWorkbench(options: {
     return shell;
   };
 
-  const renderView = (view: ViewContribution): HTMLElement => {
+  const renderView = (view: ViewContribution, mountVisible = true): HTMLElement => {
     const layout = state.views[view.id];
     const shell = shellFor(view);
     const title = t(view.titleKey);
@@ -195,7 +195,7 @@ export function mountWorkbench(options: {
     if (view.id === "outline") {
       shell.section.style.setProperty("--outline-height", `${layout.size ?? OUTLINE_DEFAULT_SIZE}px`);
     }
-    if (layout.visible) {
+    if (layout.visible && mountVisible) {
       const instance = options.registry.resolveView(view.id);
       shell.body.appendChild(instance.element);
     }
@@ -288,15 +288,50 @@ export function mountWorkbench(options: {
     outlineResizer = renderedOutlineResizer;
   };
 
+  const renderContainerPart = (partId: "secondarySidebar" | "panel", host: HTMLElement): void => {
+    const contribution = options.registry.containers()
+      .find((container) => container.id === state.parts[partId].activeContainerId);
+    if (!contribution) {
+      host.replaceChildren();
+      return;
+    }
+    const views = viewsIn(contribution.id);
+    const container = document.createElement("section");
+    container.className = "view-container";
+    container.dataset.containerId = contribution.id;
+    const titlebar = document.createElement("header");
+    titlebar.className = "view-container-titlebar";
+    const title = document.createElement("h2");
+    title.textContent = t(contribution.titleKey);
+    titlebar.appendChild(title);
+    for (const view of views.filter((candidate) => !state.views[candidate.id].visible)) {
+      const viewTitle = t(view.titleKey);
+      const restore = createButton("view-restore", `${t("view.open")} ${viewTitle}`, viewTitle);
+      restore.dataset.viewId = view.id;
+      restore.addEventListener("click", () => workbench.openView(view.id));
+      titlebar.appendChild(restore);
+    }
+    const body = document.createElement("div");
+    body.className = "view-container-body";
+    body.replaceChildren(...views.map((view) => renderView(view, state.parts[partId].visible)));
+    container.appendChild(titlebar);
+    container.appendChild(body);
+    host.replaceChildren(container);
+  };
+
   const renderOtherParts = (): void => {
     const secondaryVisible = state.parts.secondarySidebar.visible;
     options.secondarySidebar.classList.toggle("hidden", !secondaryVisible);
     options.secondaryResizer.classList.toggle("hidden", !secondaryVisible);
+    options.secondarySidebar.setAttribute("aria-hidden", String(!secondaryVisible));
     options.secondarySidebar.style.setProperty("--secondary-sidebar-width", `${state.parts.secondarySidebar.size}px`);
+    renderContainerPart("secondarySidebar", options.secondarySidebar);
     const panelVisible = state.parts.panel.visible;
     options.panel.classList.toggle("hidden", !panelVisible);
     options.panelResizer.classList.toggle("hidden", !panelVisible);
+    options.panel.setAttribute("aria-hidden", String(!panelVisible));
     options.panel.style.setProperty("--panel-height", `${state.parts.panel.size}px`);
+    renderContainerPart("panel", options.panel);
   };
 
   const renderStructuralLabels = (): void => {

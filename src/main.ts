@@ -1,6 +1,6 @@
 import "./styles.css";
 import { type EditorMode } from "./editor/editor";
-import { commands } from "./ipc/bindings";
+import { commands, type LinkTarget } from "./ipc/bindings";
 import { confirm as confirmDialog, open, save } from "@tauri-apps/plugin-dialog";
 import { revealItemInDir, openUrl } from "@tauri-apps/plugin-opener";
 import { check } from "@tauri-apps/plugin-updater";
@@ -57,6 +57,9 @@ import {
   type SavedNamedLayout,
 } from "./workspace/namedLayouts";
 import { writingModesExtension } from "./editor/writingModes";
+import { markdownLinkExtensions, refreshMarkdownLinkDiagnostics } from "./editor/markdownLinks";
+import { mountBacklinksPanel, type BacklinksPanel } from "./workspace/backlinksPanel";
+import { mountPropertiesPanel, type PropertiesPanel } from "./workspace/propertiesPanel";
 
 const chrome = mountChrome(document.getElementById("titlebar")!, document.getElementById("statusbar")!, {
   onTogglePrimarySidebar: () => workbench.togglePrimarySidebar(),
@@ -73,6 +76,9 @@ let currentFolder: string | null = null;
 let workspaceFiles: { name: string; path: string }[] = [];
 let workspaceHeadings: WorkspaceHeading[] = [];
 let workspaceHeadingLoad = 0;
+const workspaceLinkTargets = new Map<string, LinkTarget[]>();
+const workspaceLinkTargetLoads = new Map<string, Promise<void>>();
+let workspaceLinkTargetVersion = 0;
 let editorMode: EditorMode = "preview";
 let findReplacePanel: FindReplacePanel | null = null;
 let layoutModeControl: LayoutModeControl | null = null;
@@ -83,6 +89,9 @@ let typewriterMode = false;
 let focusLayout = false;
 let tree: FileTree;
 let outlinePanel: OutlinePanel;
+let backlinksPanel: BacklinksPanel | null = null;
+let backlinksLoad = 0;
+let propertiesPanel: PropertiesPanel | null = null;
 
 const viewRegistry = createViewRegistry();
 viewRegistry.registerContainer({ id: "explorer", titleKey: "view.explorer", icon: "▤", order: 0 });
@@ -142,6 +151,48 @@ viewRegistry.registerView({
       focus: () => panel.focus(),
       relabel: () => panel.relabel(),
       dispose: () => panel.dispose(),
+    };
+  },
+});
+viewRegistry.registerView({
+  id: "backlinks",
+  titleKey: "view.backlinks",
+  defaultContainerId: "auxiliary",
+  order: 0,
+  create() {
+    const element = document.createElement("div");
+    backlinksPanel = mountBacklinksPanel(element, (path, line) => {
+      void (async () => { if (await openPath(path)) jumpToLine(line); })();
+    });
+    void refreshBacklinks();
+    return {
+      element,
+      focus: () => backlinksPanel?.focus(),
+      relabel: () => backlinksPanel?.relabel(),
+      dispose: () => {
+        backlinksPanel?.dispose();
+        backlinksPanel = null;
+      },
+    };
+  },
+});
+viewRegistry.registerView({
+  id: "properties",
+  titleKey: "view.properties",
+  defaultContainerId: "auxiliary",
+  order: 1,
+  create() {
+    const element = document.createElement("div");
+    propertiesPanel = mountPropertiesPanel(element);
+    refreshProperties();
+    return {
+      element,
+      focus: () => propertiesPanel?.focus(),
+      relabel: () => propertiesPanel?.relabel(),
+      dispose: () => {
+        propertiesPanel?.dispose();
+        propertiesPanel = null;
+      },
     };
   },
 });
@@ -412,17 +463,59 @@ function revealActive(): void {
   const path = activePane().activePath();
   if (path) void revealItemInDir(path);
 }
-function extraExts() {
+function linkTargetKey(path: string | null): string {
+  return (path ?? "").replace(/\\/g, "/").toLocaleLowerCase();
+}
+function linkTargetsFor(path: string | null): LinkTarget[] {
+  return workspaceLinkTargets.get(linkTargetKey(path)) ?? [];
+}
+function refreshLinkTargets(path: string | null): Promise<void> {
+  const folder = currentFolder;
+  if (!folder) return Promise.resolve();
+  const key = linkTargetKey(path);
+  if (workspaceLinkTargets.has(key)) return Promise.resolve();
+  const existing = workspaceLinkTargetLoads.get(key);
+  if (existing) return existing;
+  const version = workspaceLinkTargetVersion;
+  let load: Promise<void>;
+  load = commands.workspaceIndexLinkTargets(folder, path).then((result) => {
+    if (version !== workspaceLinkTargetVersion || result.status !== "ok"
+      || !currentFolder || !samePath(currentFolder, folder)) return;
+    workspaceLinkTargets.set(key, result.data);
+    if (typeof paneWorkspace !== "undefined" && samePath(activePane().activePath() ?? "", path ?? "")) {
+      refreshMarkdownLinkDiagnostics(activeView());
+    }
+  }).finally(() => {
+    if (workspaceLinkTargetLoads.get(key) === load) workspaceLinkTargetLoads.delete(key);
+  });
+  workspaceLinkTargetLoads.set(key, load);
+  return load;
+}
+function extraExts(getDocPath: () => string | null) {
   return [
     EditorView.updateListener.of((u) => {
       if (u.selectionSet || u.docChanged) {
         refreshStatus();
         refreshOutline();
         findReplacePanel?.refresh();
+        if (u.docChanged) refreshProperties();
       }
     }),
     findHighlightExtension(),
     writingModesExtension(() => ({ focus: focusMode, typewriter: typewriterMode })),
+    ...markdownLinkExtensions({
+      getTargets: () => linkTargetsFor(getDocPath()),
+      getCurrentPath: getDocPath,
+      diagnosticMessage: (kind, href) => tr(`link.diagnostic.${kind}`, { href }),
+      openLink: (path, line) => {
+        void (async () => {
+          if (await openPath(path)) {
+            if (line !== null) jumpToLine(line);
+            else activeView().focus();
+          }
+        })();
+      },
+    }),
     Prec.highest(keymap.of([{ key: "Mod-k", run: () => { palette.toggle(); return true; }, preventDefault: true }])),
   ];
 }
@@ -449,6 +542,30 @@ function syncActiveUI(): void {
   tree.setActive(path);
   refreshStatus();
   refreshOutline();
+  void refreshLinkTargets(path);
+  void refreshBacklinks();
+  refreshProperties();
+}
+
+function refreshProperties(): void {
+  if (!propertiesPanel) return;
+  propertiesPanel.render(typeof paneWorkspace === "undefined" ? null : activeView().state.doc.toString());
+}
+
+async function refreshBacklinks(): Promise<void> {
+  if (!backlinksPanel) return;
+  const folder = currentFolder;
+  const path = typeof paneWorkspace === "undefined" ? null : activePane().activePath();
+  const load = ++backlinksLoad;
+  if (!folder || !path) {
+    backlinksPanel.render("noDocument");
+    return;
+  }
+  backlinksPanel.render("loading");
+  const result = await commands.workspaceIndexBacklinks(folder, path);
+  if (load !== backlinksLoad || !currentFolder || !samePath(currentFolder, folder)
+    || !samePath(activePane().activePath() ?? "", path)) return;
+  backlinksPanel.render(result.status === "ok" ? result.data : "error");
 }
 async function openPath(path: string): Promise<boolean> {
   const opened = await paneWorkspace.openPathInActivePane(path);
@@ -515,11 +632,16 @@ async function refreshWorkspaceHeadings(
   }
   if (indexed.status === "ok") {
     const result = await commands.workspaceIndexHeadings(dir);
-    if (result.status === "ok") {
-      if (load === workspaceHeadingLoad && currentFolder && samePath(currentFolder, dir)) {
+    if (load === workspaceHeadingLoad && currentFolder && samePath(currentFolder, dir)) {
+      workspaceLinkTargetVersion++;
+      workspaceLinkTargets.clear();
+      workspaceLinkTargetLoads.clear();
+      void refreshLinkTargets(typeof paneWorkspace === "undefined" ? null : activePane().activePath());
+      void refreshBacklinks();
+      if (result.status === "ok") {
         workspaceHeadings = result.data;
+        return;
       }
-      return;
     }
   }
   const headings = await collectWorkspaceHeadings(files, async (path) => {
@@ -676,6 +798,8 @@ function paletteItems(): PaletteItem[] {
     { label: tr("view.workspace"), run: () => workbench.openView("workspace") },
     { label: tr("view.outline"), run: () => workbench.openView("outline") },
     { label: tr("view.search"), run: () => workbench.openView("search") },
+    { label: tr("view.backlinks"), run: () => workbench.openView("backlinks") },
+    { label: tr("view.properties"), run: () => workbench.openView("properties") },
     { label: tr("workbench.resetViewVisibility"), run: () => workbench.resetViewVisibility() },
     { label: tr("cmd.reveal"), run: () => revealActive() },
     { label: tr("settings.title"), run: () => settingsPanel.open() },

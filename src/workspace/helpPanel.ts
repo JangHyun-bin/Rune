@@ -30,6 +30,7 @@ const GROUPS: Group[] = [
     { keys: ["Tab"], labelKey: "help.indent" },
     { keys: [SHIFT, "Tab"], labelKey: "help.outdent" },
     { keys: [MOD, "F"], labelKey: "cmd.findReplace" },
+    { keys: [MOD, "Enter"], labelKey: "help.openLink" },
   ] },
   { titleKey: "help.tools", rows: [
     { keys: [MOD, "K"], labelKey: "help.commandPalette" },

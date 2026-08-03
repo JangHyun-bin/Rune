@@ -2,7 +2,7 @@ import type { EditorMode } from "../editor/editor";
 import {
   DEFAULT_WORKBENCH_LAYOUT,
   activateContainer,
-  isWorkbenchLayoutSnapshot,
+  isMigratableWorkbenchLayout,
   normalizeWorkbenchLayout,
   type WorkbenchLayoutSnapshot,
 } from "../workbench/workbenchLayout";
@@ -81,7 +81,7 @@ export function normalizeSavedLayouts(value: unknown): SavedNamedLayout[] {
   return value.flatMap((candidate): SavedNamedLayout[] => {
     if (!isRecord(candidate) || candidate.version !== 1) return [];
     const name = typeof candidate.name === "string" ? candidate.name.trim() : "";
-    if (!name || !isWorkbenchLayoutSnapshot(candidate.workbenchLayout) || !isRecord(candidate.layout)) return [];
+    if (!name || !isMigratableWorkbenchLayout(candidate.workbenchLayout) || !isRecord(candidate.layout)) return [];
     if (!isFiniteNumber(candidate.layout.sidebarWidth)
       || !isFiniteNumber(candidate.layout.outlineHeight)
       || !isFiniteNumber(candidate.layout.splitRatio)) return [];

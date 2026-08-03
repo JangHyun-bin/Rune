@@ -57,6 +57,27 @@ describe("named workbench layouts", () => {
     ])).toEqual([valid]);
   });
 
+  it("migrates saved layouts created before auxiliary views existed", () => {
+    const valid = captureNamedLayout("Legacy", createBuiltInLayout("writing"), false)!;
+    const legacy = {
+      ...valid,
+      workbenchLayout: {
+        ...valid.workbenchLayout,
+        views: {
+          workspace: valid.workbenchLayout.views.workspace,
+          outline: valid.workbenchLayout.views.outline,
+          search: valid.workbenchLayout.views.search,
+        },
+      },
+    };
+
+    const [migrated] = normalizeSavedLayouts([legacy]);
+
+    expect(migrated.name).toBe("Legacy");
+    expect(migrated.workbenchLayout.views.backlinks.containerId).toBe("auxiliary");
+    expect(migrated.workbenchLayout.views.properties.containerId).toBe("auxiliary");
+  });
+
   it("overwrites an existing name case-insensitively without reordering it", () => {
     const writing = captureNamedLayout("Drafting", createBuiltInLayout("writing"), false)!;
     const research = captureNamedLayout("Research notes", createBuiltInLayout("research"), false)!;

@@ -1,5 +1,4 @@
 import type { EditorMode } from "../editor/editor";
-import type { Extension } from "@codemirror/state";
 import { createEditorPane, type EditorPane, type EditorPaneOptions } from "./editorPane";
 import {
   createSinglePaneLayout,
@@ -15,7 +14,7 @@ import type { PaneWorkspaceSnapshot } from "./panePersistence";
 export interface PaneWorkspaceOptions {
   host: HTMLElement;
   editorMode: EditorMode;
-  extraExtensions?: () => Extension[];
+  extraExtensions?: EditorPaneOptions["extraExtensions"];
   initialSplitRatio?: number;
   readFile: EditorPaneOptions["readFile"];
   writeFile: EditorPaneOptions["writeFile"];

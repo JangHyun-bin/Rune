@@ -16,6 +16,9 @@ export interface SearchHit { path: string; line: number; snippet: string; }
 export interface SearchResults { hits: SearchHit[]; truncated: boolean; }
 export interface WorkspaceIndexStats { documents: number; bytes: number; }
 export interface WorkspaceIndexHeading { path: string; name: string; text: string; level: number; line: number; }
+export interface LinkTargetHeading { text: string; level: number; line: number; }
+export interface LinkTarget { path: string; relativePath: string; href: string; name: string; title: string; headings: LinkTargetHeading[]; }
+export interface Backlink { path: string; name: string; line: number; href: string; }
 
 async function call<T>(cmd: string, args: Record<string, unknown>): Promise<Result<T>> {
   try {
@@ -43,6 +46,10 @@ export const commands = {
   searchWorkspaceIndex: (root: string, scopeRoot: string | null, query: string, activePath: string | null, requestId: number) =>
     call<SearchResults>("search_workspace_index", { root, scopeRoot, query, activePath, requestId }),
   workspaceIndexHeadings: (root: string) => call<WorkspaceIndexHeading[]>("workspace_index_headings", { root }),
+  workspaceIndexLinkTargets: (root: string, sourcePath: string | null) =>
+    call<LinkTarget[]>("workspace_index_link_targets", { root, sourcePath }),
+  workspaceIndexBacklinks: (root: string, targetPath: string) =>
+    call<Backlink[]>("workspace_index_backlinks", { root, targetPath }),
   takeLaunchFile: () => call<string | null>("take_launch_file", {}),
   openDefaultAppsSettings: () => call<null>("open_default_apps_settings", {}),
   renamePath: (path: string, newName: string) =>

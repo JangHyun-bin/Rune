@@ -12,9 +12,11 @@
     "gen:brand": "node tools/gen-brand-assets.mjs"
   },
   "dependencies": {
+    "@codemirror/autocomplete": "^6.20.2",
     "@codemirror/commands": "^6.10.3",
     "@codemirror/lang-markdown": "^6.5.0",
     "@codemirror/language-data": "^6.5.2",
+    "@codemirror/lint": "^6.9.6",
     "@codemirror/state": "^6.6.0",
     "@codemirror/view": "^6.43.0",
     "@fontsource/ibm-plex-mono": "^5.2.7",

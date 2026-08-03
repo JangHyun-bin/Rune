@@ -189,15 +189,21 @@ function setup({ rootWidth = 1024, sidebarHeight = 820 } = {}) {
   const focusWorkspace = vi.fn();
   const focusOutline = vi.fn();
   const focusSearch = vi.fn();
+  const focusBacklinks = vi.fn();
   const relabel = vi.fn();
   const createWorkspace = vi.fn(() => ({ element: document.createElement("div"), focus: focusWorkspace, relabel, dispose() {} }));
   const createOutline = vi.fn(() => ({ element: document.createElement("div"), focus: focusOutline, relabel, dispose() {} }));
   const createSearch = vi.fn(() => ({ element: document.createElement("div"), focus: focusSearch, relabel, dispose() {} }));
+  const createBacklinks = vi.fn(() => ({ element: document.createElement("div"), focus: focusBacklinks, relabel, dispose() {} }));
+  const createProperties = vi.fn(() => ({ element: document.createElement("div"), relabel, dispose() {} }));
   registry.registerContainer({ id: "explorer", titleKey: "view.explorer", icon: "files", order: 0 });
   registry.registerContainer({ id: "search", titleKey: "view.search", icon: "search", order: 1 });
+  registry.registerContainer({ id: "auxiliary", titleKey: "view.auxiliary", icon: "aux", order: 0 });
   registry.registerView({ id: "workspace", titleKey: "view.workspace", defaultContainerId: "explorer", order: 0, create: createWorkspace });
   registry.registerView({ id: "outline", titleKey: "view.outline", defaultContainerId: "explorer", order: 1, create: createOutline });
   registry.registerView({ id: "search", titleKey: "view.search", defaultContainerId: "search", order: 0, create: createSearch });
+  registry.registerView({ id: "backlinks", titleKey: "view.backlinks", defaultContainerId: "auxiliary", order: 0, create: createBacklinks });
+  registry.registerView({ id: "properties", titleKey: "view.properties", defaultContainerId: "auxiliary", order: 1, create: createProperties });
 
   const hosts = {
     activityBar: document.createElement("nav"),
@@ -239,9 +245,11 @@ function setup({ rootWidth = 1024, sidebarHeight = 820 } = {}) {
     createWorkspace,
     createOutline,
     createSearch,
+    createBacklinks,
     focusWorkspace,
     focusOutline,
     focusSearch,
+    focusBacklinks,
     relabel,
   };
 }
@@ -318,6 +326,21 @@ describe("workbench", () => {
       visible: true,
     });
     expect(focusSearch).toHaveBeenCalledTimes(1);
+  });
+
+  it("opens registered auxiliary views in the Secondary Sidebar", () => {
+    const { secondarySidebar, workbench, createBacklinks, focusBacklinks } = setup();
+
+    workbench.openView("backlinks");
+
+    expect(workbench.snapshot().parts.secondarySidebar.visible).toBe(true);
+    const container = byData(secondarySidebar as unknown as TestElement, "containerId", "auxiliary");
+    expect(byClass(container, "workbench-view").map((view) => view.dataset.viewId)).toEqual([
+      "backlinks",
+      "properties",
+    ]);
+    expect(createBacklinks).toHaveBeenCalledTimes(1);
+    expect(focusBacklinks).toHaveBeenCalledTimes(1);
   });
 
   it("returns focus to the editor when a focused Outline is closed", () => {

@@ -1,6 +1,6 @@
 export type WorkbenchPartId = "primarySidebar" | "secondarySidebar" | "panel";
 export type WorkbenchContainerId = "explorer" | "search" | "auxiliary" | "panel";
-export type WorkbenchViewId = "workspace" | "outline" | "search";
+export type WorkbenchViewId = "workspace" | "outline" | "search" | "backlinks" | "properties";
 
 export interface WorkbenchPartState {
   visible: boolean;
@@ -45,6 +45,8 @@ export const DEFAULT_WORKBENCH_LAYOUT: WorkbenchLayoutSnapshot = {
     workspace: { containerId: "explorer", order: 0, visible: true, collapsed: false, size: null },
     outline: { containerId: "explorer", order: 1, visible: true, collapsed: false, size: 220 },
     search: { containerId: "search", order: 0, visible: true, collapsed: false, size: null },
+    backlinks: { containerId: "auxiliary", order: 0, visible: true, collapsed: false, size: null },
+    properties: { containerId: "auxiliary", order: 1, visible: true, collapsed: false, size: null },
   },
 };
 
@@ -52,7 +54,7 @@ type LegacyLayout = { sidebarWidth?: unknown; outlineHeight?: unknown };
 
 const partIds: WorkbenchPartId[] = ["primarySidebar", "secondarySidebar", "panel"];
 const containerIds: WorkbenchContainerId[] = ["explorer", "search", "auxiliary", "panel"];
-const viewIds: WorkbenchViewId[] = ["workspace", "outline", "search"];
+const viewIds: WorkbenchViewId[] = ["workspace", "outline", "search", "backlinks", "properties"];
 
 function cloneLayout(layout: WorkbenchLayoutSnapshot): WorkbenchLayoutSnapshot {
   return {
@@ -72,6 +74,8 @@ function cloneLayout(layout: WorkbenchLayoutSnapshot): WorkbenchLayoutSnapshot {
       workspace: { ...layout.views.workspace },
       outline: { ...layout.views.outline },
       search: { ...layout.views.search },
+      backlinks: { ...layout.views.backlinks },
+      properties: { ...layout.views.properties },
     },
   };
 }
@@ -104,17 +108,19 @@ function clampOutlineSize(size: number): number {
   return Math.round(Math.max(64, Math.min(600, size)));
 }
 
-export function isWorkbenchLayoutSnapshot(value: unknown): value is WorkbenchLayoutSnapshot {
+function migrateWorkbenchLayout(value: unknown): WorkbenchLayoutSnapshot | null {
   if (!isRecord(value) || value.version !== 1 || !isRecord(value.parts) || !isRecord(value.containers) || !isRecord(value.views)) {
-    return false;
+    return null;
   }
   const parts = value.parts;
   const containers = value.containers;
   const views = value.views;
-  if (!hasOnlyKeys(parts, partIds) || !hasOnlyKeys(containers, containerIds) || !hasOnlyKeys(views, viewIds)) {
-    return false;
+  if (!hasOnlyKeys(parts, partIds) || !hasOnlyKeys(containers, containerIds)
+    || Object.keys(views).some((id) => !viewIds.includes(id as WorkbenchViewId))
+    || !["workspace", "outline", "search"].every((id) => id in views)) {
+    return null;
   }
-  return partIds.every((id) => {
+  const valid = partIds.every((id) => {
     const part = parts[id];
     if (!isRecord(part) || typeof part.visible !== "boolean" || !isFiniteNumber(part.size) || !isContainerId(part.activeContainerId)) return false;
     const activeContainer = containers[part.activeContainerId];
@@ -122,15 +128,32 @@ export function isWorkbenchLayoutSnapshot(value: unknown): value is WorkbenchLay
   }) && containerIds.every((id) => {
     const container = containers[id];
     return isRecord(container) && isPartId(container.part) && isFiniteNumber(container.order);
-  }) && viewIds.every((id) => {
-    const view = views[id];
+  }) && Object.values(views).every((view) => {
     return isRecord(view) && isContainerId(view.containerId) && isFiniteNumber(view.order) && typeof view.visible === "boolean" && typeof view.collapsed === "boolean" && (view.size === null || isFiniteNumber(view.size));
   });
+  if (!valid) return null;
+  const migrated = cloneLayout(DEFAULT_WORKBENCH_LAYOUT);
+  for (const id of partIds) migrated.parts[id] = { ...(parts[id] as unknown as WorkbenchPartState) };
+  for (const id of containerIds) migrated.containers[id] = { ...(containers[id] as unknown as WorkbenchContainerState) };
+  for (const id of viewIds) {
+    if (isRecord(views[id])) migrated.views[id] = { ...(views[id] as unknown as WorkbenchViewState) };
+  }
+  return migrated;
+}
+
+export function isWorkbenchLayoutSnapshot(value: unknown): value is WorkbenchLayoutSnapshot {
+  return isRecord(value) && isRecord(value.views) && hasOnlyKeys(value.views, viewIds)
+    && migrateWorkbenchLayout(value) !== null;
+}
+
+export function isMigratableWorkbenchLayout(value: unknown): boolean {
+  return migrateWorkbenchLayout(value) !== null;
 }
 
 export function normalizeWorkbenchLayout(value: unknown, legacy?: LegacyLayout): WorkbenchLayoutSnapshot {
-  const layout = isWorkbenchLayoutSnapshot(value) ? cloneLayout(value) : cloneLayout(DEFAULT_WORKBENCH_LAYOUT);
-  if (!isWorkbenchLayoutSnapshot(value) && legacy) {
+  const migrated = migrateWorkbenchLayout(value);
+  const layout = migrated ?? cloneLayout(DEFAULT_WORKBENCH_LAYOUT);
+  if (!migrated && legacy) {
     if (isFiniteNumber(legacy.sidebarWidth)) layout.parts.primarySidebar.size = clampPartSize("primarySidebar", legacy.sidebarWidth);
     if (isFiniteNumber(legacy.outlineHeight)) layout.views.outline.size = clampOutlineSize(legacy.outlineHeight);
   }

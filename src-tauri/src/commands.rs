@@ -185,6 +185,32 @@ pub async fn workspace_index_headings(
         .await.map_err(|error| error.to_string())
 }
 
+#[tauri::command]
+pub async fn workspace_index_link_targets(
+    state: tauri::State<'_, crate::WorkspaceIndexState>,
+    root: String,
+    source_path: Option<String>,
+) -> Result<Vec<crate::workspace_index::LinkTarget>, String> {
+    let index = current_workspace_index(&state, &root)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        index.link_targets(source_path.as_deref().map(Path::new))
+    })
+    .await
+    .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn workspace_index_backlinks(
+    state: tauri::State<'_, crate::WorkspaceIndexState>,
+    root: String,
+    target_path: String,
+) -> Result<Vec<crate::workspace_index::Backlink>, String> {
+    let index = current_workspace_index(&state, &root)?;
+    tauri::async_runtime::spawn_blocking(move || index.backlinks(Path::new(&target_path)))
+        .await
+        .map_err(|error| error.to_string())
+}
+
 /// Return (and clear) the file Rune was launched with via file association, if any.
 /// Also marks the app "ready" so later OS open events are delivered live, not buffered.
 #[tauri::command]

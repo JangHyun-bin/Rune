@@ -45,6 +45,27 @@ describe("workbench layout", () => {
     expect(normalizeWorkbenchLayout({ version: 1, parts: null })).toEqual(DEFAULT_WORKBENCH_LAYOUT);
   });
 
+  it("migrates an older valid layout by adding new auxiliary views", () => {
+    const legacy = {
+      ...DEFAULT_WORKBENCH_LAYOUT,
+      parts: {
+        ...DEFAULT_WORKBENCH_LAYOUT.parts,
+        primarySidebar: { ...DEFAULT_WORKBENCH_LAYOUT.parts.primarySidebar, size: 333 },
+      },
+      views: {
+        workspace: DEFAULT_WORKBENCH_LAYOUT.views.workspace,
+        outline: DEFAULT_WORKBENCH_LAYOUT.views.outline,
+        search: DEFAULT_WORKBENCH_LAYOUT.views.search,
+      },
+    };
+
+    const migrated = normalizeWorkbenchLayout(legacy);
+
+    expect(migrated.parts.primarySidebar.size).toBe(333);
+    expect(migrated.views.backlinks).toMatchObject({ containerId: "auxiliary", visible: true });
+    expect(migrated.views.properties).toMatchObject({ containerId: "auxiliary", visible: true });
+  });
+
   it("rejects a part whose active container belongs to another part", () => {
     const invalid = {
       ...DEFAULT_WORKBENCH_LAYOUT,

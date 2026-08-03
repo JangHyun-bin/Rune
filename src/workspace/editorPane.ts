@@ -32,7 +32,7 @@ export interface EditorPaneOptions {
   id: string;
   host: HTMLElement;
   editorMode: EditorMode;
-  extraExtensions?: () => Extension[];
+  extraExtensions?: (getDocPath: () => string | null) => Extension[];
   initialSplitRatio?: number;
   readFile: (path: string) => Promise<CommandResult<string> | CommandError>;
   writeFile: (path: string, contents: string) => Promise<CommandResult<null> | CommandError>;
@@ -188,7 +188,8 @@ export function createEditorPane(options: EditorPaneOptions): EditorPane {
   }
 
   function createState(doc: string): EditorState {
-    return editorState(doc, onChange, options.extraExtensions?.() ?? [], editorMode, () => activeTab(tabs)?.path ?? null);
+    const getDocPath = () => activeTab(tabs)?.path ?? null;
+    return editorState(doc, onChange, options.extraExtensions?.(getDocPath) ?? [], editorMode, getDocPath);
   }
 
   function renderTabs(): void {
