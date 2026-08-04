@@ -1,5 +1,7 @@
 use crate::search::{SearchHit, SearchResults};
 use serde::Serialize;
+use sha2::{Digest, Sha256};
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 #[derive(Serialize, Debug, Clone, Copy, PartialEq, Eq)]
@@ -45,6 +47,62 @@ pub struct Backlink {
     pub name: String,
     pub line: usize,
     pub href: String,
+}
+
+#[derive(Serialize, Debug, Clone, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct PathChange {
+    pub from: String,
+    pub to: String,
+}
+
+#[derive(Serialize, Debug, Clone, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct LinkReplacement {
+    pub line: usize,
+    pub old_href: String,
+    pub new_href: String,
+    pub byte_start: usize,
+    pub byte_end: usize,
+}
+
+#[derive(Serialize, Debug, Clone, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct PlannedDocumentEdit {
+    pub path: String,
+    pub resulting_path: String,
+    pub replacements: Vec<LinkReplacement>,
+}
+
+#[derive(Serialize, Debug, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum PathChangeIssueKind {
+    DestinationExists,
+    StaleIndex,
+    UnreadableDocument,
+    UnresolvedLink,
+    UnsupportedLink,
+}
+
+#[derive(Serialize, Debug, Clone, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct PathChangeIssue {
+    pub kind: PathChangeIssueKind,
+    pub path: String,
+    pub href: Option<String>,
+    pub blocking: bool,
+}
+
+#[derive(Serialize, Debug, Clone, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct PathChangePlan {
+    pub plan_id: String,
+    pub source: String,
+    pub destination: String,
+    pub can_apply: bool,
+    pub path_changes: Vec<PathChange>,
+    pub edits: Vec<PlannedDocumentEdit>,
+    pub issues: Vec<PathChangeIssue>,
 }
 
 #[derive(Debug, Clone)]
@@ -164,6 +222,271 @@ impl WorkspaceIndex {
                 })
             })
             .collect()
+    }
+
+    pub fn plan_path_change(
+        &self,
+        source: &Path,
+        destination: &Path,
+    ) -> Result<PathChangePlan, String> {
+        let root_identity = self.root.canonicalize().map_err(|error| {
+            format!(
+                "cannot resolve workspace '{}': {error}",
+                self.root.display()
+            )
+        })?;
+        let source_identity = source
+            .canonicalize()
+            .map_err(|error| format!("cannot resolve source '{}': {error}", source.display()))?;
+        if source_identity == root_identity || !source_identity.starts_with(&root_identity) {
+            return Err(format!("source is outside workspace: {}", source.display()));
+        }
+        if std::fs::symlink_metadata(source)
+            .map_err(|error| format!("cannot inspect source '{}': {error}", source.display()))?
+            .file_type()
+            .is_symlink()
+        {
+            return Err(format!("source symlink is unsafe: {}", source.display()));
+        }
+        let destination_parent = destination.parent().ok_or_else(|| {
+            format!(
+                "destination is outside workspace: {}",
+                destination.display()
+            )
+        })?;
+        let destination_parent_identity = destination_parent.canonicalize().map_err(|error| {
+            format!(
+                "cannot resolve destination parent '{}': {error}",
+                destination_parent.display()
+            )
+        })?;
+        if destination.file_name().is_none()
+            || !destination_parent_identity.starts_with(&root_identity)
+        {
+            return Err(format!(
+                "destination is outside workspace: {}",
+                destination.display()
+            ));
+        }
+        if path_contains_symlink(&self.root, source)
+            || path_contains_symlink(&self.root, destination_parent)
+        {
+            return Err("path change through a symlink is unsafe".into());
+        }
+        if source.is_dir() && destination_parent_identity.starts_with(&source_identity) {
+            return Err(format!(
+                "destination is inside source: {}",
+                destination.display()
+            ));
+        }
+        let path_changes: Vec<_> = self
+            .documents
+            .iter()
+            .filter_map(|document| {
+                remap_moved_path(&document.canonical_path, &source_identity, destination).map(
+                    |to| PathChange {
+                        from: document.path.to_string_lossy().into_owned(),
+                        to: to.to_string_lossy().into_owned(),
+                    },
+                )
+            })
+            .collect();
+        let mut edits = Vec::new();
+        let mut link_issues = Vec::new();
+        for document in &self.documents {
+            let resulting_path =
+                remap_moved_path(&document.canonical_path, &source_identity, destination)
+                    .unwrap_or_else(|| document.path.clone());
+            let source_moved = resulting_path != document.path;
+            let replacements: Vec<_> = document
+                .outbound_links
+                .iter()
+                .filter_map(|link| {
+                    let Some(resolved) = resolve_link_path(&document.path, &link.href) else {
+                        if let Some(kind) = unresolved_link_issue(&link.href) {
+                            link_issues.push(PathChangeIssue {
+                                kind,
+                                path: document.path.to_string_lossy().into_owned(),
+                                href: Some(link.href.clone()),
+                                blocking: false,
+                            });
+                        }
+                        return None;
+                    };
+                    let Some(target) = self
+                        .documents
+                        .iter()
+                        .find(|candidate| candidate.canonical_path == resolved)
+                    else {
+                        if unresolved_link_issue(&link.href).is_some() {
+                            link_issues.push(PathChangeIssue {
+                                kind: PathChangeIssueKind::UnsupportedLink,
+                                path: document.path.to_string_lossy().into_owned(),
+                                href: Some(link.href.clone()),
+                                blocking: false,
+                            });
+                        }
+                        return None;
+                    };
+                    let moved_target =
+                        remap_moved_path(&target.canonical_path, &source_identity, destination);
+                    let resulting_target =
+                        moved_target.clone().unwrap_or_else(|| target.path.clone());
+                    let new_href = if source_moved && moved_target.is_some() {
+                        link.href.clone()
+                    } else {
+                        moved_link_href(&resulting_path, &resulting_target, &link.href)
+                    };
+                    (new_href != link.href).then(|| LinkReplacement {
+                        line: link.line,
+                        old_href: link.href.clone(),
+                        new_href,
+                        byte_start: link.byte_start,
+                        byte_end: link.byte_end,
+                    })
+                })
+                .collect();
+            if !replacements.is_empty() {
+                edits.push(PlannedDocumentEdit {
+                    path: document.path.to_string_lossy().into_owned(),
+                    resulting_path: resulting_path.to_string_lossy().into_owned(),
+                    replacements,
+                });
+            }
+        }
+        let mut issues = link_issues;
+        for document in &self.documents {
+            match std::fs::read_to_string(&document.path) {
+                Ok(current) if current != document.body => issues.push(PathChangeIssue {
+                    kind: PathChangeIssueKind::StaleIndex,
+                    path: document.path.to_string_lossy().into_owned(),
+                    href: None,
+                    blocking: true,
+                }),
+                Err(_) => issues.push(PathChangeIssue {
+                    kind: PathChangeIssueKind::UnreadableDocument,
+                    path: document.path.to_string_lossy().into_owned(),
+                    href: None,
+                    blocking: true,
+                }),
+                _ => {}
+            }
+        }
+        let indexed_paths: HashSet<_> = self
+            .documents
+            .iter()
+            .map(|document| &document.path)
+            .collect();
+        let mut current_paths = markdown_paths(&self.root);
+        current_paths.sort();
+        issues.extend(
+            current_paths
+                .into_iter()
+                .filter(|path| !indexed_paths.contains(path))
+                .map(|path| PathChangeIssue {
+                    kind: PathChangeIssueKind::UnreadableDocument,
+                    path: path.to_string_lossy().into_owned(),
+                    href: None,
+                    blocking: true,
+                }),
+        );
+        if destination.exists() {
+            issues.push(PathChangeIssue {
+                kind: PathChangeIssueKind::DestinationExists,
+                path: destination.to_string_lossy().into_owned(),
+                href: None,
+                blocking: true,
+            });
+        }
+        let plan_id = path_change_plan_id(
+            source,
+            destination,
+            &self.documents,
+            &path_changes,
+            &edits,
+            &issues,
+        )?;
+        Ok(PathChangePlan {
+            plan_id,
+            source: source.to_string_lossy().into_owned(),
+            destination: destination.to_string_lossy().into_owned(),
+            can_apply: !issues.iter().any(|issue| issue.blocking),
+            path_changes,
+            edits,
+            issues,
+        })
+    }
+
+    pub fn apply_path_change(
+        &self,
+        source: &Path,
+        destination: &Path,
+        expected_plan_id: &str,
+    ) -> Result<Self, String> {
+        self.apply_path_change_with(source, destination, expected_plan_id, |path, contents| {
+            crate::fs_ops::write_text_file_atomic(path, contents)
+        })
+    }
+
+    fn apply_path_change_with<F>(
+        &self,
+        source: &Path,
+        destination: &Path,
+        expected_plan_id: &str,
+        mut write: F,
+    ) -> Result<Self, String>
+    where
+        F: FnMut(&Path, &str) -> Result<(), String>,
+    {
+        let plan = self.plan_path_change(source, destination)?;
+        if plan.plan_id != expected_plan_id {
+            return Err("stale path change plan; refresh preview".into());
+        }
+        if !plan.can_apply {
+            return Err("path change plan has blocking issues".into());
+        }
+        let writes: Vec<_> = plan
+            .edits
+            .iter()
+            .map(|edit| {
+                let body = std::fs::read_to_string(&edit.path)
+                    .map_err(|error| format!("read failed '{}': {error}", edit.path))?;
+                let rewritten = rewrite_document(&body, &edit.replacements)?;
+                Ok((PathBuf::from(&edit.resulting_path), body, rewritten))
+            })
+            .collect::<Result<_, String>>()?;
+
+        std::fs::rename(source, destination).map_err(|error| {
+            format!(
+                "rename failed '{}' -> '{}': {error}",
+                source.display(),
+                destination.display()
+            )
+        })?;
+        for (written, (path, _, rewritten)) in writes.iter().enumerate() {
+            if let Err(error) = write(path, rewritten) {
+                let mut rollback_errors = Vec::new();
+                for (written_path, original, _) in writes[..written].iter().rev() {
+                    if let Err(rollback_error) =
+                        crate::fs_ops::write_text_file_atomic(written_path, original)
+                    {
+                        rollback_errors.push(rollback_error);
+                    }
+                }
+                if let Err(rollback_error) = std::fs::rename(destination, source) {
+                    rollback_errors.push(format!("rename rollback failed: {rollback_error}"));
+                }
+                return Err(if rollback_errors.is_empty() {
+                    format!("apply failed and was rolled back: {error}")
+                } else {
+                    format!(
+                        "apply failed: {error}; rollback failed: {}",
+                        rollback_errors.join("; ")
+                    )
+                });
+            }
+        }
+        Self::build(&self.root)
     }
 
     pub fn search(&self, query: &str) -> SearchResults {
@@ -297,6 +620,61 @@ impl WorkspaceIndex {
 struct OutboundLink {
     href: String,
     line: usize,
+    byte_start: usize,
+    byte_end: usize,
+}
+
+fn rewrite_document(body: &str, replacements: &[LinkReplacement]) -> Result<String, String> {
+    let mut ordered: Vec<_> = replacements.iter().collect();
+    ordered.sort_by_key(|replacement| replacement.byte_start);
+    let mut rewritten = String::with_capacity(body.len());
+    let mut cursor = 0;
+    for replacement in ordered {
+        if replacement.byte_start < cursor
+            || replacement.byte_end > body.len()
+            || body.get(replacement.byte_start..replacement.byte_end)
+                != Some(replacement.old_href.as_str())
+        {
+            return Err(format!(
+                "stale link replacement at line {}",
+                replacement.line
+            ));
+        }
+        rewritten.push_str(&body[cursor..replacement.byte_start]);
+        rewritten.push_str(&replacement.new_href);
+        cursor = replacement.byte_end;
+    }
+    rewritten.push_str(&body[cursor..]);
+    Ok(rewritten)
+}
+
+fn path_change_plan_id(
+    source: &Path,
+    destination: &Path,
+    documents: &[IndexedDocument],
+    path_changes: &[PathChange],
+    edits: &[PlannedDocumentEdit],
+    issues: &[PathChangeIssue],
+) -> Result<String, String> {
+    let mut hash = Sha256::new();
+    hash.update(source.to_string_lossy().as_bytes());
+    hash.update([0]);
+    hash.update(destination.to_string_lossy().as_bytes());
+    hash.update([0]);
+    for document in documents {
+        hash.update(document.path.to_string_lossy().as_bytes());
+        hash.update([0]);
+        hash.update(document.body.as_bytes());
+        hash.update([0]);
+    }
+    hash.update(
+        serde_json::to_vec(&(path_changes, edits, issues)).map_err(|error| error.to_string())?,
+    );
+    Ok(hash
+        .finalize()
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect())
 }
 
 fn relative_href(source_path: Option<&Path>, target: &Path, root: &Path) -> String {
@@ -315,6 +693,56 @@ fn relative_href(source_path: Option<&Path>, target: &Path, root: &Path) -> Stri
             .map(|component| component.as_os_str().to_string_lossy().into_owned()),
     );
     parts.join("/")
+}
+
+fn moved_link_href(source_path: &Path, target: &Path, old_href: &str) -> String {
+    let relative = relative_href(Some(source_path), target, Path::new(""));
+    let fragment = old_href
+        .find('#')
+        .map(|index| &old_href[index..])
+        .unwrap_or_default();
+    format!("{}{}", percent_encode_path(&relative), fragment)
+}
+
+fn remap_moved_path(
+    identity_path: &Path,
+    source_identity: &Path,
+    destination: &Path,
+) -> Option<PathBuf> {
+    let suffix = identity_path.strip_prefix(source_identity).ok()?;
+    Some(if suffix.as_os_str().is_empty() {
+        destination.to_path_buf()
+    } else {
+        destination.join(suffix)
+    })
+}
+
+fn path_contains_symlink(root: &Path, path: &Path) -> bool {
+    let Ok(relative) = path.strip_prefix(root) else {
+        return false;
+    };
+    let mut current = root.to_path_buf();
+    for component in relative.components() {
+        current.push(component);
+        if std::fs::symlink_metadata(&current)
+            .is_ok_and(|metadata| metadata.file_type().is_symlink())
+        {
+            return true;
+        }
+    }
+    false
+}
+
+fn percent_encode_path(value: &str) -> String {
+    let mut encoded = String::new();
+    for byte in value.as_bytes() {
+        if byte.is_ascii_alphanumeric() || matches!(*byte, b'/' | b'.' | b'-' | b'_' | b'~') {
+            encoded.push(*byte as char);
+        } else {
+            encoded.push_str(&format!("%{byte:02X}"));
+        }
+    }
+    encoded
 }
 
 fn is_markdown_path(path: &Path) -> bool {
@@ -483,33 +911,53 @@ fn clean_metadata_value(value: &str) -> String {
 fn parse_outbound_links(markdown: &str) -> Vec<OutboundLink> {
     let mut links = Vec::new();
     let mut in_fence = false;
-    for (line_index, line) in markdown.lines().enumerate() {
+    let mut line_start = 0;
+    for (line_index, line_with_ending) in markdown.split_inclusive('\n').enumerate() {
+        let line = line_with_ending.trim_end_matches(['\r', '\n']);
         let start = line.trim_start();
         if start.starts_with("```") || start.starts_with("~~~") {
             in_fence = !in_fence;
+            line_start += line_with_ending.len();
             continue;
         }
         if in_fence {
+            line_start += line_with_ending.len();
             continue;
         }
-        let mut rest = line;
+        let mut rest_start = 0;
+        let mut rest = &line[rest_start..];
         while let Some(open) = rest.find("](") {
-            rest = &rest[open + 2..];
-            let Some(close) = rest.find(')') else { break };
-            let target = rest[..close].trim();
-            let target = if target.starts_with('<') && target.ends_with('>') {
-                &target[1..target.len() - 1]
+            let target_region_start = rest_start + open + 2;
+            let after_open = &line[target_region_start..];
+            let Some(close) = after_open.find(')') else {
+                break;
+            };
+            let raw_target = &after_open[..close];
+            let trimmed = raw_target.trim();
+            let leading = raw_target.len() - raw_target.trim_start().len();
+            let (target, target_offset) = if let Some(close_angle) =
+                trimmed.strip_prefix('<').and_then(|value| value.find('>'))
+            {
+                (&trimmed[1..close_angle + 1], leading + 1)
             } else {
-                target.split_whitespace().next().unwrap_or_default()
+                (
+                    trimmed.split_whitespace().next().unwrap_or_default(),
+                    leading,
+                )
             };
             if !target.is_empty() {
+                let byte_start = line_start + target_region_start + target_offset;
                 links.push(OutboundLink {
                     href: target.to_string(),
                     line: line_index + 1,
+                    byte_start,
+                    byte_end: byte_start + target.len(),
                 });
             }
-            rest = &rest[close + 1..];
+            rest_start = target_region_start + close + 1;
+            rest = &line[rest_start..];
         }
+        line_start += line_with_ending.len();
     }
     links
 }
@@ -540,6 +988,36 @@ fn has_uri_scheme(value: &str) -> bool {
         && scheme
             .bytes()
             .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'+' | b'-' | b'.'))
+}
+
+fn unresolved_link_issue(href: &str) -> Option<PathChangeIssueKind> {
+    if href.starts_with("//") {
+        return None;
+    }
+    let raw_path = href.split('#').next().unwrap_or_default();
+    if raw_path.is_empty() {
+        return None;
+    }
+    let windows_absolute = raw_path.as_bytes().get(1) == Some(&b':')
+        && raw_path
+            .as_bytes()
+            .first()
+            .is_some_and(u8::is_ascii_alphabetic);
+    if has_uri_scheme(raw_path) && !windows_absolute {
+        return None;
+    }
+    let Some(decoded) = percent_decode(raw_path) else {
+        return Some(PathChangeIssueKind::UnsupportedLink);
+    };
+    let path = Path::new(&decoded);
+    if !is_markdown_path(path) {
+        return None;
+    }
+    if path.is_absolute() || raw_path.starts_with(['/', '\\']) || windows_absolute {
+        Some(PathChangeIssueKind::UnsupportedLink)
+    } else {
+        Some(PathChangeIssueKind::UnresolvedLink)
+    }
 }
 
 fn percent_decode(value: &str) -> Option<String> {
@@ -622,13 +1100,9 @@ mod tests {
         assert_eq!(document.relative_path, "notes.md");
         assert_eq!(document.title, "Document title");
         assert_eq!(document.tags, vec!["alpha", "beta"]);
-        assert_eq!(
-            document.outbound_links,
-            vec![OutboundLink {
-                href: "guide.md".into(),
-                line: 5,
-            }]
-        );
+        assert_eq!(document.outbound_links.len(), 1);
+        assert_eq!(document.outbound_links[0].href, "guide.md");
+        assert_eq!(document.outbound_links[0].line, 5);
         assert!(document.modified_millis > 0);
     }
 
@@ -678,6 +1152,530 @@ mod tests {
                 href: "%EC%95%88%EB%82%B4%20%EB%AC%B8%EC%84%9C.md#guide".into(),
             }]
         );
+    }
+
+    #[test]
+    fn plans_an_inbound_link_rewrite_without_mutating_disk() {
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("안내 문서.md");
+        let renamed = dir.path().join("가이드 문서.md");
+        let source = dir.path().join("notes.md");
+        std::fs::write(&target, "# Guide\n").unwrap();
+        let original = "[guide](%EC%95%88%EB%82%B4%20%EB%AC%B8%EC%84%9C.md#guide)\n";
+        std::fs::write(&source, original).unwrap();
+        let index = WorkspaceIndex::build(dir.path()).unwrap();
+
+        let plan = index.plan_path_change(&target, &renamed).unwrap();
+
+        assert!(plan.can_apply);
+        assert_eq!(plan.path_changes.len(), 1);
+        assert_eq!(plan.path_changes[0].from, target.to_string_lossy());
+        assert_eq!(plan.path_changes[0].to, renamed.to_string_lossy());
+        assert_eq!(plan.edits.len(), 1);
+        assert_eq!(plan.edits[0].path, source.to_string_lossy());
+        assert_eq!(plan.edits[0].resulting_path, source.to_string_lossy());
+        assert_eq!(plan.edits[0].replacements.len(), 1);
+        assert_eq!(plan.edits[0].replacements[0].line, 1);
+        assert_eq!(
+            plan.edits[0].replacements[0].old_href,
+            "%EC%95%88%EB%82%B4%20%EB%AC%B8%EC%84%9C.md#guide"
+        );
+        assert_eq!(
+            plan.edits[0].replacements[0].new_href,
+            "%EA%B0%80%EC%9D%B4%EB%93%9C%20%EB%AC%B8%EC%84%9C.md#guide"
+        );
+        assert_eq!(std::fs::read_to_string(&source).unwrap(), original);
+        assert!(target.exists());
+        assert!(!renamed.exists());
+    }
+
+    #[test]
+    fn rewrites_outbound_links_when_the_source_document_moves() {
+        let dir = tempfile::tempdir().unwrap();
+        let drafts = dir.path().join("drafts");
+        let archive = dir.path().join("archive").join("deep");
+        std::fs::create_dir(&drafts).unwrap();
+        std::fs::create_dir_all(&archive).unwrap();
+        let source = drafts.join("note.md");
+        let destination = archive.join("note.md");
+        let target = dir.path().join("guide.md");
+        std::fs::write(&target, "# Guide\n## Section\n").unwrap();
+        std::fs::write(&source, "[guide](../guide.md#section)\n").unwrap();
+        let index = WorkspaceIndex::build(dir.path()).unwrap();
+
+        let plan = index.plan_path_change(&source, &destination).unwrap();
+
+        assert_eq!(plan.edits.len(), 1);
+        assert_eq!(plan.edits[0].path, source.to_string_lossy());
+        assert_eq!(plan.edits[0].resulting_path, destination.to_string_lossy());
+        assert_eq!(
+            plan.edits[0].replacements,
+            vec![LinkReplacement {
+                line: 1,
+                old_href: "../guide.md#section".into(),
+                new_href: "../../guide.md#section".into(),
+                byte_start: 8,
+                byte_end: 27,
+            }]
+        );
+    }
+
+    #[test]
+    fn plans_folder_moves_and_keeps_links_between_jointly_moved_files_stable() {
+        let dir = tempfile::tempdir().unwrap();
+        let project = dir.path().join("project");
+        let archive = dir.path().join("archive");
+        std::fs::create_dir(&project).unwrap();
+        std::fs::create_dir(&archive).unwrap();
+        let first = project.join("a.md");
+        let second = project.join("b.md");
+        let guide = dir.path().join("guide.md");
+        let inbound = dir.path().join("index.md");
+        std::fs::write(&first, "[peer](./b.md#part) [guide](../guide.md)\n").unwrap();
+        std::fs::write(&second, "# B\n## Part\n").unwrap();
+        std::fs::write(&guide, "# Guide\n").unwrap();
+        std::fs::write(&inbound, "[first](project/a.md)\n").unwrap();
+        let index = WorkspaceIndex::build(dir.path()).unwrap();
+
+        let plan = index
+            .plan_path_change(&project, &archive.join("project"))
+            .unwrap();
+
+        assert_eq!(plan.path_changes.len(), 2);
+        assert_eq!(plan.edits.len(), 2);
+        let moved_edit = plan
+            .edits
+            .iter()
+            .find(|edit| edit.path == first.to_string_lossy())
+            .unwrap();
+        assert_eq!(
+            moved_edit.resulting_path,
+            archive.join("project").join("a.md").to_string_lossy()
+        );
+        assert_eq!(
+            moved_edit.replacements,
+            vec![LinkReplacement {
+                line: 1,
+                old_href: "../guide.md".into(),
+                new_href: "../../guide.md".into(),
+                byte_start: 28,
+                byte_end: 39,
+            }]
+        );
+        let inbound_edit = plan
+            .edits
+            .iter()
+            .find(|edit| edit.path == inbound.to_string_lossy())
+            .unwrap();
+        assert_eq!(
+            inbound_edit.replacements,
+            vec![LinkReplacement {
+                line: 1,
+                old_href: "project/a.md".into(),
+                new_href: "archive/project/a.md".into(),
+                byte_start: 8,
+                byte_end: 20,
+            }]
+        );
+    }
+
+    #[test]
+    fn blocks_a_plan_when_the_destination_already_exists() {
+        let dir = tempfile::tempdir().unwrap();
+        let source = dir.path().join("a.md");
+        let destination = dir.path().join("b.md");
+        std::fs::write(&source, "# A\n").unwrap();
+        std::fs::write(&destination, "# B\n").unwrap();
+        let index = WorkspaceIndex::build(dir.path()).unwrap();
+
+        let plan = index.plan_path_change(&source, &destination).unwrap();
+
+        assert!(!plan.can_apply);
+        assert_eq!(plan.issues.len(), 1);
+        assert_eq!(plan.issues[0].kind, PathChangeIssueKind::DestinationExists);
+        assert_eq!(plan.issues[0].path, destination.to_string_lossy());
+        assert_eq!(std::fs::read_to_string(&source).unwrap(), "# A\n");
+        assert_eq!(std::fs::read_to_string(&destination).unwrap(), "# B\n");
+    }
+
+    #[test]
+    fn blocks_a_plan_when_an_indexed_document_changed_on_disk() {
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("target.md");
+        let renamed = dir.path().join("renamed.md");
+        let source = dir.path().join("notes.md");
+        std::fs::write(&target, "# Target\n").unwrap();
+        std::fs::write(&source, "[target](target.md)\n").unwrap();
+        let index = WorkspaceIndex::build(dir.path()).unwrap();
+        std::fs::write(&source, "externally changed\n[target](target.md)\n").unwrap();
+
+        let plan = index.plan_path_change(&target, &renamed).unwrap();
+
+        assert!(!plan.can_apply);
+        assert!(plan.issues.iter().any(|issue| {
+            issue.kind == PathChangeIssueKind::StaleIndex && issue.path == source.to_string_lossy()
+        }));
+        assert!(target.exists());
+        assert!(!renamed.exists());
+    }
+
+    #[test]
+    fn blocks_a_plan_when_a_markdown_document_cannot_be_indexed() {
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("target.md");
+        let renamed = dir.path().join("renamed.md");
+        let unreadable = dir.path().join("unreadable.md");
+        std::fs::write(&target, "# Target\n").unwrap();
+        std::fs::write(&unreadable, [0xff, 0xfe]).unwrap();
+        let index = WorkspaceIndex::build(dir.path()).unwrap();
+
+        let plan = index.plan_path_change(&target, &renamed).unwrap();
+
+        assert!(!plan.can_apply);
+        assert!(plan.issues.iter().any(|issue| {
+            issue.kind == PathChangeIssueKind::UnreadableDocument
+                && issue.path == unreadable.to_string_lossy()
+        }));
+    }
+
+    #[test]
+    fn reports_unresolved_and_unsupported_links_without_guessing() {
+        let dir = tempfile::tempdir().unwrap();
+        let source_dir = dir.path().join("drafts");
+        let destination_dir = dir.path().join("archive");
+        std::fs::create_dir(&source_dir).unwrap();
+        std::fs::create_dir(&destination_dir).unwrap();
+        let source = source_dir.join("note.md");
+        let destination = destination_dir.join("note.md");
+        std::fs::write(
+            &source,
+            "[missing](../missing.md) [absolute](/outside.md) [web](https://example.com/a.md)\n",
+        )
+        .unwrap();
+        let index = WorkspaceIndex::build(dir.path()).unwrap();
+
+        let plan = index.plan_path_change(&source, &destination).unwrap();
+
+        assert!(plan.can_apply);
+        assert!(plan.issues.iter().any(|issue| {
+            issue.kind == PathChangeIssueKind::UnresolvedLink
+                && issue.href.as_deref() == Some("../missing.md")
+                && !issue.blocking
+        }));
+        assert!(plan.issues.iter().any(|issue| {
+            issue.kind == PathChangeIssueKind::UnsupportedLink
+                && issue.href.as_deref() == Some("/outside.md")
+                && !issue.blocking
+        }));
+        assert!(!plan
+            .issues
+            .iter()
+            .any(|issue| issue.href.as_deref() == Some("https://example.com/a.md")));
+        assert!(plan.edits.is_empty());
+    }
+
+    #[test]
+    fn reports_a_resolved_markdown_link_outside_the_workspace() {
+        let dir = tempfile::tempdir().unwrap();
+        let workspace = dir.path().join("vault");
+        std::fs::create_dir(&workspace).unwrap();
+        std::fs::write(dir.path().join("outside.md"), "# Outside\n").unwrap();
+        let source = workspace.join("source.md");
+        std::fs::write(&source, "[outside](../outside.md)\n").unwrap();
+        let index = WorkspaceIndex::build(&workspace).unwrap();
+
+        let plan = index
+            .plan_path_change(&source, &workspace.join("renamed.md"))
+            .unwrap();
+
+        assert!(plan.issues.iter().any(|issue| {
+            issue.kind == PathChangeIssueKind::UnsupportedLink
+                && issue.href.as_deref() == Some("../outside.md")
+                && !issue.blocking
+        }));
+        assert!(plan.edits.is_empty());
+    }
+
+    #[test]
+    fn reports_unresolved_local_links_in_unmoved_documents() {
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("target.md");
+        let renamed = dir.path().join("renamed.md");
+        let source = dir.path().join("source.md");
+        std::fs::write(&target, "# Target\n").unwrap();
+        std::fs::write(&source, "[missing](missing.md)\n").unwrap();
+        let index = WorkspaceIndex::build(dir.path()).unwrap();
+
+        let plan = index.plan_path_change(&target, &renamed).unwrap();
+
+        assert!(plan.issues.iter().any(|issue| {
+            issue.kind == PathChangeIssueKind::UnresolvedLink
+                && issue.path == source.to_string_lossy()
+                && issue.href.as_deref() == Some("missing.md")
+                && !issue.blocking
+        }));
+    }
+
+    #[test]
+    fn rejects_a_destination_outside_the_open_workspace() {
+        let dir = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        let source = dir.path().join("note.md");
+        std::fs::write(&source, "# Note\n").unwrap();
+        let index = WorkspaceIndex::build(dir.path()).unwrap();
+
+        let error = index
+            .plan_path_change(&source, &outside.path().join("note.md"))
+            .unwrap_err();
+
+        assert!(error.contains("outside workspace"));
+        assert!(source.exists());
+        assert!(!outside.path().join("note.md").exists());
+    }
+
+    #[test]
+    fn rewrites_only_exact_link_targets_with_titles_and_duplicates() {
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("target.md");
+        let renamed = dir.path().join("renamed.md");
+        let source = dir.path().join("source.md");
+        let body = "[one](target.md \"title\") and [two](target.md)\n";
+        std::fs::write(&target, "# Target\n").unwrap();
+        std::fs::write(&source, body).unwrap();
+        let index = WorkspaceIndex::build(dir.path()).unwrap();
+
+        let plan = index.plan_path_change(&target, &renamed).unwrap();
+        let edit = plan
+            .edits
+            .iter()
+            .find(|edit| edit.path == source.to_string_lossy())
+            .unwrap();
+
+        assert_eq!(
+            rewrite_document(body, &edit.replacements).unwrap(),
+            "[one](renamed.md \"title\") and [two](renamed.md)\n"
+        );
+    }
+
+    #[test]
+    fn rewrites_an_angle_wrapped_link_with_spaces_and_a_title() {
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("old name.md");
+        let renamed = dir.path().join("new name.md");
+        let source = dir.path().join("source.md");
+        let body = "[target](<old name.md> \"title\")\n";
+        std::fs::write(&target, "# Target\n").unwrap();
+        std::fs::write(&source, body).unwrap();
+        let index = WorkspaceIndex::build(dir.path()).unwrap();
+
+        let plan = index.plan_path_change(&target, &renamed).unwrap();
+        let edit = plan
+            .edits
+            .iter()
+            .find(|edit| edit.path == source.to_string_lossy())
+            .unwrap();
+
+        assert_eq!(
+            rewrite_document(body, &edit.replacements).unwrap(),
+            "[target](<new%20name.md> \"title\")\n"
+        );
+    }
+
+    #[test]
+    fn applies_a_confirmed_plan_and_returns_a_refreshed_index() {
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("target.md");
+        let renamed = dir.path().join("renamed.md");
+        let source = dir.path().join("source.md");
+        std::fs::write(&target, "# Target\n").unwrap();
+        std::fs::write(&source, "[target](target.md#part)\n").unwrap();
+        let index = WorkspaceIndex::build(dir.path()).unwrap();
+        let plan = index.plan_path_change(&target, &renamed).unwrap();
+
+        let updated = index
+            .apply_path_change(&target, &renamed, &plan.plan_id)
+            .unwrap();
+
+        assert!(!target.exists());
+        assert_eq!(
+            std::fs::read_to_string(&source).unwrap(),
+            "[target](renamed.md#part)\n"
+        );
+        assert_eq!(updated.backlinks(&renamed).len(), 1);
+    }
+
+    #[test]
+    fn rejects_moving_a_folder_into_itself() {
+        let dir = tempfile::tempdir().unwrap();
+        let source = dir.path().join("folder");
+        std::fs::create_dir(&source).unwrap();
+        std::fs::write(source.join("note.md"), "# Note\n").unwrap();
+        let index = WorkspaceIndex::build(dir.path()).unwrap();
+
+        let error = index
+            .plan_path_change(&source, &source.join("nested"))
+            .unwrap_err();
+
+        assert!(error.contains("inside source"));
+        assert!(source.join("note.md").exists());
+    }
+
+    #[test]
+    fn rolls_back_the_rename_and_prior_link_writes_when_apply_fails() {
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("target.md");
+        let renamed = dir.path().join("renamed.md");
+        let first = dir.path().join("a.md");
+        let second = dir.path().join("b.md");
+        std::fs::write(&target, "# Target\n").unwrap();
+        std::fs::write(&first, "[target](target.md)\n").unwrap();
+        std::fs::write(&second, "[target](target.md)\n").unwrap();
+        let index = WorkspaceIndex::build(dir.path()).unwrap();
+        let plan = index.plan_path_change(&target, &renamed).unwrap();
+        let mut writes = 0;
+
+        let error = index
+            .apply_path_change_with(&target, &renamed, &plan.plan_id, |path, contents| {
+                writes += 1;
+                if writes == 2 {
+                    return Err("injected write failure".into());
+                }
+                crate::fs_ops::write_text_file_atomic(path, contents)
+            })
+            .unwrap_err();
+
+        assert!(error.contains("rolled back"));
+        assert!(target.exists());
+        assert!(!renamed.exists());
+        assert_eq!(
+            std::fs::read_to_string(first).unwrap(),
+            "[target](target.md)\n"
+        );
+        assert_eq!(
+            std::fs::read_to_string(second).unwrap(),
+            "[target](target.md)\n"
+        );
+    }
+
+    #[test]
+    fn rejects_a_confirmed_plan_after_an_external_document_change() {
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("target.md");
+        let renamed = dir.path().join("renamed.md");
+        let source = dir.path().join("source.md");
+        std::fs::write(&target, "# Target\n").unwrap();
+        std::fs::write(&source, "[target](target.md)\n").unwrap();
+        let index = WorkspaceIndex::build(dir.path()).unwrap();
+        let plan = index.plan_path_change(&target, &renamed).unwrap();
+        std::fs::write(&source, "externally changed\n").unwrap();
+
+        let error = index
+            .apply_path_change(&target, &renamed, &plan.plan_id)
+            .unwrap_err();
+
+        assert!(error.contains("stale"));
+        assert!(target.exists());
+        assert!(!renamed.exists());
+        assert_eq!(
+            std::fs::read_to_string(source).unwrap(),
+            "externally changed\n"
+        );
+    }
+
+    #[test]
+    fn rejects_an_old_plan_after_the_watcher_refreshes_the_index() {
+        let dir = tempfile::tempdir().unwrap();
+        let source = dir.path().join("source.md");
+        let destination = dir.path().join("destination.md");
+        std::fs::write(&source, "# Original\n").unwrap();
+        let index = WorkspaceIndex::build(dir.path()).unwrap();
+        let plan = index.plan_path_change(&source, &destination).unwrap();
+        std::fs::write(&source, "# Externally changed without links\n").unwrap();
+        let refreshed = WorkspaceIndex::build(dir.path()).unwrap();
+
+        let error = refreshed
+            .apply_path_change(&source, &destination, &plan.plan_id)
+            .unwrap_err();
+
+        assert!(error.contains("stale"));
+        assert!(source.exists());
+        assert!(!destination.exists());
+    }
+
+    #[test]
+    fn rejects_a_confirmed_plan_when_the_destination_appears() {
+        let dir = tempfile::tempdir().unwrap();
+        let source = dir.path().join("source.md");
+        let destination = dir.path().join("destination.md");
+        std::fs::write(&source, "# Source\n").unwrap();
+        let index = WorkspaceIndex::build(dir.path()).unwrap();
+        let plan = index.plan_path_change(&source, &destination).unwrap();
+        std::fs::write(&destination, "# External\n").unwrap();
+
+        let error = index
+            .apply_path_change(&source, &destination, &plan.plan_id)
+            .unwrap_err();
+
+        assert!(error.contains("stale"));
+        assert!(source.exists());
+        assert_eq!(
+            std::fs::read_to_string(destination).unwrap(),
+            "# External\n"
+        );
+    }
+
+    #[test]
+    fn applies_a_recursive_folder_move_with_inbound_and_outbound_links() {
+        let dir = tempfile::tempdir().unwrap();
+        let folder = dir.path().join("folder");
+        let moved = dir.path().join("archive").join("folder");
+        std::fs::create_dir(&folder).unwrap();
+        std::fs::create_dir(dir.path().join("archive")).unwrap();
+        std::fs::write(folder.join("note.md"), "[root](../root.md)\n").unwrap();
+        std::fs::write(dir.path().join("root.md"), "[note](folder/note.md)\n").unwrap();
+        let index = WorkspaceIndex::build(dir.path()).unwrap();
+        let plan = index.plan_path_change(&folder, &moved).unwrap();
+
+        let updated = index
+            .apply_path_change(&folder, &moved, &plan.plan_id)
+            .unwrap();
+
+        assert!(!folder.exists());
+        assert_eq!(
+            std::fs::read_to_string(moved.join("note.md")).unwrap(),
+            "[root](../../root.md)\n"
+        );
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join("root.md")).unwrap(),
+            "[note](archive/folder/note.md)\n"
+        );
+        assert_eq!(updated.backlinks(&moved.join("note.md")).len(), 1);
+    }
+
+    #[test]
+    fn rejects_a_destination_reached_through_a_symlink() {
+        let dir = tempfile::tempdir().unwrap();
+        let source = dir.path().join("source.md");
+        let real = dir.path().join("real");
+        let alias = dir.path().join("alias");
+        std::fs::write(&source, "# Source\n").unwrap();
+        std::fs::create_dir(&real).unwrap();
+        #[cfg(unix)]
+        let linked = std::os::unix::fs::symlink(&real, &alias);
+        #[cfg(windows)]
+        let linked = std::os::windows::fs::symlink_dir(&real, &alias);
+        if linked.is_err() {
+            eprintln!("symlink creation unavailable; skipping platform assertion");
+            return;
+        }
+        let index = WorkspaceIndex::build(dir.path()).unwrap();
+
+        let error = index
+            .plan_path_change(&source, &alias.join("moved.md"))
+            .unwrap_err();
+
+        assert!(error.contains("symlink"));
+        assert!(source.exists());
     }
 
     #[test]
@@ -963,11 +1961,18 @@ mod tests {
         let started = std::time::Instant::now();
         let backlinks = workspace.backlinks(&target);
         let backlink_query = started.elapsed();
+        let started = std::time::Instant::now();
+        let plan = workspace
+            .plan_path_change(&target, &dir.path().join("renamed.md"))
+            .unwrap();
+        let impact_plan = started.elapsed();
 
         assert_eq!(targets.len(), 1_001);
         assert_eq!(backlinks.len(), 1_000);
+        assert_eq!(plan.edits.len(), 1_000);
+        assert!(impact_plan < std::time::Duration::from_secs(10));
         eprintln!(
-            "link baseline: build={build:?}, targets={target_query:?}, backlinks={backlink_query:?}"
+            "link baseline: build={build:?}, targets={target_query:?}, backlinks={backlink_query:?}, impact_plan={impact_plan:?}"
         );
     }
 }

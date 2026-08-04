@@ -1,7 +1,9 @@
 import type { EditorState, Extension } from "@codemirror/state";
 import type { EditorView } from "@codemirror/view";
+import type { PathChangePlan } from "../ipc/bindings";
 import { editorState, createEditorView, type EditorMode } from "../editor/editor";
 import { mountSplitPreview, type SplitPreview } from "../editor/splitPreview";
+import { samePath } from "./paths";
 import { mountTabBar } from "./tabBar";
 import {
   activeTab,
@@ -65,6 +67,8 @@ export interface EditorPane {
   activeText(): string;
   activeDirty(): boolean;
   hasDirtyTabs(): boolean;
+  dirtyPaths(): string[];
+  reconcilePathChange(change: Pick<PathChangePlan, "pathChanges" | "edits">): Promise<void>;
   tabsSnapshot(): { openTabs: string[]; activePath: string | null };
   setEditorMode(mode: EditorMode): void;
   refreshWritingModes(): void;
@@ -170,6 +174,44 @@ export function createEditorPane(options: EditorPaneOptions): EditorPane {
 
   function hasDirtyTabs(): boolean {
     return tabs.tabs.some(tabDirty);
+  }
+
+  function dirtyPaths(): string[] {
+    return tabs.tabs.filter(tabDirty).flatMap((tab) => tab.path ? [tab.path] : []);
+  }
+
+  async function reconcilePathChange(
+    change: Pick<PathChangePlan, "pathChanges" | "edits">,
+  ): Promise<void> {
+    stashActiveState();
+    for (const tab of [...tabs.tabs]) {
+      if (!tab.path || tabDirty(tab)) continue;
+      const moved = change.pathChanges.find((pathChange) => samePath(pathChange.from, tab.path!));
+      const nextPath = moved?.to ?? tab.path;
+      const rewritten = change.edits.some((edit) =>
+        samePath(edit.path, tab.path!) || samePath(edit.resultingPath, nextPath));
+      let nextText = tab.currentText;
+      if (rewritten) {
+        const result = await options.readFile(nextPath);
+        if (result.status === "error") {
+          console.error(result.error);
+          options.onReadError?.(result.error);
+        } else {
+          nextText = result.data;
+        }
+      }
+      if (!moved && !rewritten) continue;
+      tabs = {
+        ...tabs,
+        tabs: tabs.tabs.map((candidate) => candidate.id === tab.id
+          ? { ...candidate, path: nextPath, savedText: nextText, currentText: nextText }
+          : candidate),
+      };
+      states.delete(tab.id);
+    }
+    showActive();
+    options.onDirtyChange(id);
+    options.onRequestSaveSettings();
   }
 
   function activeTabId(): string | null {
@@ -624,6 +666,8 @@ export function createEditorPane(options: EditorPaneOptions): EditorPane {
     activeText,
     activeDirty,
     hasDirtyTabs,
+    dirtyPaths,
+    reconcilePathChange,
     tabsSnapshot,
     setEditorMode,
     refreshWritingModes() {

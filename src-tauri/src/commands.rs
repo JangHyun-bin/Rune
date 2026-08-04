@@ -211,6 +211,44 @@ pub async fn workspace_index_backlinks(
         .map_err(|error| error.to_string())
 }
 
+#[tauri::command]
+pub async fn plan_path_change(
+    state: tauri::State<'_, crate::WorkspaceIndexState>,
+    root: String,
+    source: String,
+    destination: String,
+) -> Result<crate::workspace_index::PathChangePlan, String> {
+    let index = current_workspace_index(&state, &root)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        index.plan_path_change(Path::new(&source), Path::new(&destination))
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
+#[tauri::command]
+pub async fn apply_path_change(
+    state: tauri::State<'_, crate::WorkspaceIndexState>,
+    root: String,
+    source: String,
+    destination: String,
+    expected_plan_id: String,
+) -> Result<crate::workspace_index::IndexStats, String> {
+    let index = current_workspace_index(&state, &root)?;
+    let updated = tauri::async_runtime::spawn_blocking(move || {
+        index.apply_path_change(
+            Path::new(&source),
+            Path::new(&destination),
+            &expected_plan_id,
+        )
+    })
+    .await
+    .map_err(|error| error.to_string())??;
+    let stats = updated.stats();
+    *state.0.lock().map_err(|error| error.to_string())? = Some(Arc::new(updated));
+    Ok(stats)
+}
+
 /// Return (and clear) the file Rune was launched with via file association, if any.
 /// Also marks the app "ready" so later OS open events are delivered live, not buffered.
 #[tauri::command]
@@ -220,11 +258,6 @@ pub fn take_launch_file(
 ) -> Option<String> {
     ready.0.store(true, Ordering::SeqCst);
     launch.0.lock().ok().and_then(|mut g| g.take())
-}
-
-#[tauri::command]
-pub fn rename_path(path: String, new_name: String) -> Result<(), String> {
-    fs_ops::rename(std::path::Path::new(&path), &new_name)
 }
 
 #[tauri::command]

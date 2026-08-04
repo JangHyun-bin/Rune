@@ -157,6 +157,8 @@ interface MockPane {
   activePath: ReturnType<typeof vi.fn>;
   activeDirty: ReturnType<typeof vi.fn>;
   hasDirtyTabs: ReturnType<typeof vi.fn>;
+  dirtyPaths: ReturnType<typeof vi.fn>;
+  reconcilePathChange: ReturnType<typeof vi.fn>;
   tabsSnapshot: ReturnType<typeof vi.fn>;
   setEditorMode: ReturnType<typeof vi.fn>;
   refreshWritingModes: ReturnType<typeof vi.fn>;
@@ -205,6 +207,8 @@ const editorPaneMock = vi.hoisted(() => {
       activeText: vi.fn(() => ""),
       activeDirty: vi.fn(() => false),
       hasDirtyTabs: vi.fn(() => false),
+      dirtyPaths: vi.fn(() => []),
+      reconcilePathChange: vi.fn(async () => {}),
       tabsSnapshot: vi.fn(() => ({ openTabs: [...openTabs], activePath })),
       setEditorMode: vi.fn(),
       refreshWritingModes: vi.fn(),
@@ -301,6 +305,29 @@ describe("pane workspace", () => {
 
     expect(workspace.hasDirtyTabs()).toBe(true);
 
+    workspace.destroy();
+  });
+
+  it("returns dirty document paths across every pane", async () => {
+    const { workspace } = makeWorkspace();
+    await workspace.splitActivePaneAndOpen("/w/b.md", "row", "after");
+    editorPaneMock.panes.get("pane-1")!.dirtyPaths.mockReturnValue(["/w/a.md"]);
+    editorPaneMock.panes.get("pane-2")!.dirtyPaths.mockReturnValue(["/w/b.md"]);
+
+    expect(workspace.dirtyPaths()).toEqual(["/w/a.md", "/w/b.md"]);
+
+    workspace.destroy();
+  });
+
+  it("reconciles a successful path change in every pane", async () => {
+    const { workspace } = makeWorkspace();
+    await workspace.splitActivePaneAndOpen("/w/b.md", "row", "after");
+    const change = { pathChanges: [], edits: [] };
+
+    await workspace.reconcilePathChange(change);
+
+    expect(editorPaneMock.panes.get("pane-1")!.reconcilePathChange).toHaveBeenCalledWith(change);
+    expect(editorPaneMock.panes.get("pane-2")!.reconcilePathChange).toHaveBeenCalledWith(change);
     workspace.destroy();
   });
 

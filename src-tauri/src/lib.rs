@@ -80,9 +80,10 @@ pub fn run() {
             commands::workspace_index_headings,
             commands::workspace_index_link_targets,
             commands::workspace_index_backlinks,
+            commands::plan_path_change,
+            commands::apply_path_change,
             commands::take_launch_file,
             commands::open_default_apps_settings,
-            commands::rename_path,
             commands::delete_path,
             commands::create_file,
             commands::create_dir

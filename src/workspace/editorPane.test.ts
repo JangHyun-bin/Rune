@@ -576,6 +576,7 @@ describe("editor pane", () => {
 
     expect(pane.activeDirty()).toBe(false);
     expect(pane.hasDirtyTabs()).toBe(true);
+    expect(pane.dirtyPaths()).toEqual(["/w/a.md"]);
 
     pane.destroy();
   });
@@ -597,6 +598,44 @@ describe("editor pane", () => {
     await pane.flushSaves();
 
     expect(pane.hasDirtyTabs()).toBe(true);
+    pane.destroy();
+  });
+
+  it("remaps moved tabs and reloads clean rewritten documents", async () => {
+    const host = document.createElement("div");
+    const files = new Map([
+      ["/w/old.md", "# Old"],
+      ["/w/links.md", "[old](old.md)"],
+    ]);
+    const pane = createEditorPane({
+      id: "pane-1",
+      host,
+      editorMode: "source",
+      readFile: vi.fn(async (path: string) => files.has(path)
+        ? ({ status: "ok" as const, data: files.get(path)! })
+        : ({ status: "error" as const, error: "missing" })),
+      writeFile: vi.fn(async () => ({ status: "ok" as const, data: null })),
+      onActiveChange: vi.fn(),
+      onDirtyChange: vi.fn(),
+      onRequestSaveSettings: vi.fn(),
+    });
+    await pane.openPath("/w/old.md");
+    await pane.openPath("/w/links.md");
+    files.delete("/w/old.md");
+    files.set("/w/new.md", "# Old");
+    files.set("/w/links.md", "[old](new.md)");
+
+    await pane.reconcilePathChange({
+      pathChanges: [{ from: "/w/old.md", to: "/w/new.md" }],
+      edits: [{ path: "/w/links.md", resultingPath: "/w/links.md", replacements: [] }],
+    });
+
+    expect(pane.tabsSnapshot()).toEqual({
+      openTabs: ["/w/new.md", "/w/links.md"],
+      activePath: "/w/links.md",
+    });
+    expect(pane.activeText()).toBe("[old](new.md)");
+    expect(pane.hasDirtyTabs()).toBe(false);
     pane.destroy();
   });
 

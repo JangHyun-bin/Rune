@@ -111,16 +111,6 @@ fn safe_child(dir: &Path, name: &str) -> Result<PathBuf, String> {
     Ok(dir.join(n))
 }
 
-/// path를 같은 폴더 안에서 new_name으로 이름 변경. 대상이 이미 있으면 에러.
-pub fn rename(path: &Path, new_name: &str) -> Result<(), String> {
-    let parent = path.parent().ok_or("path has no parent folder")?;
-    let target = safe_child(parent, new_name)?;
-    if target.exists() {
-        return Err(format!("already exists: {}", target.display()));
-    }
-    fs::rename(path, &target).map_err(|e| format!("rename failed: {e}"))
-}
-
 /// dir 안에 빈 파일 생성. 새 경로 반환.
 pub fn create_file(dir: &Path, name: &str) -> Result<String, String> {
     let target = safe_child(dir, name)?;
@@ -208,24 +198,6 @@ mod tests {
         let a1 = save_asset(dir.path(), b, "png").unwrap();
         let a2 = save_asset(dir.path(), b, "png").unwrap();
         assert_eq!(a1, a2);
-    }
-
-    #[test]
-    fn rename_moves_within_parent() {
-        let dir = tempfile::tempdir().unwrap();
-        let a = dir.path().join("a.md");
-        std::fs::write(&a, "x").unwrap();
-        rename(&a, "b.md").unwrap();
-        assert!(!a.exists());
-        assert!(dir.path().join("b.md").exists());
-    }
-
-    #[test]
-    fn rename_to_existing_is_err() {
-        let dir = tempfile::tempdir().unwrap();
-        std::fs::write(dir.path().join("a.md"), "x").unwrap();
-        std::fs::write(dir.path().join("b.md"), "y").unwrap();
-        assert!(rename(&dir.path().join("a.md"), "b.md").is_err());
     }
 
     #[test]

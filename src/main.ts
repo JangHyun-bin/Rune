@@ -1,6 +1,6 @@
 import "./styles.css";
 import { type EditorMode } from "./editor/editor";
-import { commands, type LinkTarget } from "./ipc/bindings";
+import { commands, type LinkTarget, type PathChangePlan } from "./ipc/bindings";
 import { confirm as confirmDialog, open, save } from "@tauri-apps/plugin-dialog";
 import { revealItemInDir, openUrl } from "@tauri-apps/plugin-opener";
 import { check } from "@tauri-apps/plugin-updater";
@@ -35,6 +35,8 @@ import { mountHelpPanel } from "./workspace/helpPanel";
 import { t as tr, setLocale, getLocale, detectLocale, LOCALES, type Locale } from "./i18n/i18n";
 import { showContextMenu, type MenuItem } from "./workspace/contextMenu";
 import { promptModal } from "./workspace/promptModal";
+import { runPathChange } from "./workspace/pathChangeFlow";
+import { showPathChangePreview } from "./workspace/pathChangePreview";
 import { clearFindHighlights, findHighlightExtension, setFindHighlights } from "./editor/findHighlights";
 import { createSettingsSaveScheduler, DEFAULT_LAYOUT, normalizeLayoutSettings, normalizePersistedWorkbenchLayout, parseLayoutSettingsJson, serializeLayoutSettings, type LayoutSettings, type ResolvedLayoutSettings } from "./workspace/layoutSettings";
 import { clampEditorFontScale, stepEditorFontScale, EDITOR_FONT_DEFAULT, clampUiScale, UI_SCALE_DEFAULT } from "./theme/scale";
@@ -675,12 +677,42 @@ async function refreshTree(): Promise<void> {
 async function copyPath(p: string): Promise<void> {
   try { await navigator.clipboard.writeText(p); } catch (e) { console.error(e); }
 }
+function pathChangeDestination(root: string, source: string, input: string): string {
+  if (/^(?:[A-Za-z]:[\\/]|[\\/]{1,2})/.test(input)) return input;
+  const separator = root.includes("\\") ? "\\" : "/";
+  if (input.includes("/") || input.includes("\\")) {
+    return `${root.replace(/[\\/]$/, "")}${separator}${input.replace(/^[\\/]+/, "")}`;
+  }
+  const split = Math.max(source.lastIndexOf("/"), source.lastIndexOf("\\"));
+  return split >= 0 ? `${source.slice(0, split + 1)}${input}` : input;
+}
+async function synchronizePathChange(plan: PathChangePlan): Promise<void> {
+  await paneWorkspace.reconcilePathChange(plan);
+  await refreshTree();
+  if (currentFolder) {
+    const headings = await commands.workspaceIndexHeadings(currentFolder);
+    if (headings.status === "ok") workspaceHeadings = headings.data;
+  }
+  workspaceLinkTargetVersion++;
+  workspaceLinkTargets.clear();
+  workspaceLinkTargetLoads.clear();
+  syncActiveUI();
+  scheduleSaveSettings();
+}
 async function renameEntry(path: string, name: string): Promise<void> {
   const next = await promptModal({ title: tr("prompt.rename"), value: name });
   if (!next || next === name) return;
-  const res = await commands.renamePath(path, next);
-  if (res.status === "error") { errorBanner.show(tr("error.fileOp", { msg: res.error })); return; }
-  await refreshTree();
+  if (!currentFolder) return;
+  const destination = pathChangeDestination(currentFolder, path, next);
+  await runPathChange(currentFolder, path, destination, {
+    plan: commands.planPathChange,
+    apply: commands.applyPathChange,
+    dirtyPaths: () => paneWorkspace.dirtyPaths(),
+    preview: showPathChangePreview,
+    synchronize: synchronizePathChange,
+    showError: (message) => errorBanner.show(tr("error.fileOp", { msg: message })),
+    dirtyMessage: tr("pathChange.dirty"),
+  });
 }
 async function deleteEntry(path: string, name: string): Promise<void> {
   if (!confirm(tr("confirm.delete", { name }))) return;

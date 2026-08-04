@@ -19,6 +19,12 @@ export interface WorkspaceIndexHeading { path: string; name: string; text: strin
 export interface LinkTargetHeading { text: string; level: number; line: number; }
 export interface LinkTarget { path: string; relativePath: string; href: string; name: string; title: string; headings: LinkTargetHeading[]; }
 export interface Backlink { path: string; name: string; line: number; href: string; }
+export interface PathChange { from: string; to: string; }
+export interface LinkReplacement { line: number; oldHref: string; newHref: string; byteStart: number; byteEnd: number; }
+export interface PlannedDocumentEdit { path: string; resultingPath: string; replacements: LinkReplacement[]; }
+export type PathChangeIssueKind = "destinationExists" | "staleIndex" | "unreadableDocument" | "unresolvedLink" | "unsupportedLink";
+export interface PathChangeIssue { kind: PathChangeIssueKind; path: string; href: string | null; blocking: boolean; }
+export interface PathChangePlan { planId: string; source: string; destination: string; canApply: boolean; pathChanges: PathChange[]; edits: PlannedDocumentEdit[]; issues: PathChangeIssue[]; }
 
 async function call<T>(cmd: string, args: Record<string, unknown>): Promise<Result<T>> {
   try {
@@ -50,10 +56,12 @@ export const commands = {
     call<LinkTarget[]>("workspace_index_link_targets", { root, sourcePath }),
   workspaceIndexBacklinks: (root: string, targetPath: string) =>
     call<Backlink[]>("workspace_index_backlinks", { root, targetPath }),
+  planPathChange: (root: string, source: string, destination: string) =>
+    call<PathChangePlan>("plan_path_change", { root, source, destination }),
+  applyPathChange: (root: string, source: string, destination: string, expectedPlanId: string) =>
+    call<WorkspaceIndexStats>("apply_path_change", { root, source, destination, expectedPlanId }),
   takeLaunchFile: () => call<string | null>("take_launch_file", {}),
   openDefaultAppsSettings: () => call<null>("open_default_apps_settings", {}),
-  renamePath: (path: string, newName: string) =>
-    call<null>("rename_path", { path, newName }),
   deletePath: (path: string) => call<null>("delete_path", { path }),
   createFile: (dir: string, name: string) =>
     call<string>("create_file", { dir, name }),

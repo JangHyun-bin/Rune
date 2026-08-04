@@ -10,6 +10,7 @@ import {
   type SplitDirection,
 } from "./paneLayout";
 import type { PaneWorkspaceSnapshot } from "./panePersistence";
+import type { PathChangePlan } from "../ipc/bindings";
 
 export interface PaneWorkspaceOptions {
   host: HTMLElement;
@@ -48,6 +49,8 @@ export interface PaneWorkspace {
   refreshWritingModes(): void;
   flushSaves(): Promise<void>;
   hasDirtyTabs(): boolean;
+  dirtyPaths(): string[];
+  reconcilePathChange(change: Pick<PathChangePlan, "pathChanges" | "edits">): Promise<void>;
   setSplitRatio(ratio: number): void;
   splitRatio(): number;
   snapshot(): PaneWorkspaceSnapshot;
@@ -368,6 +371,16 @@ export function createPaneWorkspace(options: PaneWorkspaceOptions): PaneWorkspac
     return [...panes.values()].some((pane) => pane.hasDirtyTabs());
   }
 
+  function dirtyPaths(): string[] {
+    return [...panes.values()].flatMap((pane) => pane.dirtyPaths());
+  }
+
+  async function reconcilePathChange(
+    change: Pick<PathChangePlan, "pathChanges" | "edits">,
+  ): Promise<void> {
+    await Promise.all([...panes.values()].map((pane) => pane.reconcilePathChange(change)));
+  }
+
   function setSplitRatio(ratio: number): void {
     for (const pane of panes.values()) pane.setSplitRatio(ratio);
   }
@@ -456,6 +469,8 @@ export function createPaneWorkspace(options: PaneWorkspaceOptions): PaneWorkspac
     refreshWritingModes,
     flushSaves,
     hasDirtyTabs,
+    dirtyPaths,
+    reconcilePathChange,
     setSplitRatio,
     splitRatio,
     snapshot,
