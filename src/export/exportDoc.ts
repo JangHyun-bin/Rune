@@ -8,7 +8,7 @@ function escapeHtml(s: string): string {
   return s.replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c] as string));
 }
 
-function buildHtml(title: string, body: string): string {
+export function buildHtmlDocument(title: string, body: string): string {
   return `<!doctype html><html lang="ko"><head><meta charset="utf-8"><title>${escapeHtml(title)}</title>
 <style>
 ${katexCss}
@@ -36,18 +36,45 @@ img{max-width:100%}
 </style></head><body><article>${body}</article></body></html>`;
 }
 
-export async function exportHtml(markdown: string, title: string): Promise<void> {
-  const body = await renderBody(markdown);
-  const html = buildHtml(title, body);
+export async function saveHtmlDocument(html: string, title: string): Promise<void> {
   const path = await save({ filters: [{ name: "HTML", extensions: ["html"] }], defaultPath: `${title}.html` });
   if (typeof path !== "string") return;
   const res = await commands.writeFile(path, html);
   if (res.status === "error") console.error(res.error);
 }
 
+export function showHtmlPreview(html: string, title: string, closeLabel = "Close"): void {
+  const overlay = document.createElement("div");
+  overlay.className = "project-preview-overlay";
+  const dialog = document.createElement("div");
+  dialog.className = "project-preview-dialog";
+  dialog.setAttribute("role", "dialog");
+  dialog.setAttribute("aria-modal", "true");
+  const heading = document.createElement("h2");
+  heading.textContent = title;
+  const iframe = document.createElement("iframe");
+  iframe.className = "project-preview-frame";
+  iframe.setAttribute("title", title);
+  iframe.srcdoc = html;
+  const close = document.createElement("button");
+  close.type = "button";
+  close.className = "btn btn-secondary";
+  close.textContent = closeLabel;
+  close.addEventListener("click", () => overlay.remove());
+  dialog.append(heading, iframe, close);
+  overlay.appendChild(dialog);
+  document.body.appendChild(overlay);
+}
+
+export async function exportHtml(markdown: string, title: string): Promise<void> {
+  const body = await renderBody(markdown);
+  const html = buildHtmlDocument(title, body);
+  await saveHtmlDocument(html, title);
+}
+
 export async function exportPdf(markdown: string, title: string): Promise<void> {
   const body = await renderBody(markdown);
-  const html = buildHtml(title, body);
+  const html = buildHtmlDocument(title, body);
   const iframe = document.createElement("iframe");
   Object.assign(iframe.style, { position: "fixed", right: "0", bottom: "0", width: "0", height: "0", border: "0" });
   document.body.appendChild(iframe);

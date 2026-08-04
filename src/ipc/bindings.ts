@@ -37,6 +37,7 @@ async function call<T>(cmd: string, args: Record<string, unknown>): Promise<Resu
 }
 
 export const commands = {
+  pathExists: (path: string) => call<boolean>("path_exists", { path }),
   readFile: (path: string) => call<string>("read_file", { path }),
   writeFile: (path: string, contents: string) =>
     call<null>("write_file", { path, contents }),

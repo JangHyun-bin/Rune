@@ -194,6 +194,7 @@ function setup({ rootWidth = 1024, sidebarHeight = 820 } = {}) {
   const createWorkspace = vi.fn(() => ({ element: document.createElement("div"), focus: focusWorkspace, relabel, dispose() {} }));
   const createOutline = vi.fn(() => ({ element: document.createElement("div"), focus: focusOutline, relabel, dispose() {} }));
   const createTags = vi.fn(() => ({ element: document.createElement("div"), relabel, dispose() {} }));
+  const createProject = vi.fn(() => ({ element: document.createElement("div"), relabel, dispose() {} }));
   const createSearch = vi.fn(() => ({ element: document.createElement("div"), focus: focusSearch, relabel, dispose() {} }));
   const createBacklinks = vi.fn(() => ({ element: document.createElement("div"), focus: focusBacklinks, relabel, dispose() {} }));
   const createProperties = vi.fn(() => ({ element: document.createElement("div"), relabel, dispose() {} }));
@@ -203,6 +204,7 @@ function setup({ rootWidth = 1024, sidebarHeight = 820 } = {}) {
   registry.registerView({ id: "workspace", titleKey: "view.workspace", defaultContainerId: "explorer", order: 0, create: createWorkspace });
   registry.registerView({ id: "outline", titleKey: "view.outline", defaultContainerId: "explorer", order: 1, create: createOutline });
   registry.registerView({ id: "tags", titleKey: "view.tags", defaultContainerId: "explorer", order: 2, create: createTags });
+  registry.registerView({ id: "project", titleKey: "view.project", defaultContainerId: "explorer", order: 3, create: createProject });
   registry.registerView({ id: "search", titleKey: "view.search", defaultContainerId: "search", order: 0, create: createSearch });
   registry.registerView({ id: "backlinks", titleKey: "view.backlinks", defaultContainerId: "auxiliary", order: 0, create: createBacklinks });
   registry.registerView({ id: "properties", titleKey: "view.properties", defaultContainerId: "auxiliary", order: 1, create: createProperties });
@@ -276,7 +278,7 @@ describe("workbench", () => {
     const container = byData(primarySidebar as unknown as TestElement, "containerId", "explorer");
     const views = byClass(container, "workbench-view");
 
-    expect(views.map((view) => view.dataset.viewId)).toEqual(["workspace", "outline", "tags"]);
+    expect(views.map((view) => view.dataset.viewId)).toEqual(["workspace", "outline", "tags", "project"]);
   });
 
   it("keeps long Outline content inside its own scroll container", () => {
@@ -422,7 +424,7 @@ describe("workbench", () => {
 
     workbench.relabel();
 
-    expect(relabel).toHaveBeenCalledTimes(3);
+    expect(relabel).toHaveBeenCalledTimes(4);
     expect(onDidChange).not.toHaveBeenCalled();
   });
 

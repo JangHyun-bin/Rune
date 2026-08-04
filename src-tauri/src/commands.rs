@@ -6,6 +6,13 @@ use std::sync::Arc;
 use tauri::{AppHandle, Emitter, Manager};
 
 #[tauri::command]
+pub fn path_exists(path: String) -> Result<bool, String> {
+    Path::new(&path)
+        .try_exists()
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
 pub fn read_file(path: String) -> Result<String, String> {
     fs_ops::read_text_file(&PathBuf::from(path))
 }

@@ -1,6 +1,6 @@
 export type WorkbenchPartId = "primarySidebar" | "secondarySidebar" | "panel";
 export type WorkbenchContainerId = "explorer" | "search" | "auxiliary" | "panel";
-export type WorkbenchViewId = "workspace" | "outline" | "tags" | "search" | "backlinks" | "properties";
+export type WorkbenchViewId = "workspace" | "outline" | "tags" | "project" | "search" | "backlinks" | "properties";
 
 export interface WorkbenchPartState {
   visible: boolean;
@@ -45,6 +45,7 @@ export const DEFAULT_WORKBENCH_LAYOUT: WorkbenchLayoutSnapshot = {
     workspace: { containerId: "explorer", order: 0, visible: true, collapsed: false, size: null },
     outline: { containerId: "explorer", order: 1, visible: true, collapsed: false, size: 220 },
     tags: { containerId: "explorer", order: 2, visible: true, collapsed: true, size: null },
+    project: { containerId: "explorer", order: 3, visible: true, collapsed: true, size: null },
     search: { containerId: "search", order: 0, visible: true, collapsed: false, size: null },
     backlinks: { containerId: "auxiliary", order: 0, visible: true, collapsed: false, size: null },
     properties: { containerId: "auxiliary", order: 1, visible: true, collapsed: false, size: null },
@@ -55,7 +56,7 @@ type LegacyLayout = { sidebarWidth?: unknown; outlineHeight?: unknown };
 
 const partIds: WorkbenchPartId[] = ["primarySidebar", "secondarySidebar", "panel"];
 const containerIds: WorkbenchContainerId[] = ["explorer", "search", "auxiliary", "panel"];
-const viewIds: WorkbenchViewId[] = ["workspace", "outline", "tags", "search", "backlinks", "properties"];
+const viewIds: WorkbenchViewId[] = ["workspace", "outline", "tags", "project", "search", "backlinks", "properties"];
 
 function cloneLayout(layout: WorkbenchLayoutSnapshot): WorkbenchLayoutSnapshot {
   return {
@@ -75,6 +76,7 @@ function cloneLayout(layout: WorkbenchLayoutSnapshot): WorkbenchLayoutSnapshot {
       workspace: { ...layout.views.workspace },
       outline: { ...layout.views.outline },
       tags: { ...layout.views.tags },
+      project: { ...layout.views.project },
       search: { ...layout.views.search },
       backlinks: { ...layout.views.backlinks },
       properties: { ...layout.views.properties },

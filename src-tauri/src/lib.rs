@@ -65,6 +65,7 @@ pub fn run() {
         .manage(LaunchFile(Mutex::new(initial)))
         .manage(AppReady(AtomicBool::new(false)))
         .invoke_handler(tauri::generate_handler![
+            commands::path_exists,
             commands::read_file,
             commands::write_file,
             commands::save_asset,

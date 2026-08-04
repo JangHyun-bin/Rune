@@ -23,7 +23,7 @@ import {
   type PaletteItem,
   type WorkspaceHeading,
 } from "./workspace/commandPalette";
-import { exportHtml, exportPdf } from "./export/exportDoc";
+import { exportHtml, exportPdf, saveHtmlDocument, showHtmlPreview } from "./export/exportDoc";
 import { mountSearchPanel } from "./workspace/searchPanel";
 import { mountFindReplacePanel, type FindReplacePanel } from "./workspace/findReplacePanel";
 import { mountSettingsPanel } from "./workspace/settingsPanel";
@@ -63,6 +63,9 @@ import { markdownLinkExtensions, refreshMarkdownLinkDiagnostics } from "./editor
 import { mountBacklinksPanel, type BacklinksPanel } from "./workspace/backlinksPanel";
 import { mountPropertiesPanel, type PropertiesPanel } from "./workspace/propertiesPanel";
 import { mountTagsPanel, type TagsPanel } from "./workspace/tagsPanel";
+import { mountProjectPanel, projectRelativePath, type ProjectPanel } from "./workspace/projectPanel";
+import { buildProjectHtml, type ProjectDocument } from "./project/projectExport";
+import type { RuneProject } from "./project/project";
 
 const chrome = mountChrome(document.getElementById("titlebar")!, document.getElementById("statusbar")!, {
   onTogglePrimarySidebar: () => workbench.togglePrimarySidebar(),
@@ -96,6 +99,7 @@ let backlinksPanel: BacklinksPanel | null = null;
 let backlinksLoad = 0;
 let propertiesPanel: PropertiesPanel | null = null;
 let tagsPanel: TagsPanel | null = null;
+let projectPanel: ProjectPanel | null = null;
 
 const viewRegistry = createViewRegistry();
 viewRegistry.registerContainer({ id: "explorer", titleKey: "view.explorer", icon: "▤", order: 0 });
@@ -151,6 +155,26 @@ viewRegistry.registerView({
       dispose: () => {
         tagsPanel?.dispose();
         tagsPanel = null;
+      },
+    };
+  },
+});
+viewRegistry.registerView({
+  id: "project",
+  titleKey: "view.project",
+  defaultContainerId: "explorer",
+  order: 3,
+  create() {
+    const element = document.createElement("div");
+    projectPanel = mountProjectPanel(element, previewProject, exportProjectHtml);
+    void projectPanel.refresh(currentFolder, workspaceFiles);
+    return {
+      element,
+      focus: () => projectPanel?.focus(),
+      relabel: () => projectPanel?.relabel(),
+      dispose: () => {
+        projectPanel?.dispose();
+        projectPanel = null;
       },
     };
   },
@@ -583,6 +607,43 @@ function refreshTags(): void {
   void tagsPanel?.refresh(currentFolder);
 }
 
+async function projectDocuments(project: RuneProject): Promise<ProjectDocument[]> {
+  const root = currentFolder;
+  if (!root) throw new Error("No workspace folder");
+  const paths = new Map(workspaceFiles.map((file) => [projectRelativePath(root, file.path), file.path]));
+  const documents = await Promise.all(project.files.map(async (path) => {
+    const absolutePath = paths.get(path);
+    if (!absolutePath) throw new Error(`Missing project document: ${path}`);
+    const result = await commands.readFile(absolutePath);
+    if (result.status === "error") throw new Error(result.error);
+    return { path, markdown: result.data };
+  }));
+  if (!currentFolder || !samePath(currentFolder, root)) throw new Error("Workspace changed while building project");
+  return documents;
+}
+
+async function projectHtml(project: RuneProject): Promise<string> {
+  return buildProjectHtml(project, await projectDocuments(project));
+}
+
+async function previewProject(project: RuneProject): Promise<void> {
+  try {
+    showHtmlPreview(await projectHtml(project), tr("project.previewTitle", { title: project.title }), tr("project.close"));
+  } catch (error) {
+    console.error(error);
+    errorBanner.show(tr("project.exportError"));
+  }
+}
+
+async function exportProjectHtml(project: RuneProject): Promise<void> {
+  try {
+    await saveHtmlDocument(await projectHtml(project), project.title);
+  } catch (error) {
+    console.error(error);
+    errorBanner.show(tr("project.exportError"));
+  }
+}
+
 async function refreshBacklinks(): Promise<void> {
   if (!backlinksPanel) return;
   const folder = currentFolder;
@@ -687,6 +748,7 @@ async function refreshFolderContents(dir: string): Promise<void> {
   if (res.status === "error") { console.error(res.error); errorBanner.show(tr("error.openFolder", { msg: res.error })); tree.showError(); throw new Error(res.error); }
   tree.render(res.data, dir);
   workspaceFiles = flattenFiles(res.data);
+  void projectPanel?.refresh(dir, workspaceFiles);
 }
 async function loadFolder(dir: string): Promise<void> {
   await refreshFolderContents(dir);
@@ -854,6 +916,7 @@ function paletteItems(): PaletteItem[] {
     { label: tr("cmd.toggleFocusLayout"), run: () => applyFocusLayout(!focusLayout) },
     { label: tr("cmd.closeTab"), run: () => { const id = activePane().activeTabId(); if (id) requestClose(id); } },
     { label: tr("cmd.exportHtml"), run: () => void exportHtml(activeView().state.doc.toString(), exportTitle()) },
+    { label: tr("cmd.project"), run: () => workbench.openView("project") },
     { label: tr("cmd.exportPdf"), run: () => void exportPdf(activeView().state.doc.toString(), exportTitle()) },
     { label: tr("cmd.findReplace"), run: () => findReplacePanel?.open() },
     { label: tr("cmd.search"), run: () => workbench.toggleView("search") },

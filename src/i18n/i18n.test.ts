@@ -19,6 +19,19 @@ describe("i18n", () => {
       expect([t("workbench.activityBar"), t("workbench.resizeOutline"), t("help.workbenchNavigation")]).toEqual(values);
     }
   });
+
+  it("localizes the Project View in every locale", () => {
+    const expected: Record<Locale, string> = {
+      en: "Project",
+      ko: "프로젝트",
+      ja: "プロジェクト",
+      "zh-Hans": "项目",
+    };
+    for (const [locale, label] of Object.entries(expected) as [Locale, string][]) {
+      setLocale(locale);
+      expect(t("view.project")).toBe(label);
+    }
+  });
 });
 
 describe("detectLocale", () => {

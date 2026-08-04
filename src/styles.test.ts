@@ -13,5 +13,7 @@ describe("workbench layout CSS", () => {
     expect(rule(".sp-list")).toMatch(/flex:\s*1/);
     expect(rule(".sp-list")).toMatch(/min-height:\s*0/);
     expect(rule(".sp-list")).toMatch(/overflow-y:\s*auto/);
+    expect(rule('.workbench-view[data-view-id="project"]')).toMatch(/flex:\s*0/);
+    expect(rule(".project-files")).toMatch(/overflow-y:\s*auto/);
   });
 });
