@@ -185,7 +185,10 @@ viewRegistry.registerView({
   order: 1,
   create() {
     const element = document.createElement("div");
-    propertiesPanel = mountPropertiesPanel(element);
+    propertiesPanel = mountPropertiesPanel(element, (markdown) => {
+      const view = activeView();
+      view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: markdown } });
+    });
     refreshProperties();
     return {
       element,
