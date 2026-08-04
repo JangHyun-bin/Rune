@@ -64,6 +64,7 @@ describe("workbench layout", () => {
     expect(migrated.parts.primarySidebar.size).toBe(333);
     expect(migrated.views.backlinks).toMatchObject({ containerId: "auxiliary", visible: true });
     expect(migrated.views.properties).toMatchObject({ containerId: "auxiliary", visible: true });
+    expect(migrated.views.tags).toMatchObject({ containerId: "explorer", visible: true });
   });
 
   it("rejects a part whose active container belongs to another part", () => {

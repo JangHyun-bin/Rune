@@ -19,6 +19,8 @@ export interface WorkspaceIndexHeading { path: string; name: string; text: strin
 export interface LinkTargetHeading { text: string; level: number; line: number; }
 export interface LinkTarget { path: string; relativePath: string; href: string; name: string; title: string; headings: LinkTargetHeading[]; }
 export interface Backlink { path: string; name: string; line: number; href: string; }
+export type PropertyKey = "title" | "tags" | "aliases" | "lang";
+export interface PropertyDocument { path: string; relativePath: string; name: string; title: string; properties: Partial<Record<PropertyKey, string[]>>; }
 export interface PathChange { from: string; to: string; }
 export interface LinkReplacement { line: number; oldHref: string; newHref: string; byteStart: number; byteEnd: number; }
 export interface PlannedDocumentEdit { path: string; resultingPath: string; replacements: LinkReplacement[]; }
@@ -56,6 +58,8 @@ export const commands = {
     call<LinkTarget[]>("workspace_index_link_targets", { root, sourcePath }),
   workspaceIndexBacklinks: (root: string, targetPath: string) =>
     call<Backlink[]>("workspace_index_backlinks", { root, targetPath }),
+  workspaceIndexPropertyDocuments: (root: string) =>
+    call<PropertyDocument[]>("workspace_index_property_documents", { root }),
   planPathChange: (root: string, source: string, destination: string) =>
     call<PathChangePlan>("plan_path_change", { root, source, destination }),
   applyPathChange: (root: string, source: string, destination: string, expectedPlanId: string) =>

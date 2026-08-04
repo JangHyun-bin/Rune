@@ -81,6 +81,7 @@ body.resizing-outline, body.resizing-pane-split-column { cursor:row-resize; user
 .workbench-view[data-view-id="workspace"] { flex:1 1 auto; }
 .workbench-view[data-view-id="workspace"] .workbench-view-body { flex:1 1 auto; min-height:120px; overflow:auto; }
 .workbench-view[data-view-id="outline"] { flex:0 0 var(--outline-height); min-height:64px; }
+.workbench-view[data-view-id="tags"] { flex:0 0 220px; min-height:96px; }
 .workbench-view[data-view-id="search"] { flex:1 1 auto; }
 .workbench-view[data-view-id="backlinks"], .workbench-view[data-view-id="properties"] { flex:1 1 0; }
 .workbench-view.collapsed { flex:0 0 auto; min-height:0; }
@@ -110,6 +111,19 @@ body.resizing-outline, body.resizing-pane-split-column { cursor:row-resize; user
 .properties-input:focus { border-color:var(--accent); outline:1px solid var(--accent); }
 .properties-input[aria-invalid="true"] { border-color:var(--danger); }
 .properties-empty { padding:0.75rem; color:var(--muted); font-size:0.8125rem; }
+.tags-panel { height:100%; min-height:0; overflow:auto; }
+.tags-controls { display:flex; gap:0.375rem; padding:0.5rem; border-bottom:1px solid var(--border); }
+.tags-key, .tags-filter { min-width:0; border:1px solid var(--border); border-radius:var(--radius-sm); background:var(--bg); color:var(--text); padding:0.375rem 0.5rem; font:0.75rem var(--sans); }
+.tags-key { flex:0 0 5.5rem; }
+.tags-filter { flex:1; }
+.tag-facets { display:flex; flex-wrap:wrap; gap:0.25rem; padding:0.5rem; border-bottom:1px solid var(--border); }
+.tag-facet { border:1px solid var(--border); border-radius:999px; background:var(--faint); color:var(--text); padding:0.2rem 0.5rem; font:0.6875rem var(--sans); cursor:pointer; }
+.tag-facet:hover { border-color:var(--accent); color:var(--accent); }
+.tags-summary, .tags-empty { padding:0.5rem 0.75rem; color:var(--muted); font-size:0.75rem; }
+.tags-results { display:flex; flex-direction:column; }
+.tags-result { display:flex; flex-direction:column; gap:0.125rem; border:0; border-bottom:1px solid var(--border); background:transparent; color:var(--text); padding:0.5rem 0.75rem; text-align:left; cursor:pointer; }
+.tags-result:hover { background:var(--faint); }
+.tags-result span { color:var(--muted); font-size:0.6875rem; overflow-wrap:anywhere; }
 #editor-toolbar { min-height:2.125rem; flex:0 0 auto; display:flex; align-items:center; justify-content:flex-end; gap:0.5rem;
   padding:0 0.625rem; border-bottom:1px solid var(--border); background:var(--bg); box-sizing:border-box; }
 .layout-mode-control { display:inline-flex; align-items:center; border:1px solid var(--border); border-radius:var(--radius-sm);

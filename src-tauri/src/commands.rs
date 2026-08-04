@@ -212,6 +212,17 @@ pub async fn workspace_index_backlinks(
 }
 
 #[tauri::command]
+pub async fn workspace_index_property_documents(
+    state: tauri::State<'_, crate::WorkspaceIndexState>,
+    root: String,
+) -> Result<Vec<crate::workspace_index::PropertyDocument>, String> {
+    let index = current_workspace_index(&state, &root)?;
+    tauri::async_runtime::spawn_blocking(move || index.property_documents())
+        .await
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
 pub async fn plan_path_change(
     state: tauri::State<'_, crate::WorkspaceIndexState>,
     root: String,

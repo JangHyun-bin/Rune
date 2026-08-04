@@ -80,6 +80,7 @@ pub fn run() {
             commands::workspace_index_headings,
             commands::workspace_index_link_targets,
             commands::workspace_index_backlinks,
+            commands::workspace_index_property_documents,
             commands::plan_path_change,
             commands::apply_path_change,
             commands::take_launch_file,

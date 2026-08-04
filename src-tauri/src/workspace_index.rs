@@ -1,7 +1,7 @@
 use crate::search::{SearchHit, SearchResults};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 use std::path::{Path, PathBuf};
 
 #[derive(Serialize, Debug, Clone, Copy, PartialEq, Eq)]
@@ -47,6 +47,16 @@ pub struct Backlink {
     pub name: String,
     pub line: usize,
     pub href: String,
+}
+
+#[derive(Serialize, Debug, Clone, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct PropertyDocument {
+    pub path: String,
+    pub relative_path: String,
+    pub name: String,
+    pub title: String,
+    pub properties: BTreeMap<String, Vec<String>>,
 }
 
 #[derive(Serialize, Debug, Clone, PartialEq, Eq)]
@@ -124,6 +134,7 @@ struct IndexedDocument {
     title: String,
     #[allow(dead_code)]
     tags: Vec<String>,
+    properties: BTreeMap<String, Vec<String>>,
     #[allow(dead_code)]
     outbound_links: Vec<OutboundLink>,
     body: String,
@@ -220,6 +231,24 @@ impl WorkspaceIndex {
                         href: link.href.clone(),
                     })
                 })
+            })
+            .collect()
+    }
+
+    pub fn property_documents(&self) -> Vec<PropertyDocument> {
+        self.documents
+            .iter()
+            .map(|document| PropertyDocument {
+                path: document.path.to_string_lossy().into_owned(),
+                relative_path: document.relative_path.replace('\\', "/"),
+                name: document.name.clone(),
+                title: document
+                    .properties
+                    .get("title")
+                    .and_then(|values| values.first())
+                    .cloned()
+                    .unwrap_or_else(|| document.title.clone()),
+                properties: document.properties.clone(),
             })
             .collect()
     }
@@ -786,6 +815,8 @@ fn read_document(root: &Path, path: &Path) -> Option<IndexedDocument> {
                 .to_string_lossy()
                 .into_owned()
         });
+    let properties = parse_frontmatter_properties(&body);
+    let tags = properties.get("tags").cloned().unwrap_or_default();
     Some(IndexedDocument {
         path: path.to_path_buf(),
         canonical_path: path.canonicalize().unwrap_or_else(|_| path.to_path_buf()),
@@ -793,7 +824,8 @@ fn read_document(root: &Path, path: &Path) -> Option<IndexedDocument> {
         name,
         modified_millis,
         title,
-        tags: parse_frontmatter_tags(&body),
+        tags,
+        properties,
         outbound_links: parse_outbound_links(&body),
         headings,
         body,
@@ -864,48 +896,100 @@ fn parse_headings(markdown: &str) -> Vec<DocumentHeading> {
     headings
 }
 
-fn parse_frontmatter_tags(markdown: &str) -> Vec<String> {
+fn parse_frontmatter_values(markdown: &str, key: &str) -> Vec<String> {
     let mut lines = markdown.lines();
     if lines.next().map(str::trim) != Some("---") {
         return Vec::new();
     }
-    let mut tags = Vec::new();
-    let mut tag_list = false;
+    let mut values = Vec::new();
+    let mut in_list = false;
     for line in lines {
         let trimmed = line.trim();
-        if trimmed == "---" {
+        if trimmed == "---" || trimmed == "..." {
             break;
         }
-        if let Some(value) = trimmed
-            .strip_prefix("tags:")
-            .or_else(|| trimmed.strip_prefix("tag:"))
+        let field = (!line.starts_with([' ', '\t']))
+            .then(|| trimmed.split_once(':'))
+            .flatten();
+        if let Some((_, value)) = field
+            .filter(|(field_key, _)| *field_key == key || (key == "tags" && *field_key == "tag"))
         {
-            tag_list = value.trim().is_empty();
-            let value = value.trim().trim_start_matches('[').trim_end_matches(']');
-            tags.extend(
-                value
-                    .split(',')
-                    .map(clean_metadata_value)
-                    .filter(|value| !value.is_empty()),
-            );
-        } else if tag_list {
+            in_list = value.trim().is_empty();
+            let value = value.trim();
+            let parsed = if matches!(key, "tags" | "aliases") {
+                split_metadata_values(value.trim_start_matches('[').trim_end_matches(']'))
+            } else {
+                vec![clean_metadata_value(value)]
+            };
+            values.extend(parsed.into_iter().filter(|value| !value.is_empty()));
+        } else if in_list {
             if let Some(value) = trimmed.strip_prefix('-') {
                 let value = clean_metadata_value(value);
                 if !value.is_empty() {
-                    tags.push(value);
+                    values.push(value);
                 }
             } else if !line.starts_with([' ', '\t']) {
-                tag_list = false;
+                in_list = false;
             }
         }
     }
-    tags.sort();
-    tags.dedup();
-    tags
+    values.sort();
+    values.dedup();
+    values
+}
+
+fn parse_frontmatter_properties(markdown: &str) -> BTreeMap<String, Vec<String>> {
+    ["title", "tags", "aliases", "lang"]
+        .into_iter()
+        .filter_map(|key| {
+            let values = parse_frontmatter_values(markdown, key);
+            (!values.is_empty()).then(|| (key.to_string(), values))
+        })
+        .collect()
 }
 
 fn clean_metadata_value(value: &str) -> String {
-    value.trim().trim_matches(['\'', '"']).to_string()
+    let value = value.trim();
+    if value.starts_with('"') && value.ends_with('"') {
+        if let Ok(decoded) = serde_json::from_str::<String>(value) {
+            return decoded;
+        }
+    }
+    if value.starts_with('\'') && value.ends_with('\'') && value.len() >= 2 {
+        return value[1..value.len() - 1].replace("''", "'");
+    }
+    value.to_string()
+}
+
+fn split_metadata_values(value: &str) -> Vec<String> {
+    let mut values = Vec::new();
+    let mut quote = None;
+    let mut escaped = false;
+    let mut start = 0;
+    for (index, character) in value.char_indices() {
+        if escaped {
+            escaped = false;
+            continue;
+        }
+        if character == '\\' && quote == Some('"') {
+            escaped = true;
+            continue;
+        }
+        if matches!(character, '\'' | '"') {
+            quote = if quote == Some(character) {
+                None
+            } else if quote.is_none() {
+                Some(character)
+            } else {
+                quote
+            };
+        } else if character == ',' && quote.is_none() {
+            values.push(clean_metadata_value(&value[start..index]));
+            start = index + character.len_utf8();
+        }
+    }
+    values.push(clean_metadata_value(&value[start..]));
+    values
 }
 
 fn parse_outbound_links(markdown: &str) -> Vec<OutboundLink> {
@@ -1104,6 +1188,50 @@ mod tests {
         assert_eq!(document.outbound_links[0].href, "guide.md");
         assert_eq!(document.outbound_links[0].line, 5);
         assert!(document.modified_millis > 0);
+    }
+
+    #[test]
+    fn returns_supported_properties_from_the_shared_index() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("one.md"),
+            "---\ntitle: Project One\ntags: [project, \"한국어,문서\"]\naliases:\n  - First\n  - 첫째\nlang: ko\nunknown: keep\n---\n# Heading\n",
+        )
+        .unwrap();
+
+        let documents = WorkspaceIndex::build(dir.path())
+            .unwrap()
+            .property_documents();
+
+        assert_eq!(documents.len(), 1);
+        assert_eq!(documents[0].relative_path, "one.md");
+        assert_eq!(documents[0].title, "Project One");
+        assert_eq!(
+            documents[0].properties.get("tags").unwrap(),
+            &["project", "한국어,문서"]
+        );
+        assert_eq!(
+            documents[0].properties.get("aliases").unwrap(),
+            &["First", "첫째"]
+        );
+        assert_eq!(documents[0].properties.get("lang").unwrap(), &["ko"]);
+        assert!(!documents[0].properties.contains_key("unknown"));
+    }
+
+    #[test]
+    fn keeps_the_existing_singular_tag_alias() {
+        assert_eq!(
+            parse_frontmatter_values("---\ntag: solo\n---\n", "tags"),
+            vec!["solo"]
+        );
+    }
+
+    #[test]
+    fn decodes_json_quoted_property_values() {
+        assert_eq!(
+            split_metadata_values(r#""He said \"hi\"", "한국어""#),
+            vec!["He said \"hi\"", "한국어"]
+        );
     }
 
     #[test]

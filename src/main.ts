@@ -62,6 +62,7 @@ import { writingModesExtension } from "./editor/writingModes";
 import { markdownLinkExtensions, refreshMarkdownLinkDiagnostics } from "./editor/markdownLinks";
 import { mountBacklinksPanel, type BacklinksPanel } from "./workspace/backlinksPanel";
 import { mountPropertiesPanel, type PropertiesPanel } from "./workspace/propertiesPanel";
+import { mountTagsPanel, type TagsPanel } from "./workspace/tagsPanel";
 
 const chrome = mountChrome(document.getElementById("titlebar")!, document.getElementById("statusbar")!, {
   onTogglePrimarySidebar: () => workbench.togglePrimarySidebar(),
@@ -94,6 +95,7 @@ let outlinePanel: OutlinePanel;
 let backlinksPanel: BacklinksPanel | null = null;
 let backlinksLoad = 0;
 let propertiesPanel: PropertiesPanel | null = null;
+let tagsPanel: TagsPanel | null = null;
 
 const viewRegistry = createViewRegistry();
 viewRegistry.registerContainer({ id: "explorer", titleKey: "view.explorer", icon: "▤", order: 0 });
@@ -130,6 +132,26 @@ viewRegistry.registerView({
       element,
       relabel: () => outlinePanel.relabel(),
       dispose: () => outlinePanel.dispose(),
+    };
+  },
+});
+viewRegistry.registerView({
+  id: "tags",
+  titleKey: "view.tags",
+  defaultContainerId: "explorer",
+  order: 2,
+  create() {
+    const element = document.createElement("div");
+    tagsPanel = mountTagsPanel(element, (path) => void openPath(path));
+    void tagsPanel.refresh(currentFolder);
+    return {
+      element,
+      focus: () => tagsPanel?.focus(),
+      relabel: () => tagsPanel?.relabel(),
+      dispose: () => {
+        tagsPanel?.dispose();
+        tagsPanel = null;
+      },
     };
   },
 });
@@ -557,6 +579,10 @@ function refreshProperties(): void {
   propertiesPanel.render(typeof paneWorkspace === "undefined" ? null : activeView().state.doc.toString());
 }
 
+function refreshTags(): void {
+  void tagsPanel?.refresh(currentFolder);
+}
+
 async function refreshBacklinks(): Promise<void> {
   if (!backlinksPanel) return;
   const folder = currentFolder;
@@ -643,6 +669,7 @@ async function refreshWorkspaceHeadings(
       workspaceLinkTargetLoads.clear();
       void refreshLinkTargets(typeof paneWorkspace === "undefined" ? null : activePane().activePath());
       void refreshBacklinks();
+      refreshTags();
       if (result.status === "ok") {
         workspaceHeadings = result.data;
         return;
@@ -699,6 +726,7 @@ async function synchronizePathChange(plan: PathChangePlan): Promise<void> {
   workspaceLinkTargetVersion++;
   workspaceLinkTargets.clear();
   workspaceLinkTargetLoads.clear();
+  refreshTags();
   syncActiveUI();
   scheduleSaveSettings();
 }
@@ -835,6 +863,7 @@ function paletteItems(): PaletteItem[] {
     { label: tr("view.search"), run: () => workbench.openView("search") },
     { label: tr("view.backlinks"), run: () => workbench.openView("backlinks") },
     { label: tr("view.properties"), run: () => workbench.openView("properties") },
+    { label: tr("view.tags"), run: () => workbench.openView("tags") },
     { label: tr("workbench.resetViewVisibility"), run: () => workbench.resetViewVisibility() },
     { label: tr("cmd.reveal"), run: () => revealActive() },
     { label: tr("settings.title"), run: () => settingsPanel.open() },
