@@ -30,6 +30,24 @@ pub fn write_text_file_atomic(path: &Path, contents: &str) -> Result<(), String>
         .map_err(|e| format!("rename failed '{}' -> '{}': {e}", tmp.display(), path.display()))
 }
 
+/// 현재 UTF-8 내용이 기대한 스냅샷과 같을 때만 원자적으로 저장한다.
+pub fn write_text_file_if_unchanged(
+    path: &Path,
+    expected_contents: Option<&str>,
+    contents: &str,
+) -> Result<bool, String> {
+    let current = match fs::read_to_string(path) {
+        Ok(value) => Some(value),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+        Err(error) => return Err(format!("read failed '{}': {error}", path.display())),
+    };
+    if current.as_deref() != expected_contents {
+        return Ok(false);
+    }
+    write_text_file_atomic(path, contents)?;
+    Ok(true)
+}
+
 fn write_bytes_atomic(path: &Path, bytes: &[u8]) -> Result<(), String> {
     let tmp = temp_sibling(path)?;
     {
@@ -155,6 +173,34 @@ mod tests {
         write_text_file_atomic(&file, "v1").unwrap();
         write_text_file_atomic(&file, "v2 longer").unwrap();
         assert_eq!(read_text_file(&file).unwrap(), "v2 longer");
+    }
+
+    #[test]
+    fn conditional_write_saves_only_when_source_is_unchanged() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("project.json");
+        write_text_file_atomic(&file, "original").unwrap();
+
+        assert!(write_text_file_if_unchanged(&file, Some("original"), "saved").unwrap());
+        assert_eq!(read_text_file(&file).unwrap(), "saved");
+
+        write_text_file_atomic(&file, "external").unwrap();
+        assert!(!write_text_file_if_unchanged(&file, Some("saved"), "lost").unwrap());
+        assert_eq!(read_text_file(&file).unwrap(), "external");
+    }
+
+    #[test]
+    fn conditional_write_detects_creation_and_deletion() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("project.json");
+
+        assert!(write_text_file_if_unchanged(&file, None, "created").unwrap());
+        assert!(!write_text_file_if_unchanged(&file, None, "overwritten").unwrap());
+        assert_eq!(read_text_file(&file).unwrap(), "created");
+
+        fs::remove_file(&file).unwrap();
+        assert!(!write_text_file_if_unchanged(&file, Some("created"), "recreated").unwrap());
+        assert!(!file.exists());
     }
 
     #[test]

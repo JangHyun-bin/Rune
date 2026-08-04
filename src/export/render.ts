@@ -129,7 +129,7 @@ function extractFootnotes(source: string): { markdown: string; footnotes: Footno
     if (label.length > 0) {
       footnotes.push({
         label,
-        id: safeFootnoteId(label),
+        id: markdownFootnoteId(label),
         content: contentLines.join("\n").trim(),
       });
     }
@@ -171,7 +171,7 @@ function appendFootnotes(html: string, env: RuneRenderEnv): string {
   return `${html}<section class="footnotes" role="doc-endnotes">\n<ol>\n${items}\n</ol>\n</section>\n`;
 }
 
-function safeFootnoteId(label: string): string {
+export function markdownFootnoteId(label: string): string {
   const normalized = label.trim().replace(/\s+/g, "-");
   const safe = normalized.replace(/[^A-Za-z0-9_-]/g, (char) => `-${char.charCodeAt(0).toString(16)}-`);
   return safe || "note";

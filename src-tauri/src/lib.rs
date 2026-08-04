@@ -68,6 +68,7 @@ pub fn run() {
             commands::path_exists,
             commands::read_file,
             commands::write_file,
+            commands::write_file_if_unchanged,
             commands::save_asset,
             commands::list_dir,
             commands::load_settings,

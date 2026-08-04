@@ -41,6 +41,8 @@ export const commands = {
   readFile: (path: string) => call<string>("read_file", { path }),
   writeFile: (path: string, contents: string) =>
     call<null>("write_file", { path, contents }),
+  writeFileIfUnchanged: (path: string, expectedContents: string | null, contents: string) =>
+    call<boolean>("write_file_if_unchanged", { path, expectedContents, contents }),
   saveAsset: (docPath: string, bytes: number[], ext: string) =>
     call<string>("save_asset", { docPath, bytes, ext }),
   listDir: (path: string) => call<FileNode[]>("list_dir", { path }),

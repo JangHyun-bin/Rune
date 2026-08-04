@@ -66,6 +66,7 @@ import { mountTagsPanel, type TagsPanel } from "./workspace/tagsPanel";
 import { mountProjectPanel, projectRelativePath, type ProjectPanel } from "./workspace/projectPanel";
 import { buildProjectHtml, type ProjectDocument } from "./project/projectExport";
 import type { RuneProject } from "./project/project";
+import { preflightProject, type ProjectDiagnostic } from "./project/projectPreflight";
 
 const chrome = mountChrome(document.getElementById("titlebar")!, document.getElementById("statusbar")!, {
   onTogglePrimarySidebar: () => workbench.togglePrimarySidebar(),
@@ -166,7 +167,7 @@ viewRegistry.registerView({
   order: 3,
   create() {
     const element = document.createElement("div");
-    projectPanel = mountProjectPanel(element, previewProject, exportProjectHtml);
+    projectPanel = mountProjectPanel(element, preflightCurrentProject, previewProject, exportProjectHtml);
     void projectPanel.refresh(currentFolder, workspaceFiles);
     return {
       element,
@@ -620,6 +621,15 @@ async function projectDocuments(project: RuneProject): Promise<ProjectDocument[]
   }));
   if (!currentFolder || !samePath(currentFolder, root)) throw new Error("Workspace changed while building project");
   return documents;
+}
+
+async function preflightCurrentProject(project: RuneProject): Promise<ProjectDiagnostic[]> {
+  const root = currentFolder;
+  if (!root) throw new Error("No workspace folder");
+  const files = workspaceFiles.map((file) => ({ path: projectRelativePath(root, file.path), absolutePath: file.path }));
+  const diagnostics = await preflightProject(project, root, files);
+  if (!currentFolder || !samePath(currentFolder, root)) throw new Error("Workspace changed during project preflight");
+  return diagnostics;
 }
 
 async function projectHtml(project: RuneProject): Promise<string> {

@@ -1,14 +1,14 @@
-import { commands } from "../ipc/bindings";
 import { t } from "../i18n/i18n";
 import {
   createProject,
   moveProjectFile,
   parseProject,
-  serializeProject,
   setProjectFileIncluded,
   validateProject,
   type RuneProject,
 } from "../project/project";
+import { loadProjectManifest, saveProjectManifest } from "../project/projectManifest";
+import { hasFatalProjectDiagnostics, type ProjectDiagnostic } from "../project/projectPreflight";
 
 export interface ProjectChoice {
   path: string;
@@ -57,6 +57,7 @@ function folderName(path: string): string {
 
 export function mountProjectPanel(
   host: HTMLElement,
+  onPreflight: (project: RuneProject) => Promise<ProjectDiagnostic[]>,
   onPreview: (project: RuneProject) => Promise<void>,
   onExport: (project: RuneProject) => Promise<void>,
 ): ProjectPanel {
@@ -66,8 +67,13 @@ export function mountProjectPanel(
   let project: RuneProject | null = null;
   let state: "noFolder" | "loading" | "ready" | "invalid" = "noFolder";
   let message = "";
+  let diagnostics: ProjectDiagnostic[] = [];
+  let manifestSource: string | null = null;
   let load = 0;
+  let operation = 0;
   let titleInput: HTMLInputElement | null = null;
+  let diagnosticList: HTMLElement | null = null;
+  let statusElement: HTMLParagraphElement | null = null;
 
   const button = (label: string, action: () => void, text = label): HTMLButtonElement => {
     const element = document.createElement("button");
@@ -90,7 +96,15 @@ export function mountProjectPanel(
     }
   };
 
-  const run = async (action: (value: RuneProject) => Promise<void>): Promise<void> => {
+  const clearFeedback = (): void => {
+    operation++;
+    diagnostics = [];
+    message = "";
+    diagnosticList?.replaceChildren();
+    if (statusElement) statusElement.textContent = "";
+  };
+
+  const saveProject = async (): Promise<void> => {
     const value = currentProject();
     if (!value) return;
     const issues = validateProject(value, availableFiles);
@@ -99,15 +113,53 @@ export function mountProjectPanel(
       draw();
       return;
     }
+    const request = ++operation;
+    const result = await saveProjectManifest(projectManifestPath(root!), value, manifestSource);
+    if (request !== operation) return;
+    if (result.status === "saved") {
+      manifestSource = result.source;
+      project = value;
+      message = t("project.saved");
+    } else {
+      message = t(result.status === "conflict" ? "project.manifestConflict" : "project.saveError");
+    }
+    draw();
+  };
+
+  const runPreflight = async (action?: (value: RuneProject) => Promise<void>): Promise<void> => {
+    const value = currentProject();
+    if (!value) return;
+    if (value.files.length === 0) {
+      message = t("project.noFiles");
+      diagnostics = [];
+      draw();
+      return;
+    }
+    const request = ++operation;
     project = value;
     message = "";
+    diagnostics = [];
     draw();
-    await action(value);
+    try {
+      const nextDiagnostics = await onPreflight(value);
+      if (request !== operation) return;
+      diagnostics = nextDiagnostics;
+      const fatal = hasFatalProjectDiagnostics(diagnostics);
+      message = fatal ? t("project.publishBlocked") : diagnostics.length === 0 ? t("project.diagnosticsClean") : "";
+      draw();
+      if (!fatal && action) await action(value);
+    } catch {
+      if (request !== operation) return;
+      message = t("project.preflightError");
+      draw();
+    }
   };
 
   const draw = (): void => {
     host.replaceChildren();
     titleInput = null;
+    diagnosticList = null;
+    statusElement = null;
     if (state !== "ready" || !project) {
       const empty = document.createElement("p");
       empty.className = "project-empty";
@@ -122,19 +174,16 @@ export function mountProjectPanel(
     title.value = project.title;
     title.placeholder = t("project.title");
     title.setAttribute("aria-label", t("project.title"));
-    title.addEventListener("input", () => { project = { ...project!, title: title.value }; message = ""; });
+    title.addEventListener("input", () => { project = { ...project!, title: title.value }; clearFeedback(); });
     titleInput = title;
 
     const actions = document.createElement("div");
     actions.className = "project-actions";
     actions.append(
-      button(t("project.save"), () => { void run(async (value) => {
-        const result = await commands.writeFile(projectManifestPath(root!), serializeProject(value));
-        message = result.status === "ok" ? t("project.saved") : t("project.saveError");
-        draw();
-      }); }),
-      button(t("project.preview"), () => { void run(onPreview); }),
-      button(t("project.exportHtml"), () => { void run(onExport); }),
+      button(t("project.save"), () => { void saveProject(); }),
+      button(t("project.preflight"), () => { void runPreflight(); }),
+      button(t("project.preview"), () => { void runPreflight(onPreview); }),
+      button(t("project.exportHtml"), () => { void runPreflight(onExport); }),
     );
 
     const list = document.createElement("div");
@@ -148,7 +197,7 @@ export function mountProjectPanel(
       check.setAttribute("aria-label", choice.path);
       check.addEventListener("change", () => {
         project = setProjectFileIncluded(project!, choice.path, check.checked);
-        message = "";
+        clearFeedback();
         draw();
       });
       const label = document.createElement("span");
@@ -158,19 +207,38 @@ export function mountProjectPanel(
         const controls = document.createElement("span");
         controls.className = "project-file-order";
         controls.append(
-          button(t("project.moveUp"), () => { project = moveProjectFile(project!, choice.path, -1); draw(); }, "↑"),
-          button(t("project.moveDown"), () => { project = moveProjectFile(project!, choice.path, 1); draw(); }, "↓"),
+          button(t("project.moveUp"), () => { project = moveProjectFile(project!, choice.path, -1); clearFeedback(); draw(); }, "↑"),
+          button(t("project.moveDown"), () => { project = moveProjectFile(project!, choice.path, 1); clearFeedback(); draw(); }, "↓"),
         );
         row.appendChild(controls);
       }
       list.appendChild(row);
     }
 
+    diagnosticList = document.createElement("div");
+    diagnosticList.className = "project-diagnostics";
+    diagnosticList.setAttribute("role", "list");
+    diagnosticList.setAttribute("aria-label", t("project.diagnostics"));
+    for (const diagnostic of diagnostics) {
+      const item = document.createElement("div");
+      item.className = `project-diagnostic ${diagnostic.severity}`;
+      item.setAttribute("role", "listitem");
+      const location = document.createElement("strong");
+      location.textContent = diagnostic.line === null
+        ? diagnostic.path
+        : `${diagnostic.path} · ${t("pathChange.line", { line: diagnostic.line })}`;
+      const detail = document.createElement("span");
+      detail.textContent = `${t(`project.${diagnostic.severity}`)} · ${t(`project.diagnostic.${diagnostic.kind}`, { value: diagnostic.value })}`;
+      item.append(location, detail);
+      diagnosticList.appendChild(item);
+    }
+
     const status = document.createElement("p");
     status.className = "project-status";
     status.textContent = message;
     status.setAttribute("aria-live", "polite");
-    host.append(title, actions, list, status);
+    statusElement = status;
+    host.append(title, actions, list, diagnosticList, status);
   };
 
   return {
@@ -182,6 +250,9 @@ export function mountProjectPanel(
         return;
       }
       root = nextRoot;
+      operation++;
+      diagnostics = [];
+      manifestSource = null;
       if (!root) {
         availableFiles = [];
         project = null;
@@ -193,19 +264,12 @@ export function mountProjectPanel(
       draw();
       availableFiles = files.map((file) => projectRelativePath(root!, file.path));
       const manifestPath = projectManifestPath(root);
-      const exists = await commands.pathExists(manifestPath);
-      if (request !== load) return;
-      if (exists.status === "error") {
-        project = null;
-        state = "invalid";
-        draw();
-        return;
-      }
-      const result = exists.data ? await commands.readFile(manifestPath) : null;
+      const result = await loadProjectManifest(manifestPath);
       if (request !== load) return;
       try {
-        if (result?.status === "error") throw new Error(result.error);
-        project = result ? parseProject(result.data) : createProject(folderName(root));
+        if (result.status === "error") throw new Error("Project manifest unavailable");
+        manifestSource = result.source;
+        project = result.source === null ? createProject(folderName(root)) : parseProject(result.source);
         state = "ready";
         message = "";
       } catch {
@@ -216,6 +280,6 @@ export function mountProjectPanel(
     },
     focus() { titleInput?.focus(); },
     relabel: draw,
-    dispose() { load++; host.replaceChildren(); },
+    dispose() { load++; operation++; host.replaceChildren(); },
   };
 }
