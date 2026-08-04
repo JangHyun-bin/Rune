@@ -3046,7 +3046,7 @@ dependencies = [
 
 [[package]]
 name = "rune"
-version = "0.1.18"
+version = "0.1.19"
 dependencies = [
  "notify",
  "serde",
