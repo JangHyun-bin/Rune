@@ -9,6 +9,8 @@ class TestElement {
   srcdoc = "";
   textContent = "";
   type = "";
+  complete = false;
+  naturalWidth = 0;
   style: Record<string, string> = {};
   parent: TestElement | null = null;
   contentWindow = { focus: vi.fn(), print: vi.fn() };
@@ -144,6 +146,20 @@ describe("HTML preview", () => {
     await Promise.resolve();
     await Promise.resolve();
     iframe.contentDocument.images[0].dispatch("error");
+
+    await expect(printing).rejects.toThrow("Print image failed to load");
+    expect(iframe.contentWindow.print).not.toHaveBeenCalled();
+    expect(body.children).toHaveLength(0);
+  });
+
+  it("rejects already-complete broken images without printing", async () => {
+    const brokenImage = new TestElement();
+    brokenImage.complete = true;
+    const printing = printHtmlDocument("<!doctype html><h1>Book</h1>", "Book");
+    const iframe = body.children[0];
+    iframe.contentDocument = { fonts: { ready: Promise.resolve() }, images: [brokenImage] };
+
+    iframe.dispatch("load");
 
     await expect(printing).rejects.toThrow("Print image failed to load");
     expect(iframe.contentWindow.print).not.toHaveBeenCalled();

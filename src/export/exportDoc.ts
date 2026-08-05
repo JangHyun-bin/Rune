@@ -128,7 +128,9 @@ export async function printHtmlDocument(html: string, title: string): Promise<vo
     if (!w) throw new Error("Print window is unavailable");
     await iframe.contentDocument?.fonts?.ready;
     const images = [...(iframe.contentDocument?.images ?? [])];
-    await Promise.all(images.map((image) => image.complete ? Promise.resolve() : new Promise<void>((resolve, reject) => {
+    await Promise.all(images.map((image) => image.complete
+      ? image.naturalWidth === 0 ? Promise.reject(new Error("Print image failed to load")) : Promise.resolve()
+      : new Promise<void>((resolve, reject) => {
       image.addEventListener("load", () => resolve(), { once: true });
       image.addEventListener("error", () => reject(new Error("Print image failed to load")), { once: true });
     })));
