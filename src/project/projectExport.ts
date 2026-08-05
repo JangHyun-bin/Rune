@@ -67,7 +67,9 @@ function normalizeRelativePath(sourcePath: string, targetPath: string): string |
   return parts.join("/");
 }
 
-function hrefParts(href: string): { path: string; fragment: string } | null {
+const assetSuffixToken = "__RUNE_PROJECT_ASSET_SUFFIX__";
+
+function hrefParts(href: string): { path: string; fragment: string; suffix: string } | null {
   if (/^[A-Za-z]:[\\/]/.test(href) || href.startsWith("/") || href.startsWith("\\")) return null;
   if (/^[A-Za-z][A-Za-z\d+.-]*:/.test(href) || href.startsWith("//")) return null;
   const hash = href.indexOf("#");
@@ -77,6 +79,7 @@ function hrefParts(href: string): { path: string; fragment: string } | null {
     return {
       path: decodeURIComponent(query < 0 ? beforeFragment : beforeFragment.slice(0, query)),
       fragment: decodeURIComponent(hash < 0 ? "" : href.slice(hash + 1)),
+      suffix: href.slice(query < 0 ? (hash < 0 ? href.length : hash) : query),
     };
   } catch {
     return null;
@@ -182,8 +185,7 @@ export async function buildProjectPublication(
     const rewriteHref = (href: string, kind: "link" | "image"): string => {
       const parts = hrefParts(href);
       if (!parts) return href;
-      if (kind === "link") {
-        if (!isMarkdownPath(parts.path)) return href;
+      if (kind === "link" && isMarkdownPath(parts.path)) {
         const targetPath = parts.path ? normalizeRelativePath(context.document.path, parts.path) : context.document.path;
         if (!targetPath) return href;
         const target = (windows ? windowsContexts : exactContexts).get(pathKey(targetPath, windows));
@@ -206,7 +208,7 @@ export async function buildProjectPublication(
         assetBySource.set(key, asset);
         assets.push(asset);
       }
-      return asset.token;
+      return `${asset.token}${assetSuffixToken}${parts.suffix}`;
     };
     const body = await renderBody(context.document.markdown, { idPrefix: context.idPrefix, rewriteHref });
     sections.push(`<section id="${context.sectionId}" class="project-document" data-project-file="${escapeAttribute(context.document.path)}">${body}</section>`);
@@ -227,7 +229,10 @@ export function materializeProjectHtml(
 ): string {
   let html = publication.html;
   for (const asset of publication.assets) {
-    html = html.split(`src="${asset.token}"`).join(`src="${escapeAttribute(assetUrl(asset))}"`);
+    const url = escapeAttribute(assetUrl(asset));
+    for (const attribute of ["src", "href"]) {
+      html = html.split(`${attribute}="${asset.token}${assetSuffixToken}`).join(`${attribute}="${url}`);
+    }
   }
   return html;
 }
