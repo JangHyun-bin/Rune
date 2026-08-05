@@ -115,9 +115,21 @@ function unwrapUrl(value: string): string {
   return value.startsWith("<") && value.endsWith(">") ? value.slice(1, -1) : value;
 }
 
-function isDocumentHref(href: string): boolean {
-  const path = href.split("#", 1)[0].toLowerCase();
-  return path === "" || path.endsWith(".md") || path.endsWith(".markdown");
+function markdownDestinationHref(href: string): string | null {
+  if (/^[A-Za-z]:[\\/]/.test(href) || href.startsWith("/") || href.startsWith("\\")) return null;
+  if (/^[A-Za-z][A-Za-z\d+.-]*:/.test(href) || href.startsWith("//")) return null;
+  const hash = href.indexOf("#");
+  const beforeFragment = hash < 0 ? href : href.slice(0, hash);
+  const query = beforeFragment.indexOf("?");
+  const path = query < 0 ? beforeFragment : beforeFragment.slice(0, query);
+  try {
+    const decodedPath = decodeURIComponent(path).toLowerCase();
+    return decodedPath === "" || decodedPath.endsWith(".md") || decodedPath.endsWith(".markdown")
+      ? `${path}${hash < 0 ? "" : href.slice(hash)}`
+      : null;
+  } catch {
+    return null;
+  }
 }
 
 function localImagePath(sourcePath: string, href: string): string | null | false {
@@ -262,9 +274,10 @@ export async function preflightProject(
         diagnostics.push({ severity: "warning", kind: destination.kind === "image" ? "unresolvedImage" : "brokenLink", path: source.path, line: destination.line, value: destination.label });
         continue;
       }
-      if (destination.kind === "link" && isDocumentHref(destination.href)) {
+      const documentHref = destination.kind === "link" ? markdownDestinationHref(destination.href) : null;
+      if (documentHref !== null) {
         if (source.targets === null) continue;
-        const resolved = resolveMarkdownHref(destination.href, source.targets, source.absolutePath, source.markdown);
+        const resolved = resolveMarkdownHref(documentHref, source.targets, source.absolutePath, source.markdown);
         if (resolved.kind === "missing" || resolved.kind === "ambiguous" || resolved.kind === "invalid") {
           diagnostics.push({ severity: "warning", kind: "brokenLink", path: source.path, line: destination.line, value: destination.href });
         } else if (resolved.kind === "resolved" && !selectedPaths.has(pathKey(resolved.path))) {

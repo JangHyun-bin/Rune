@@ -81,6 +81,22 @@ describe("project preflight", () => {
     }
   });
 
+  it("resolves query-suffixed Markdown destinations before checking resources", async () => {
+    readFile.mockImplementation(async (path: string) => ({ status: "ok", data: path.endsWith("a.md") ? "[Chapter](b.md?download=1)" : "# Chapter" }));
+
+    await expect(preflightProject(createProject("Book", ["a.md", "b.md"]), "C:\\book", files)).resolves.toEqual([]);
+    expect(pathExists).not.toHaveBeenCalled();
+  });
+
+  it("reports invalid headings in percent-encoded Markdown destinations", async () => {
+    readFile.mockImplementation(async (path: string) => ({ status: "ok", data: path.endsWith("a.md") ? "[Missing](b%2Emd#missing)" : "# Present" }));
+
+    await expect(preflightProject(createProject("Book", ["a.md", "b.md"]), "C:\\book", files)).resolves.toEqual([
+      { severity: "warning", kind: "brokenLink", path: "a.md", line: 1, value: "b%2Emd#missing" },
+    ]);
+    expect(pathExists).not.toHaveBeenCalled();
+  });
+
   it("reports duplicate heading and footnote IDs within one document", async () => {
     readFile.mockResolvedValue({ status: "ok", data: "# Same\n# Same\n[^note]: One\n[^note]: Two" });
 
