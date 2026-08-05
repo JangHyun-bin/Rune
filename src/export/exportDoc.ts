@@ -65,7 +65,7 @@ img{max-width:100%}
   h1,h2,h3,h4{break-after:avoid-page;page-break-after:avoid}
   tr,blockquote,.mermaid,figure,img{break-inside:avoid-page;page-break-inside:avoid}
   table{width:100%;table-layout:auto;break-inside:auto;page-break-inside:auto}pre.hljs{white-space:pre-wrap;overflow-wrap:anywhere;overflow:visible}
-  img,svg{max-width:100%!important;height:auto!important}.mermaid{overflow:visible}.mermaid svg{max-height:90vh}
+  img,svg{max-width:100%!important;height:auto!important}img{max-height:90vh!important}.mermaid{overflow:visible}.mermaid svg{max-height:90vh}
   a{color:inherit}.project-toc a{text-decoration:none}
 }
 </style></head><body><article>${body}</article></body></html>`;

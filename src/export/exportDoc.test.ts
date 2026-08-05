@@ -94,6 +94,7 @@ describe("HTML preview", () => {
     expect(html).toContain("overflow-wrap:anywhere");
     expect(html).toContain("blockquote,.mermaid,figure,img{break-inside:avoid-page;page-break-inside:avoid}");
     expect(html).toContain("img,svg{max-width:100%!important;height:auto!important}");
+    expect(html).toContain("img{max-height:90vh!important}");
     expect(html).toContain(".mermaid svg{max-height:90vh}");
   });
 
