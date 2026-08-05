@@ -81,6 +81,15 @@ describe("project preflight", () => {
     }
   });
 
+  it("uses the first duplicate normalized reference definition", async () => {
+    readFile.mockResolvedValue({ status: "ok", data: "[Guide][manual]\n\n[manual]: assets/missing.pdf\n[MANUAL]: assets/present.pdf" });
+    pathExists.mockImplementation(async (path: string) => ({ status: "ok", data: !path.endsWith("missing.pdf") }));
+
+    await expect(preflightProject(createProject("Book", ["a.md"]), "C:\\book", files)).resolves.toEqual([
+      { severity: "warning", kind: "unresolvedResource", path: "a.md", line: 1, value: "assets/missing.pdf" },
+    ]);
+  });
+
   it("resolves query-suffixed Markdown destinations before checking resources", async () => {
     readFile.mockImplementation(async (path: string) => ({ status: "ok", data: path.endsWith("a.md") ? "[Chapter](b.md?download=1)" : "# Chapter" }));
 

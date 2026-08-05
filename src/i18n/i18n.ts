@@ -366,7 +366,7 @@ export const DICT: Record<Locale, Dict> = {
     "project.diagnostic.duplicateFootnoteId": "중복 각주 ID: {value}",
     "project.diagnostic.brokenLink": "깨진 문서 링크: {value}",
     "project.diagnostic.unresolvedImage": "확인할 수 없는 상대 이미지: {value}",
-    "project.diagnostic.unresolvedResource": "확인할 수 없는 로컬 연결 리소스: {value}",
+    "project.diagnostic.unresolvedResource": "확인할 수 없는 로컬 링크 대상: {value}",
     "backlinks.noDocument": "백링크를 보려면 문서를 여세요.",
     "backlinks.loading": "백링크 불러오는 중…",
     "backlinks.error": "백링크를 불러올 수 없습니다.",

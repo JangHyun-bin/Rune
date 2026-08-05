@@ -92,7 +92,10 @@ function markdownDestinations(markdown: string): MarkdownDestination[] {
     if (cursor.name !== "LinkReference") continue;
     const label = childText(markdown, cursor.node, "LinkLabel");
     const url = childText(markdown, cursor.node, "URL");
-    if (label && url) definitions.set(label.slice(1, -1).trim().toLowerCase().replace(/\s+/g, " "), unwrapUrl(url));
+    if (label && url) {
+      const normalized = label.slice(1, -1).trim().toLowerCase().replace(/\s+/g, " ");
+      if (!definitions.has(normalized)) definitions.set(normalized, unwrapUrl(url));
+    }
   } while (cursor.next());
 
   const destinations: MarkdownDestination[] = [];
