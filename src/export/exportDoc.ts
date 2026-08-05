@@ -59,10 +59,12 @@ img{max-width:100%}
 @page{size:${options.pageSize ?? "A4"};margin:${safeMargin(margins.top, 18)}mm ${safeMargin(margins.right, 18)}mm ${safeMargin(margins.bottom, 18)}mm ${safeMargin(margins.left, 18)}mm}
 @media print{
   body{max-width:none;margin:0;padding:0;color:#000;background:#fff}
+  .project-title{break-after:page;page-break-after:always}
+  .project-toc{break-after:page;page-break-after:always}
   ${options.pageBreakDocuments === false ? "" : ".project-document:not(:first-of-type){break-before:page;page-break-before:always}"}
   h1,h2,h3,h4{break-after:avoid-page;page-break-after:avoid}
-  table,blockquote,.mermaid,figure,img,pre{break-inside:avoid-page;page-break-inside:avoid}
-  table{width:100%;table-layout:auto}pre.hljs{white-space:pre-wrap;overflow-wrap:anywhere;overflow:visible}
+  tr,blockquote,.mermaid,figure,img{break-inside:avoid-page;page-break-inside:avoid}
+  table{width:100%;table-layout:auto;break-inside:auto;page-break-inside:auto}pre.hljs{white-space:pre-wrap;overflow-wrap:anywhere;overflow:visible}
   img,svg{max-width:100%!important;height:auto!important}.mermaid{overflow:visible}.mermaid svg{max-height:90vh}
   a{color:inherit}.project-toc a{text-decoration:none}
 }

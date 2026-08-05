@@ -197,7 +197,10 @@ describe("project HTML assembly", () => {
     const second = await buildProjectPublication(project, documents, options);
 
     expect(first).toEqual(second);
+    expect(first.html).toContain('<header class="project-title"><h1>Book</h1></header>');
     expect(first.html).toContain('<nav class="project-toc"');
+    expect(first.html.indexOf('class="project-title"')).toBeLessThan(first.html.indexOf('class="project-toc"'));
+    expect(first.html.indexOf('class="project-toc"')).toBeLessThan(first.html.indexOf('class="project-document"'));
     expect(first.html).toContain('href="#doc-1-one"');
     expect(first.html).not.toContain('href="#doc-1-detail"');
     expect(first.html).toContain("@page{size:Letter;margin:10mm 11mm 12mm 13mm}");

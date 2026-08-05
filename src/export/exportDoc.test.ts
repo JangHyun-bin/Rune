@@ -72,7 +72,7 @@ describe("HTML preview", () => {
     expect(body.children).toHaveLength(0);
   });
 
-  it("builds bounded print CSS from the same HTML document", () => {
+  it("builds printable project sections from the same HTML document", () => {
     const html = buildHtmlDocument("Book", "<table><tr><td>Body</td></tr></table>", {
       theme: "serif",
       pageSize: "Letter",
@@ -85,8 +85,16 @@ describe("HTML preview", () => {
     expect(html).toContain("@page{size:Letter;margin:5mm 11mm 50mm 13mm}");
     expect(html).toContain(".project-document:not(:first-of-type){break-before:page");
     expect(html).toContain('<meta name="author" content="Writer">');
+    expect(html).toContain('<meta name="description" content="Report">');
+    expect(html).toContain(".project-title{break-after:page;page-break-after:always}");
+    expect(html).toContain(".project-toc{break-after:page;page-break-after:always}");
+    expect(html).toContain("tr,blockquote,.mermaid,figure,img{break-inside:avoid-page;page-break-inside:avoid}");
+    expect(html).toContain("table{width:100%;table-layout:auto;break-inside:auto;page-break-inside:auto}");
     expect(html).toContain("pre.hljs{white-space:pre-wrap");
+    expect(html).toContain("overflow-wrap:anywhere");
+    expect(html).toContain("blockquote,.mermaid,figure,img{break-inside:avoid-page;page-break-inside:avoid}");
     expect(html).toContain("img,svg{max-width:100%!important;height:auto!important}");
+    expect(html).toContain(".mermaid svg{max-height:90vh}");
   });
 
   it("waits for the print document before opening the native print dialog", async () => {
