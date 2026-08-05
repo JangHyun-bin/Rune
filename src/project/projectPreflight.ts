@@ -14,7 +14,8 @@ export type ProjectDiagnosticKind =
   | "duplicateHeadingId"
   | "duplicateFootnoteId"
   | "brokenLink"
-  | "unresolvedImage";
+  | "unresolvedImage"
+  | "unresolvedResource";
 
 export interface ProjectDiagnostic {
   severity: ProjectDiagnosticSeverity;
@@ -59,8 +60,9 @@ const kindOrder: Record<ProjectDiagnosticKind, number> = {
   indexUnavailable: 3,
   duplicateHeadingId: 4,
   unresolvedImage: 5,
-  brokenLink: 6,
-  duplicateFootnoteId: 7,
+  unresolvedResource: 6,
+  brokenLink: 7,
+  duplicateFootnoteId: 8,
 };
 
 export function hasFatalProjectDiagnostics(diagnostics: ProjectDiagnostic[]): boolean {
@@ -260,8 +262,8 @@ export async function preflightProject(
         diagnostics.push({ severity: "warning", kind: destination.kind === "image" ? "unresolvedImage" : "brokenLink", path: source.path, line: destination.line, value: destination.label });
         continue;
       }
-      if (destination.kind === "link") {
-        if (!isDocumentHref(destination.href) || source.targets === null) continue;
+      if (destination.kind === "link" && isDocumentHref(destination.href)) {
+        if (source.targets === null) continue;
         const resolved = resolveMarkdownHref(destination.href, source.targets, source.absolutePath, source.markdown);
         if (resolved.kind === "missing" || resolved.kind === "ambiguous" || resolved.kind === "invalid") {
           diagnostics.push({ severity: "warning", kind: "brokenLink", path: source.path, line: destination.line, value: destination.href });
@@ -274,7 +276,13 @@ export async function preflightProject(
       if (imagePath === null) continue;
       const exists = imagePath === false || !isWithinRoot(imagePath, root) ? null : await commands.pathExists(imagePath);
       if (!exists || exists.status === "error" || !exists.data) {
-        diagnostics.push({ severity: "warning", kind: "unresolvedImage", path: source.path, line: destination.line, value: destination.href });
+        diagnostics.push({
+          severity: "warning",
+          kind: destination.kind === "image" ? "unresolvedImage" : "unresolvedResource",
+          path: source.path,
+          line: destination.line,
+          value: destination.href,
+        });
       }
     }
   }

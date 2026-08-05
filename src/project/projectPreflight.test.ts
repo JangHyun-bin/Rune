@@ -64,6 +64,23 @@ describe("project preflight", () => {
     expect(hasFatalProjectDiagnostics(diagnostics)).toBe(false);
   });
 
+  it("reports missing local linked assets on Windows and POSIX paths", async () => {
+    const fixtures = [
+      { root: "C:\\book", file: { path: "a.md", absolutePath: "C:\\book\\a.md" }, target: targets[0] },
+      { root: "/book", file: { path: "a.md", absolutePath: "/book/a.md" }, target: { ...targets[0], path: "/book/a.md" } },
+    ];
+    readFile.mockResolvedValue({ status: "ok", data: "[Guide](assets/missing.pdf?download=1#page=2)" });
+    pathExists.mockResolvedValue({ status: "ok", data: false });
+
+    for (const fixture of fixtures) {
+      workspaceIndexLinkTargets.mockResolvedValue({ status: "ok", data: [fixture.target] });
+
+      await expect(preflightProject(createProject("Book", ["a.md"]), fixture.root, [fixture.file])).resolves.toEqual([
+        { severity: "warning", kind: "unresolvedResource", path: "a.md", line: 1, value: "assets/missing.pdf?download=1#page=2" },
+      ]);
+    }
+  });
+
   it("reports duplicate heading and footnote IDs within one document", async () => {
     readFile.mockResolvedValue({ status: "ok", data: "# Same\n# Same\n[^note]: One\n[^note]: Two" });
 

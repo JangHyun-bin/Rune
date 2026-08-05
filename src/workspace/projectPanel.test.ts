@@ -96,7 +96,7 @@ describe("Project View data", () => {
   });
 
   it("shows file-scoped warnings and still publishes when preflight has no fatal issue", async () => {
-    const warning: ProjectDiagnostic = { severity: "warning", kind: "brokenLink", path: "a.md", line: 3, value: "gone.md" };
+    const warning: ProjectDiagnostic = { severity: "warning", kind: "unresolvedResource", path: "a.md", line: 3, value: "assets/gone.pdf" };
     const preflight = vi.fn().mockResolvedValue([warning]);
     const preview = vi.fn().mockResolvedValue(undefined);
     const panel = mountProjectPanel(host as unknown as HTMLElement, preflight, preview, vi.fn());
@@ -107,13 +107,13 @@ describe("Project View data", () => {
 
     await vi.waitFor(() => expect(preview).toHaveBeenCalledOnce());
     expect(host.textContent).toContain("a.md · Line 3");
-    expect(host.textContent).toContain("Broken document link: gone.md");
+    expect(host.textContent).toContain("Unresolved local linked asset: assets/gone.pdf");
 
     const title = host.descendants().find((node) => node.tagName === "input" && node.type === "text");
     if (!title) throw new Error("Missing project title");
     title.value = "Changed";
     title.dispatch("input");
-    expect(host.textContent).not.toContain("Broken document link: gone.md");
+    expect(host.textContent).not.toContain("Unresolved local linked asset: assets/gone.pdf");
   });
 
   it("blocks publishing on fatal preflight diagnostics", async () => {
