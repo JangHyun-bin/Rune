@@ -6,9 +6,7 @@ mod workspace_index;
 
 use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
-use std::sync::atomic::AtomicBool;
-#[cfg(target_os = "macos")]
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicBool, Ordering};
 use tauri::{Emitter, Manager};
 
 pub struct WatcherState(pub Mutex<Option<notify::RecommendedWatcher>>);
@@ -32,6 +30,42 @@ fn file_from_args(args: &[String]) -> Option<String> {
         .cloned()
 }
 
+fn queue_open_file_until_ready(
+    ready: &AtomicBool,
+    launch: &Mutex<Option<String>>,
+    path: String,
+) -> bool {
+    let Ok(mut pending) = launch.lock() else {
+        return false;
+    };
+    if ready.load(Ordering::SeqCst) {
+        return false;
+    }
+    *pending = Some(path);
+    true
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn queues_a_second_instance_file_until_the_frontend_is_ready() {
+        let ready = AtomicBool::new(false);
+        let launch = Mutex::new(None);
+
+        assert!(queue_open_file_until_ready(
+            &ready,
+            &launch,
+            "C:/vault/second.md".into()
+        ));
+        assert_eq!(
+            launch.into_inner().unwrap(),
+            Some("C:/vault/second.md".into())
+        );
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let initial = file_from_args(&std::env::args().collect::<Vec<_>>());
@@ -46,7 +80,13 @@ pub fn run() {
     {
         builder = builder.plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
             if let Some(path) = file_from_args(&argv) {
-                let _ = app.emit("open-file", path);
+                if !queue_open_file_until_ready(
+                    &app.state::<AppReady>().0,
+                    &app.state::<LaunchFile>().0,
+                    path.clone(),
+                ) {
+                    let _ = app.emit("open-file", path);
+                }
             }
             if let Some(w) = app.get_webview_window("main") {
                 let _ = w.set_focus();
@@ -98,18 +138,16 @@ pub fn run() {
             // macOS delivers file-open via the Opened event, not argv.
             #[cfg(target_os = "macos")]
             if let tauri::RunEvent::Opened { urls } = &event {
-                let ready = app.state::<AppReady>().0.load(Ordering::SeqCst);
                 for url in urls {
                     if let Ok(path) = url.to_file_path() {
                         let p = path.to_string_lossy().to_string();
-                        // Cold launch: the frontend listener isn't ready yet, so
-                        // buffer the path for take_launch_file() to drain on startup.
-                        if !ready {
-                            if let Ok(mut g) = app.state::<LaunchFile>().0.lock() {
-                                *g = Some(p.clone());
-                            }
+                        if !queue_open_file_until_ready(
+                            &app.state::<AppReady>().0,
+                            &app.state::<LaunchFile>().0,
+                            p.clone(),
+                        ) {
+                            let _ = app.emit("open-file", p);
                         }
-                        let _ = app.emit("open-file", p);
                     }
                 }
             }

@@ -304,8 +304,9 @@ pub fn take_launch_file(
     launch: tauri::State<crate::LaunchFile>,
     ready: tauri::State<crate::AppReady>,
 ) -> Option<String> {
+    let mut launch = launch.0.lock().ok()?;
     ready.0.store(true, Ordering::SeqCst);
-    launch.0.lock().ok().and_then(|mut g| g.take())
+    launch.take()
 }
 
 #[tauri::command]

@@ -1151,6 +1151,8 @@ async function restore(): Promise<void> {
   // Persist startup-only migrations after folder fallback has stabilized lastFolder.
   if (firstRun || !s.workbenchLayout || !s.paneLayout || loadedRestoredFolder) saveSettingsNow();
 
+  // Wait for the listener before marking the Rust side ready and draining a queued launch.
+  await openFileListenerReady;
   // If Rune was launched by double-clicking a .md (file association), open it.
   const launch = await commands.takeLaunchFile();
   if (launch.status === "ok" && launch.data) { await openPath(launch.data); }
@@ -1281,17 +1283,18 @@ function showDropOverlay(target: ResolvedDropTarget): void {
   const rect = pane.getBoundingClientRect();
   setDropOverlayRect(dropZoneRect(rect, target), target.kind);
 }
-function safeListen<T>(event: string, handler: (event: Event<T>) => void): void {
-  if (!isTauri()) return;
+function safeListen<T>(event: string, handler: (event: Event<T>) => void): Promise<void> {
+  if (!isTauri()) return Promise.resolve();
   try {
-    void listen<T>(event, handler).catch((error) => console.warn(error));
+    return listen<T>(event, handler).then(() => undefined).catch((error) => console.warn(error));
   } catch (error) {
     console.warn(error);
+    return Promise.resolve();
   }
 }
-safeListen<string[]>("fs-change", (e) => onFsChange(e.payload));
+void safeListen<string[]>("fs-change", (e) => onFsChange(e.payload));
 // A .md opened via file association while Rune is already running (single-instance / macOS).
-safeListen<string>("open-file", (e) => { void openPath(e.payload); });
+const openFileListenerReady = safeListen<string>("open-file", (e) => { void openPath(e.payload); });
 function bindNativeFileDrop(): void {
   if (!isTauri()) return;
   try {
