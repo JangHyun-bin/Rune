@@ -379,6 +379,16 @@ describe("workbench", () => {
     expect(byClass(panel as unknown as TestElement, "panel-body")[0].children[0].dataset.viewId).toBe("search");
   });
 
+  it("shows a collapsed view body after moving it into the Panel", () => {
+    const { panel, workbench } = setup();
+
+    workbench.moveView("tags", "panel");
+
+    const tags = viewById(panel as unknown as TestElement, "tags");
+    expect(tags.classList.contains("collapsed")).toBe(false);
+    expect(byClass(tags, "workbench-view-body")[0].classList.contains("hidden")).toBe(false);
+  });
+
   it("persists Panel height and side width in the same part size", () => {
     const { panel, panelResizer, workbench } = setup();
     workbench.moveView("search", "panel");

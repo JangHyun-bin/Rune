@@ -189,21 +189,22 @@ export function mountWorkbench(options: {
     return shell;
   };
 
-  const renderView = (view: ViewContribution, mountVisible = true): HTMLElement => {
+  const renderView = (view: ViewContribution, mountVisible = true, ignoreCollapsed = false): HTMLElement => {
     const layout = state.views[view.id];
     const shell = shellFor(view);
     const title = t(view.titleKey);
+    const collapsed = layout.collapsed && !ignoreCollapsed;
     shell.title.textContent = title;
     shell.section.classList.toggle("hidden", !layout.visible);
-    shell.section.classList.toggle("collapsed", layout.collapsed);
-    shell.collapse.setAttribute("aria-expanded", String(!layout.collapsed));
-    const collapseLabel = `${t(layout.collapsed ? "view.expand" : "view.collapse")} ${title}`;
+    shell.section.classList.toggle("collapsed", collapsed);
+    shell.collapse.setAttribute("aria-expanded", String(!collapsed));
+    const collapseLabel = `${t(collapsed ? "view.expand" : "view.collapse")} ${title}`;
     shell.collapse.setAttribute("aria-label", collapseLabel);
     shell.collapse.title = collapseLabel;
     const closeLabel = `${t("view.close")} ${title}`;
     shell.close.setAttribute("aria-label", closeLabel);
     shell.close.title = closeLabel;
-    shell.body.classList.toggle("hidden", layout.collapsed);
+    shell.body.classList.toggle("hidden", collapsed);
     if (view.id === "outline") {
       shell.section.style.setProperty("--outline-height", `${layout.size ?? OUTLINE_DEFAULT_SIZE}px`);
     }
@@ -349,7 +350,7 @@ export function mountWorkbench(options: {
       body.className = "panel-body";
       if (panelActiveViewId) {
         const view = visibleViews.find((candidate) => candidate.id === panelActiveViewId);
-        if (view) body.appendChild(renderView(view, visible));
+        if (view) body.appendChild(renderView(view, visible, true));
       }
       container.appendChild(tabs);
       container.appendChild(body);
