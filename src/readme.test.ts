@@ -5,6 +5,7 @@ const at = (p: string) => new URL("../" + p, import.meta.url);
 const readme = readFileSync(at("README.md"), "utf8");
 const koreanReadme = readFileSync(at("README.ko.md"), "utf8");
 const releaseWorkflow = readFileSync(at(".github/workflows/release.yml"), "utf8");
+const version = JSON.parse(readFileSync(at("package.json"), "utf8")).version;
 
 describe("README", () => {
   it("keeps the core product sections", () => {
@@ -12,10 +13,22 @@ describe("README", () => {
       expect(readme).toContain(h);
     }
   });
-  it("links the current macOS dmg downloads in both READMEs", () => {
+  it("links all current release downloads in both READMEs", () => {
+    const releaseUrl = `https://github.com/JangHyun-bin/Rune/releases/download/v${version}/`;
+    const assets = [
+      `Rune_${version}_aarch64.dmg`,
+      `Rune_${version}_x64.dmg`,
+      `Rune_${version}_x64_en-US.msi`,
+      `Rune_${version}_x64-setup.exe`,
+      `Rune_${version}_amd64.deb`,
+      `Rune-${version}-1.x86_64.rpm`,
+      `Rune_${version}_amd64.AppImage`,
+    ];
     for (const document of [readme, koreanReadme]) {
-      expect(document).toContain("Rune_0.1.21_aarch64.dmg");
-      expect(document).toContain("Rune_0.1.21_x64.dmg");
+      for (const asset of assets) {
+        expect(document).toContain(asset);
+        expect(document).toContain(`${releaseUrl}${asset}`);
+      }
     }
     expect(readme).toContain("signs, notarizes, staples, and verifies");
   });
