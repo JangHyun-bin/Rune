@@ -366,6 +366,7 @@ describe("workbench", () => {
 
   it("moves a dragged view through the Workbench controller without recreating it", () => {
     const { primarySidebar, secondarySidebar, workbench, createOutline } = setup();
+    const moveView = vi.spyOn(workbench, "moveView");
     const outline = viewById(primarySidebar as unknown as TestElement, "outline");
     const header = byClass(outline, "workbench-view-header")[0];
     const dataTransfer = {
@@ -382,6 +383,7 @@ describe("workbench", () => {
 
     expect(dataTransfer.values.get(VIEW_DRAG_TYPE)).toBe("outline");
     expect(dataTransfer.effectAllowed).toBe("move");
+    expect(moveView).toHaveBeenCalledWith("outline", "auxiliary", 2);
     expect(workbench.snapshot().views.outline.containerId).toBe("auxiliary");
     expect(createOutline).toHaveBeenCalledTimes(1);
   });
