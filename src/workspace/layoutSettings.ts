@@ -1,4 +1,4 @@
-import { normalizeWorkbenchLayout, type WorkbenchLayoutSnapshot } from "../workbench/workbenchLayout";
+import { isMigratableWorkbenchLayout, normalizeWorkbenchLayout, type WorkbenchLayoutSnapshot } from "../workbench/workbenchLayout";
 
 export interface LayoutSettings {
   sidebarWidth: number | null;
@@ -21,6 +21,12 @@ export const DEFAULT_LAYOUT: ResolvedLayoutSettings = {
 export interface LayoutExport {
   version: 1;
   layout: ResolvedLayoutSettings;
+}
+
+export interface LayoutExportV2 {
+  version: 2;
+  layout: ResolvedLayoutSettings;
+  workbench: WorkbenchLayoutSnapshot;
 }
 
 function finiteNumber(value: unknown): number | null {
@@ -90,20 +96,37 @@ export function createSettingsSaveScheduler(save: () => void, delay: number) {
   };
 }
 
-export function serializeLayoutSettings(value: Partial<LayoutSettings>): string {
-  return JSON.stringify({ version: 1, layout: normalizeLayoutSettings(value) } satisfies LayoutExport, null, 2);
+export function serializeLayoutSettings(
+  value: Partial<LayoutSettings>,
+  workbench: WorkbenchLayoutSnapshot,
+): string {
+  return JSON.stringify({
+    version: 2,
+    layout: normalizeLayoutSettings(value),
+    workbench: normalizeWorkbenchLayout(workbench),
+  } satisfies LayoutExportV2, null, 2);
 }
 
-export function parseLayoutSettingsJson(text: string): ResolvedLayoutSettings | null {
+export function parseLayoutSettingsJson(text: string): {
+  layout: ResolvedLayoutSettings;
+  workbench: WorkbenchLayoutSnapshot | null;
+} | null {
   try {
     const parsed = JSON.parse(text) as unknown;
     if (!parsed || typeof parsed !== "object") return null;
     const record = parsed as Record<string, unknown>;
+    if (record.version === 2) {
+      if (!record.layout || !hasLayoutValue(record.layout as Partial<LayoutSettings>) || !isMigratableWorkbenchLayout(record.workbench)) return null;
+      return {
+        layout: normalizeLayoutSettings(record.layout as Partial<LayoutSettings>),
+        workbench: normalizeWorkbenchLayout(record.workbench),
+      };
+    }
     const raw = record.layout && typeof record.layout === "object"
       ? record.layout as Partial<LayoutSettings>
       : record as Partial<LayoutSettings>;
     if (!hasLayoutValue(raw)) return null;
-    return normalizeLayoutSettings(raw);
+    return { layout: normalizeLayoutSettings(raw), workbench: null };
   } catch {
     return null;
   }

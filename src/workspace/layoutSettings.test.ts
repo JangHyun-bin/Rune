@@ -7,6 +7,7 @@ import {
   parseLayoutSettingsJson,
   serializeLayoutSettings,
 } from "./layoutSettings";
+import { DEFAULT_WORKBENCH_LAYOUT } from "../workbench/workbenchLayout";
 
 describe("layout settings", () => {
   it("fills missing values with defaults", () => {
@@ -16,17 +17,43 @@ describe("layout settings", () => {
     });
   });
 
-  it("roundtrips the exported layout shape", () => {
-    const json = serializeLayoutSettings({ sidebarWidth: 360, outlineHeight: 180, splitRatio: 0.62 });
-    expect(parseLayoutSettingsJson(json)).toEqual({ sidebarWidth: 360, outlineHeight: 180, splitRatio: 0.62 });
+  it("roundtrips version 2 layout and workbench state", () => {
+    const workbench = {
+      ...DEFAULT_WORKBENCH_LAYOUT,
+      parts: {
+        ...DEFAULT_WORKBENCH_LAYOUT.parts,
+        primarySidebar: { ...DEFAULT_WORKBENCH_LAYOUT.parts.primarySidebar, size: 360 },
+        secondarySidebar: { ...DEFAULT_WORKBENCH_LAYOUT.parts.secondarySidebar, visible: true },
+      },
+      views: {
+        ...DEFAULT_WORKBENCH_LAYOUT.views,
+        outline: { ...DEFAULT_WORKBENCH_LAYOUT.views.outline, containerId: "auxiliary" as const, order: 2, visible: false, size: 180 },
+      },
+      positions: { primarySidebar: "right" as const, panel: "left" as const },
+    };
+    const json = serializeLayoutSettings({ sidebarWidth: 360, outlineHeight: 180, splitRatio: 0.62 }, workbench);
+    expect(parseLayoutSettingsJson(json)).toEqual({
+      layout: { sidebarWidth: 360, outlineHeight: 180, splitRatio: 0.62 },
+      workbench,
+    });
   });
 
-  it("also imports a plain layout object", () => {
-    expect(parseLayoutSettingsJson('{"sidebarWidth":300,"outlineHeight":160,"splitRatio":0.4}')).toEqual({
-      sidebarWidth: 300,
-      outlineHeight: 160,
-      splitRatio: 0.4,
+  it("imports version 1 with default workbench handling", () => {
+    expect(parseLayoutSettingsJson('{"version":1,"layout":{"sidebarWidth":300,"outlineHeight":160,"splitRatio":0.4}}')).toEqual({
+      layout: { sidebarWidth: 300, outlineHeight: 160, splitRatio: 0.4 },
+      workbench: null,
     });
+  });
+
+  it("also imports a plain legacy layout object", () => {
+    expect(parseLayoutSettingsJson('{"sidebarWidth":300,"outlineHeight":160,"splitRatio":0.4}')).toEqual({
+      layout: { sidebarWidth: 300, outlineHeight: 160, splitRatio: 0.4 },
+      workbench: null,
+    });
+  });
+
+  it("rejects a declared version 2 import with invalid workbench state", () => {
+    expect(parseLayoutSettingsJson('{"version":2,"layout":{"sidebarWidth":300},"workbench":null}')).toBeNull();
   });
 
   it("rejects invalid json", () => {

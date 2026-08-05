@@ -348,28 +348,32 @@ function applySplitRatio(ratio: number, persist = true): void {
   if (typeof paneWorkspace !== "undefined") paneWorkspace.setSplitRatio(clamped);
   if (persist) { activeNamedLayout = null; scheduleSaveSettings(); }
 }
-function applyLayoutSettings(layout: Partial<LayoutSettings>): void {
+function applyLayoutSettings(layout: Partial<LayoutSettings>, persist = true): void {
   const normalized = normalizeLayoutSettings(layout);
   const workbenchLayout = workbench.snapshot();
   workbenchLayout.parts.primarySidebar.size = normalized.sidebarWidth;
   workbenchLayout.views.outline.size = normalized.outlineHeight;
   workbench.restore(workbenchLayout);
   applySplitRatio(normalized.splitRatio, false);
-  scheduleSaveSettings();
+  if (persist) scheduleSaveSettings();
 }
 function resetLayoutSettings(): void {
-  applyLayoutSettings(DEFAULT_LAYOUT);
+  applyLayoutSettings(DEFAULT_LAYOUT, false);
+  workbench.restore(DEFAULT_WORKBENCH_LAYOUT);
+  scheduleSaveSettings();
   settingsPanel.refresh();
 }
 function importLayoutSettings(text: string): boolean {
   const parsed = parseLayoutSettingsJson(text);
   if (!parsed) return false;
-  applyLayoutSettings(parsed);
+  applyLayoutSettings(parsed.layout, false);
+  if (parsed.workbench) workbench.restore(parsed.workbench);
+  scheduleSaveSettings();
   settingsPanel.refresh();
   return true;
 }
 function exportLayoutSettings(): string {
-  return serializeLayoutSettings(currentLayoutSettings());
+  return serializeLayoutSettings(currentLayoutSettings(), workbench.snapshot());
 }
 function layoutSummary(): string {
   const layout = currentLayoutSettings();
