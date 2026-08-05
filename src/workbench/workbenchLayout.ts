@@ -195,6 +195,10 @@ export function openView(layout: WorkbenchLayoutSnapshot, viewId: WorkbenchViewI
 export function closeView(layout: WorkbenchLayoutSnapshot, viewId: WorkbenchViewId): WorkbenchLayoutSnapshot {
   const next = cloneLayout(layout);
   next.views[viewId].visible = false;
+  const partId = next.containers[next.views[viewId].containerId].part;
+  if (partId !== "primarySidebar" && !viewIds.some((id) => next.views[id].visible && next.containers[next.views[id].containerId].part === partId)) {
+    next.parts[partId].visible = false;
+  }
   return next;
 }
 

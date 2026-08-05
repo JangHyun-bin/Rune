@@ -102,6 +102,15 @@ describe("workbench layout", () => {
     expect(state.parts.secondarySidebar.activeContainerId).toBe("auxiliary");
   });
 
+  it("hides empty destination parts when their final view closes", () => {
+    const emptyAuxiliary = closeView(closeView(DEFAULT_WORKBENCH_LAYOUT, "backlinks"), "properties");
+    const secondary = moveView(emptyAuxiliary, "outline", "auxiliary");
+    expect(closeView(secondary, "outline").parts.secondarySidebar.visible).toBe(false);
+    const panel = moveView(DEFAULT_WORKBENCH_LAYOUT, "outline", "panel");
+    expect(closeView(panel, "outline").parts.panel.visible).toBe(false);
+    expect(closeView(DEFAULT_WORKBENCH_LAYOUT, "workspace").parts.primarySidebar.visible).toBe(true);
+  });
+
   it("sets all allowed sidebar and panel positions while ignoring invalid positions", () => {
     expect(setPrimarySidebarPosition(DEFAULT_WORKBENCH_LAYOUT, "right").positions.primarySidebar).toBe("right");
     expect(setPrimarySidebarPosition(DEFAULT_WORKBENCH_LAYOUT, "left").positions.primarySidebar).toBe("left");
