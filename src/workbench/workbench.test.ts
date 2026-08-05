@@ -184,7 +184,7 @@ function viewById(root: TestElement, id: string): TestElement {
   return element;
 }
 
-function setup({ rootWidth = 1024, sidebarHeight = 820 } = {}) {
+function setup({ rootWidth = 1024, sidebarHeight = 820, onViewMenu = vi.fn() } = {}) {
   const registry = createViewRegistry();
   const focusWorkspace = vi.fn();
   const focusOutline = vi.fn();
@@ -239,6 +239,7 @@ function setup({ rootWidth = 1024, sidebarHeight = 820 } = {}) {
     initialState: DEFAULT_WORKBENCH_LAYOUT,
     focusEditor,
     onDidChange,
+    onViewMenu,
   });
 
   return {
@@ -247,6 +248,7 @@ function setup({ rootWidth = 1024, sidebarHeight = 820 } = {}) {
     workbench,
     focusEditor,
     onDidChange,
+    onViewMenu,
     createWorkspace,
     createOutline,
     createSearch,
@@ -417,6 +419,18 @@ describe("workbench", () => {
 
     expect(workbench.snapshot().parts.panel.visible).toBe(false);
     expect(workbench.snapshot().views.search.visible).toBe(visible);
+  });
+
+  it("opens the view menu from the accessible header action", () => {
+    const onViewMenu = vi.fn();
+    const { primarySidebar } = setup({ onViewMenu });
+    const outline = viewById(primarySidebar as unknown as TestElement, "outline");
+    const more = byClass(outline, "view-more")[0];
+
+    more.dispatch("click", { clientX: 32, clientY: 48 });
+
+    expect(more.getAttribute("aria-label")).toBe("Move View Outline");
+    expect(onViewMenu).toHaveBeenCalledWith("outline", 32, 48);
   });
 
   it("returns focus to the editor when a focused Outline is closed", () => {

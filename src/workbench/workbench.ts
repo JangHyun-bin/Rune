@@ -46,6 +46,7 @@ interface ViewShell {
   header: HTMLElement;
   title: HTMLElement;
   collapse: HTMLButtonElement;
+  more: HTMLButtonElement;
   close: HTMLButtonElement;
   body: HTMLElement;
 }
@@ -62,6 +63,7 @@ export function mountWorkbench(options: {
   initialState: WorkbenchLayoutSnapshot;
   focusEditor: () => void;
   onDidChange: (snapshot: WorkbenchLayoutSnapshot) => void;
+  onViewMenu?: (viewId: WorkbenchViewId, x: number, y: number) => void;
 }): Workbench {
   let state = normalizeWorkbenchLayout(options.initialState);
   let destroyed = false;
@@ -174,17 +176,23 @@ export function mountWorkbench(options: {
     collapse.addEventListener("click", () => workbench.toggleViewCollapsed(view.id));
     const title = document.createElement("span");
     title.className = "view-title";
+    const more = createButton("view-more view-close", `${t("workbench.moveView")} ${t(view.titleKey)}`, "...");
+    more.addEventListener("click", (event) => {
+      const rect = more.getBoundingClientRect();
+      options.onViewMenu?.(view.id, event.clientX || rect.left, event.clientY || rect.bottom);
+    });
     const close = createButton("view-close", `Close ${view.titleKey}`, "×");
     close.addEventListener("click", () => workbench.closeView(view.id));
     header.appendChild(collapse);
     header.appendChild(title);
     header.appendChild(close);
+    header.appendChild(more);
     const body = document.createElement("div");
     body.className = "workbench-view-body";
     body.style.overflow = "auto";
     section.appendChild(header);
     section.appendChild(body);
-    shell = { section, header, title, collapse, close, body };
+    shell = { section, header, title, collapse, more, close, body };
     viewShells.set(view.id, shell);
     return shell;
   };
@@ -204,6 +212,9 @@ export function mountWorkbench(options: {
     const closeLabel = `${t("view.close")} ${title}`;
     shell.close.setAttribute("aria-label", closeLabel);
     shell.close.title = closeLabel;
+    const moreLabel = `${t("workbench.moveView")} ${title}`;
+    shell.more.setAttribute("aria-label", moreLabel);
+    shell.more.title = moreLabel;
     shell.body.classList.toggle("hidden", collapsed);
     if (view.id === "outline") {
       shell.section.style.setProperty("--outline-height", `${layout.size ?? OUTLINE_DEFAULT_SIZE}px`);

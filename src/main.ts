@@ -76,6 +76,8 @@ import { preflightProject, type ProjectDiagnostic } from "./project/projectPrefl
 
 const chrome = mountChrome(document.getElementById("titlebar")!, document.getElementById("statusbar")!, {
   onTogglePrimarySidebar: () => workbench.togglePrimarySidebar(),
+  onToggleSecondarySidebar: () => workbench.togglePart("secondarySidebar"),
+  onTogglePanel: () => workbench.togglePart("panel"),
   onOpenSettings: () => settingsPanel.open(),
 });
 const editorRoot = document.getElementById("editor")!;
@@ -268,6 +270,20 @@ const workbench = mountWorkbench({
   initialState: DEFAULT_WORKBENCH_LAYOUT,
   focusEditor: () => { if (typeof paneWorkspace !== "undefined") activeView().focus(); },
   onDidChange: () => { activeNamedLayout = null; scheduleSaveSettings(); },
+  onViewMenu: (id, x, y) => {
+    const current = workbench.snapshot().views[id].containerId;
+    const destinations = [
+      ["explorer", "workbench.moveToPrimarySidebar"],
+      ["auxiliary", "workbench.moveToSecondarySidebar"],
+      ["panel", "workbench.moveToPanel"],
+    ] as const;
+    showContextMenu(x, y, [
+      ...destinations
+        .filter(([containerId]) => containerId !== current)
+        .map(([containerId, label]) => ({ label: tr(label), run: () => workbench.moveView(id, containerId) })),
+      { label: tr("view.close"), run: () => workbench.closeView(id) },
+    ]);
+  },
 });
 
 const SPLIT_RATIO_DEFAULT = DEFAULT_LAYOUT.splitRatio;
@@ -992,6 +1008,19 @@ function paletteItems(): PaletteItem[] {
     { label: tr("cmd.findReplace"), run: () => findReplacePanel?.open() },
     { label: tr("cmd.search"), run: () => workbench.toggleView("search") },
     { label: tr("workbench.togglePrimarySidebar"), run: () => workbench.togglePrimarySidebar() },
+    { label: tr("workbench.toggleSecondarySidebar"), run: () => workbench.togglePart("secondarySidebar") },
+    { label: tr("workbench.togglePanel"), run: () => workbench.togglePart("panel") },
+    { label: tr("workbench.movePrimarySidebarLeft"), run: () => workbench.setPrimarySidebarPosition("left") },
+    { label: tr("workbench.movePrimarySidebarRight"), run: () => workbench.setPrimarySidebarPosition("right") },
+    { label: tr("workbench.movePanelBottom"), run: () => workbench.setPanelPosition("bottom") },
+    { label: tr("workbench.movePanelLeft"), run: () => workbench.setPanelPosition("left") },
+    { label: tr("workbench.movePanelRight"), run: () => workbench.setPanelPosition("right") },
+    { label: tr("workbench.resetViewLocations"), run: () => workbench.resetViewLocations() },
+    ...(["workspace", "outline", "tags", "project", "search", "backlinks", "properties"] as const).flatMap((id) => [
+      { label: `${tr("workbench.moveView")}: ${tr(`view.${id}`)} — ${tr("workbench.moveToPrimarySidebar")}`, run: () => workbench.moveView(id, "explorer") },
+      { label: `${tr("workbench.moveView")}: ${tr(`view.${id}`)} — ${tr("workbench.moveToSecondarySidebar")}`, run: () => workbench.moveView(id, "auxiliary") },
+      { label: `${tr("workbench.moveView")}: ${tr(`view.${id}`)} — ${tr("workbench.moveToPanel")}`, run: () => workbench.moveView(id, "panel") },
+    ]),
     { label: tr("view.workspace"), run: () => workbench.openView("workspace") },
     { label: tr("view.outline"), run: () => workbench.openView("outline") },
     { label: tr("view.search"), run: () => workbench.openView("search") },

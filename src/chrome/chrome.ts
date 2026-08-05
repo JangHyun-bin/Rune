@@ -12,7 +12,12 @@ export interface Chrome {
 export function mountChrome(
   titlebar: HTMLElement,
   statusbar: HTMLElement,
-  opts?: { onTogglePrimarySidebar?: () => void; onOpenSettings?: () => void },
+  opts?: {
+    onTogglePrimarySidebar?: () => void;
+    onToggleSecondarySidebar?: () => void;
+    onTogglePanel?: () => void;
+    onOpenSettings?: () => void;
+  },
 ): Chrome {
   const spacer = document.createElement("span");
   spacer.className = "tb-spacer";
@@ -22,6 +27,18 @@ export function mountChrome(
   sidebarBtn.title = t("workbench.togglePrimarySidebar");
   sidebarBtn.setAttribute("aria-label", t("workbench.togglePrimarySidebar"));
   sidebarBtn.addEventListener("click", () => opts?.onTogglePrimarySidebar?.());
+  const secondarySidebarBtn = document.createElement("button");
+  secondarySidebarBtn.className = "tb-toggle-sidebar";
+  secondarySidebarBtn.textContent = "◧";
+  secondarySidebarBtn.title = t("workbench.toggleSecondarySidebar");
+  secondarySidebarBtn.setAttribute("aria-label", t("workbench.toggleSecondarySidebar"));
+  secondarySidebarBtn.addEventListener("click", () => opts?.onToggleSecondarySidebar?.());
+  const panelBtn = document.createElement("button");
+  panelBtn.className = "tb-toggle-sidebar";
+  panelBtn.textContent = "▤";
+  panelBtn.title = t("workbench.togglePanel");
+  panelBtn.setAttribute("aria-label", t("workbench.togglePanel"));
+  panelBtn.addEventListener("click", () => opts?.onTogglePanel?.());
   const settingsBtn = document.createElement("button");
   settingsBtn.textContent = "⚙";
   settingsBtn.title = t("settings.title");
@@ -30,7 +47,7 @@ export function mountChrome(
   const brand = document.createElement("span");
   brand.className = "tb-brand";
   brand.innerHTML = sparkleSvg(18);
-  titlebar.replaceChildren(brand, spacer, sidebarBtn, settingsBtn);
+  titlebar.replaceChildren(brand, spacer, sidebarBtn, secondarySidebarBtn, panelBtn, settingsBtn);
 
   const left = document.createElement("span");
   const right = document.createElement("span");
@@ -53,6 +70,10 @@ export function mountChrome(
     relabel() {
       sidebarBtn.title = t("workbench.togglePrimarySidebar");
       sidebarBtn.setAttribute("aria-label", t("workbench.togglePrimarySidebar"));
+      secondarySidebarBtn.title = t("workbench.toggleSecondarySidebar");
+      secondarySidebarBtn.setAttribute("aria-label", t("workbench.toggleSecondarySidebar"));
+      panelBtn.title = t("workbench.togglePanel");
+      panelBtn.setAttribute("aria-label", t("workbench.togglePanel"));
       settingsBtn.title = t("settings.title");
       settingsBtn.setAttribute("aria-label", t("settings.title"));
       autoSave.textContent = t("status.autosave");
