@@ -1,7 +1,6 @@
 use crate::fs_ops;
 use notify::{RecursiveMode, Watcher};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter, Manager};
 
@@ -297,16 +296,14 @@ pub async fn apply_path_change(
     Ok(stats)
 }
 
-/// Return (and clear) the file Rune was launched with via file association, if any.
+/// Return (and clear) the files Rune was launched with via file association.
 /// Also marks the app "ready" so later OS open events are delivered live, not buffered.
 #[tauri::command]
 pub fn take_launch_file(
     launch: tauri::State<crate::LaunchFile>,
     ready: tauri::State<crate::AppReady>,
-) -> Option<String> {
-    let mut launch = launch.0.lock().ok()?;
-    ready.0.store(true, Ordering::SeqCst);
-    launch.take()
+) -> Vec<String> {
+    crate::take_queued_launch_files(&ready.0, &launch.0)
 }
 
 #[tauri::command]

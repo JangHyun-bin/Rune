@@ -70,7 +70,7 @@ export const commands = {
     call<PathChangePlan>("plan_path_change", { root, source, destination }),
   applyPathChange: (root: string, source: string, destination: string, expectedPlanId: string) =>
     call<WorkspaceIndexStats>("apply_path_change", { root, source, destination, expectedPlanId }),
-  takeLaunchFile: () => call<string | null>("take_launch_file", {}),
+  takeLaunchFile: () => call<string[]>("take_launch_file", {}),
   openDefaultAppsSettings: () => call<null>("open_default_apps_settings", {}),
   deletePath: (path: string) => call<null>("delete_path", { path }),
   createFile: (dir: string, name: string) =>

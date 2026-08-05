@@ -12,9 +12,9 @@ use tauri::{Emitter, Manager};
 pub struct WatcherState(pub Mutex<Option<notify::RecommendedWatcher>>);
 pub struct SearchState(pub Arc<Mutex<HashSet<u64>>>);
 pub struct WorkspaceIndexState(pub Mutex<Option<Arc<workspace_index::WorkspaceIndex>>>);
-/// A file path Rune was launched with (double-clicked .md via file association),
-/// pending until the frontend is ready to open it.
-pub struct LaunchFile(pub Mutex<Option<String>>);
+/// File paths Rune was launched with (double-clicked .md via file association),
+/// pending until the frontend is ready to open them.
+pub struct LaunchFile(pub Mutex<Vec<String>>);
 
 /// True once the frontend has registered its `open-file` listener (it drains
 /// `LaunchFile` on startup). Before that, OS file-open events are buffered into
@@ -32,7 +32,7 @@ fn file_from_args(args: &[String]) -> Option<String> {
 
 fn queue_open_file_until_ready(
     ready: &AtomicBool,
-    launch: &Mutex<Option<String>>,
+    launch: &Mutex<Vec<String>>,
     path: String,
 ) -> bool {
     let Ok(mut pending) = launch.lock() else {
@@ -41,8 +41,19 @@ fn queue_open_file_until_ready(
     if ready.load(Ordering::SeqCst) {
         return false;
     }
-    *pending = Some(path);
+    pending.push(path);
     true
+}
+
+pub(crate) fn take_queued_launch_files(
+    ready: &AtomicBool,
+    launch: &Mutex<Vec<String>>,
+) -> Vec<String> {
+    let Ok(mut pending) = launch.lock() else {
+        return Vec::new();
+    };
+    ready.store(true, Ordering::SeqCst);
+    std::mem::take(&mut *pending)
 }
 
 #[cfg(test)]
@@ -50,9 +61,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn queues_a_second_instance_file_until_the_frontend_is_ready() {
+    fn drains_initial_and_second_instance_files_in_arrival_order() {
         let ready = AtomicBool::new(false);
-        let launch = Mutex::new(None);
+        let launch = Mutex::new(vec!["C:/vault/initial.md".to_owned()]);
 
         assert!(queue_open_file_until_ready(
             &ready,
@@ -60,8 +71,8 @@ mod tests {
             "C:/vault/second.md".into()
         ));
         assert_eq!(
-            launch.into_inner().unwrap(),
-            Some("C:/vault/second.md".into())
+            take_queued_launch_files(&ready, &launch),
+            vec!["C:/vault/initial.md", "C:/vault/second.md"]
         );
     }
 }
@@ -102,7 +113,7 @@ pub fn run() {
         .manage(WatcherState(Mutex::new(None)))
         .manage(SearchState(Arc::new(Mutex::new(HashSet::new()))))
         .manage(WorkspaceIndexState(Mutex::new(None)))
-        .manage(LaunchFile(Mutex::new(initial)))
+        .manage(LaunchFile(Mutex::new(initial.into_iter().collect())))
         .manage(AppReady(AtomicBool::new(false)))
         .invoke_handler(tauri::generate_handler![
             commands::path_exists,

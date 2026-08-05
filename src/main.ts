@@ -1153,9 +1153,11 @@ async function restore(): Promise<void> {
 
   // Wait for the listener before marking the Rust side ready and draining a queued launch.
   await openFileListenerReady;
-  // If Rune was launched by double-clicking a .md (file association), open it.
+  // If Rune was launched by double-clicking Markdown files, open them in arrival order.
   const launch = await commands.takeLaunchFile();
-  if (launch.status === "ok" && launch.data) { await openPath(launch.data); }
+  if (launch.status === "ok") {
+    for (const path of launch.data) await openPath(path);
+  }
   void checkForUpdates(false);
 }
 
