@@ -1,5 +1,43 @@
 import { describe, expect, it, vi } from "vitest";
-import { handleNativeFileDrop } from "./fileDrop";
+import { createNativeFileOpenQueue, handleNativeFileDrop } from "./fileDrop";
+
+describe("native file open queue", () => {
+  it("keeps drained startup paths ahead of a live open-file event", async () => {
+    let releaseInitial!: () => void;
+    const initialBlocked = new Promise<void>((resolve) => { releaseInitial = resolve; });
+    const completed: string[] = [];
+    const queue = createNativeFileOpenQueue(async (path) => {
+      if (path.endsWith("initial.md")) await initialBlocked;
+      completed.push(path);
+      return true;
+    });
+
+    const live = queue.openLiveFile("C:/w/live.md");
+    await Promise.resolve();
+    expect(completed).toEqual([]);
+
+    const drained = queue.drainLaunchFiles(["C:/w/initial.md", "C:/w/second.md"]);
+    await Promise.resolve();
+    expect(completed).toEqual([]);
+
+    releaseInitial();
+    await Promise.all([drained, live]);
+    expect(completed).toEqual(["C:/w/initial.md", "C:/w/second.md", "C:/w/live.md"]);
+  });
+
+  it("continues after one native file open rejects", async () => {
+    const started: string[] = [];
+    const queue = createNativeFileOpenQueue(async (path) => {
+      started.push(path);
+      if (path.endsWith("broken.md")) throw new Error("read failed");
+      return true;
+    });
+
+    await expect(queue.drainLaunchFiles(["C:/w/broken.md"])).rejects.toThrow("read failed");
+    await expect(queue.openLiveFile("C:/w/later.md")).resolves.toBe(true);
+    expect(started).toEqual(["C:/w/broken.md", "C:/w/later.md"]);
+  });
+});
 
 describe("native file drop", () => {
   it("opens a Markdown file in the target tabbar pane", async () => {

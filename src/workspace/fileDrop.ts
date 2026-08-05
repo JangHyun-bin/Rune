@@ -7,6 +7,26 @@ export type ResolvedDropTarget =
   | { kind: "pane-edge"; paneId: string; direction: SplitDirection; side: "before" | "after" }
   | { kind: "none"; paneId: null };
 
+export function createNativeFileOpenQueue(openPath: (path: string) => Promise<boolean>) {
+  let tail: Promise<unknown> = Promise.resolve();
+  let releaseLaunch!: () => void;
+  // Hold live events until all paths drained by takeLaunchFile() are ahead of them.
+  const launchQueued = new Promise<void>((resolve) => { releaseLaunch = resolve; });
+  const enqueue = (path: string) => {
+    const opened = tail.then(() => openPath(path));
+    tail = opened.catch(() => {});
+    return opened;
+  };
+  return {
+    drainLaunchFiles: (paths: string[]) => {
+      const drained = Promise.all(paths.map(enqueue));
+      releaseLaunch();
+      return drained;
+    },
+    openLiveFile: (path: string) => launchQueued.then(() => enqueue(path)),
+  };
+}
+
 export async function handleNativeFileDrop(args: {
   paths: string[];
   target: ResolvedDropTarget;

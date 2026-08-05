@@ -44,7 +44,7 @@ import { createPaneWorkspace, type PaneWorkspace } from "./workspace/paneWorkspa
 import { convertFileSrc, isTauri } from "@tauri-apps/api/core";
 import { normalizePaneWorkspaceSnapshot } from "./workspace/panePersistence";
 import { dropZoneRect, firstMarkdownPath, hitPaneDropZone, physicalToCssPoint } from "./workspace/dropTargets";
-import { handleNativeFileDrop, type ResolvedDropTarget } from "./workspace/fileDrop";
+import { createNativeFileOpenQueue, handleNativeFileDrop, type ResolvedDropTarget } from "./workspace/fileDrop";
 import { createViewRegistry } from "./workbench/viewRegistry";
 import { mountWorkbench } from "./workbench/workbench";
 import { DEFAULT_WORKBENCH_LAYOUT } from "./workbench/workbenchLayout";
@@ -759,6 +759,7 @@ async function openPath(path: string): Promise<boolean> {
   syncActiveUI();
   return true;
 }
+const nativeFileOpenQueue = createNativeFileOpenQueue(openPath);
 async function loadDroppedFileFolder(path: string): Promise<void> {
   if (currentFolder) return;
   const dir = parentDir(path);
@@ -1155,9 +1156,7 @@ async function restore(): Promise<void> {
   await openFileListenerReady;
   // If Rune was launched by double-clicking Markdown files, open them in arrival order.
   const launch = await commands.takeLaunchFile();
-  if (launch.status === "ok") {
-    for (const path of launch.data) await openPath(path);
-  }
+  await nativeFileOpenQueue.drainLaunchFiles(launch.status === "ok" ? launch.data : []);
   void checkForUpdates(false);
 }
 
@@ -1296,7 +1295,7 @@ function safeListen<T>(event: string, handler: (event: Event<T>) => void): Promi
 }
 void safeListen<string[]>("fs-change", (e) => onFsChange(e.payload));
 // A .md opened via file association while Rune is already running (single-instance / macOS).
-const openFileListenerReady = safeListen<string>("open-file", (e) => { void openPath(e.payload); });
+const openFileListenerReady = safeListen<string>("open-file", (e) => { void nativeFileOpenQueue.openLiveFile(e.payload); });
 function bindNativeFileDrop(): void {
   if (!isTauri()) return;
   try {
