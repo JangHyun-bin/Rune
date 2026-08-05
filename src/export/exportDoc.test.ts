@@ -110,4 +110,43 @@ describe("HTML preview", () => {
     expect(iframe.contentWindow.focus).toHaveBeenCalledOnce();
     expect(iframe.contentWindow.print).toHaveBeenCalledOnce();
   });
+
+  it("waits for fonts and pending images before opening the native print dialog", async () => {
+    let fontsReady!: () => void;
+    const pendingImage = new TestElement();
+    const printing = printHtmlDocument("<!doctype html><h1>Book</h1>", "Book");
+    const iframe = body.children[0];
+    iframe.contentDocument = {
+      fonts: { ready: new Promise<void>((resolve) => { fontsReady = resolve; }) },
+      images: [pendingImage],
+    };
+
+    iframe.dispatch("load");
+    await Promise.resolve();
+    expect(iframe.contentWindow.print).not.toHaveBeenCalled();
+
+    fontsReady();
+    await Promise.resolve();
+    expect(iframe.contentWindow.print).not.toHaveBeenCalled();
+
+    pendingImage.dispatch("load");
+    await printing;
+
+    expect(iframe.contentWindow.print).toHaveBeenCalledOnce();
+  });
+
+  it("rejects failed images without printing and removes the iframe", async () => {
+    const printing = printHtmlDocument("<!doctype html><h1>Book</h1>", "Book");
+    const iframe = body.children[0];
+    iframe.contentDocument = { fonts: { ready: Promise.resolve() }, images: [new TestElement()] };
+
+    iframe.dispatch("load");
+    await Promise.resolve();
+    await Promise.resolve();
+    iframe.contentDocument.images[0].dispatch("error");
+
+    await expect(printing).rejects.toThrow("Print image failed to load");
+    expect(iframe.contentWindow.print).not.toHaveBeenCalled();
+    expect(body.children).toHaveLength(0);
+  });
 });
