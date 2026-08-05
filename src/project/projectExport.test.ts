@@ -141,11 +141,12 @@ describe("project HTML assembly", () => {
 
   it("materializes local linked assets while preserving URL suffixes", async () => {
     const markdown = "[Guide](../assets/guide.pdf?download=1#page=2) [Again](../assets/guide.pdf#summary) ![Cover](../assets/cover.png?size=large#top) [Remote](https://example.com/guide.pdf) [Data](data:application/pdf;base64,abc) [Secret](../../secret.pdf) Token: `__RUNE_PROJECT_ASSET_0001__`";
-    const publication = await buildProjectPublication(createProject("Book", ["chapters/one.md"]), [{
+    const documents = [{
       path: "chapters/one.md",
       absolutePath: "C:\\book\\chapters\\one.md",
       markdown,
-    }], { workspaceRoot: "C:\\book" });
+    }];
+    const publication = await buildProjectPublication(createProject("Book", ["chapters/one.md"]), documents, { workspaceRoot: "C:\\book" });
 
     expect(publication.assets).toEqual([
       {
@@ -168,7 +169,7 @@ describe("project HTML assembly", () => {
     expect(saved).toContain("[Data](data:application/pdf;base64,abc)");
     expect(saved).toContain('href="../../secret.pdf"');
     expect(saved).toContain("<code>__RUNE_PROJECT_ASSET_0001__</code>");
-    expect(markdown).toBe("[Guide](../assets/guide.pdf?download=1#page=2) [Again](../assets/guide.pdf#summary) ![Cover](../assets/cover.png?size=large#top) [Remote](https://example.com/guide.pdf) [Data](data:application/pdf;base64,abc) [Secret](../../secret.pdf) Token: `__RUNE_PROJECT_ASSET_0001__`");
+    expect(documents[0].markdown).toBe(markdown);
   });
 
   it("does not collect images outside the configured workspace root", async () => {
