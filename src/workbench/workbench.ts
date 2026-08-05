@@ -3,12 +3,19 @@ import {
   closeView as closeLayoutView,
   normalizeWorkbenchLayout,
   openView as openLayoutView,
+  moveView as moveLayoutView,
   resetViewVisibility as resetLayoutViewVisibility,
+  resetViewLocations as resetLayoutViewLocations,
+  setPanelPosition as setLayoutPanelPosition,
   setPartSize,
+  setPrimarySidebarPosition as setLayoutPrimarySidebarPosition,
   toggleViewCollapsed as toggleLayoutViewCollapsed,
   type WorkbenchContainerId,
   type WorkbenchLayoutSnapshot,
+  type WorkbenchPartId,
   type WorkbenchViewId,
+  type PanelPosition,
+  type SidebarPosition,
 } from "./workbenchLayout";
 import type { ViewContribution, ViewRegistry } from "./viewRegistry";
 import { t } from "../i18n/i18n";
@@ -21,6 +28,11 @@ export interface Workbench {
   toggleView(id: WorkbenchViewId): void;
   toggleViewCollapsed(id: WorkbenchViewId): void;
   togglePrimarySidebar(): void;
+  moveView(viewId: WorkbenchViewId, containerId: WorkbenchContainerId, order?: number): void;
+  togglePart(partId: WorkbenchPartId): void;
+  setPrimarySidebarPosition(position: SidebarPosition): void;
+  setPanelPosition(position: PanelPosition): void;
+  resetViewLocations(): void;
   activateContainer(id: WorkbenchContainerId): void;
   resetViewVisibility(): void;
   setPrimarySidebarSize(size: number): void;
@@ -288,17 +300,62 @@ export function mountWorkbench(options: {
     outlineResizer = renderedOutlineResizer;
   };
 
-  const renderContainerPart = (partId: "secondarySidebar" | "panel", host: HTMLElement): void => {
+  let panelActiveViewId: WorkbenchViewId | null = null;
+
+  const renderPart = (
+    partId: WorkbenchPartId,
+    host: HTMLElement,
+    resizer: HTMLElement,
+  ): void => {
+    const part = state.parts[partId];
     const contribution = options.registry.containers()
-      .find((container) => container.id === state.parts[partId].activeContainerId);
+      .find((container) => container.id === part.activeContainerId);
+    const views = contribution ? viewsIn(contribution.id) : [];
+    const visible = part.visible && views.some((view) => state.views[view.id].visible);
+    host.dataset.partId = partId;
+    resizer.dataset.partId = partId;
+    host.classList.toggle("hidden", !visible);
+    resizer.classList.toggle("hidden", !visible);
+    host.setAttribute("aria-hidden", String(!visible));
+    resizer.setAttribute("aria-valuemin", "96");
+    resizer.setAttribute("aria-valuemax", String(partId === "panel" ? 600 : 720));
+    resizer.setAttribute("aria-valuenow", String(part.size));
     if (!contribution) {
       host.replaceChildren();
       return;
     }
-    const views = viewsIn(contribution.id);
     const container = document.createElement("section");
     container.className = "view-container";
+    container.dataset.partId = partId;
     container.dataset.containerId = contribution.id;
+    if (partId === "panel") {
+      const visibleViews = views.filter((view) => state.views[view.id].visible);
+      if (!visibleViews.some((view) => view.id === panelActiveViewId)) panelActiveViewId = visibleViews[0]?.id ?? null;
+      const tabs = document.createElement("div");
+      tabs.className = "panel-tabs";
+      tabs.dataset.partId = partId;
+      tabs.dataset.containerId = contribution.id;
+      for (const view of visibleViews) {
+        const tab = createButton("panel-tab", t(view.titleKey), t(view.titleKey));
+        tab.dataset.viewId = view.id;
+        tab.classList.toggle("active", view.id === panelActiveViewId);
+        tab.addEventListener("click", () => {
+          panelActiveViewId = view.id;
+          render();
+        });
+        tabs.appendChild(tab);
+      }
+      const body = document.createElement("div");
+      body.className = "panel-body";
+      if (panelActiveViewId) {
+        const view = visibleViews.find((candidate) => candidate.id === panelActiveViewId);
+        if (view) body.appendChild(renderView(view, visible));
+      }
+      container.appendChild(tabs);
+      container.appendChild(body);
+      host.replaceChildren(container);
+      return;
+    }
     const titlebar = document.createElement("header");
     titlebar.className = "view-container-titlebar";
     const title = document.createElement("h2");
@@ -313,25 +370,18 @@ export function mountWorkbench(options: {
     }
     const body = document.createElement("div");
     body.className = "view-container-body";
-    body.replaceChildren(...views.map((view) => renderView(view, state.parts[partId].visible)));
+    body.replaceChildren(...views.map((view) => renderView(view, visible)));
     container.appendChild(titlebar);
     container.appendChild(body);
     host.replaceChildren(container);
   };
 
   const renderOtherParts = (): void => {
-    const secondaryVisible = state.parts.secondarySidebar.visible;
-    options.secondarySidebar.classList.toggle("hidden", !secondaryVisible);
-    options.secondaryResizer.classList.toggle("hidden", !secondaryVisible);
-    options.secondarySidebar.setAttribute("aria-hidden", String(!secondaryVisible));
     options.secondarySidebar.style.setProperty("--secondary-sidebar-width", `${state.parts.secondarySidebar.size}px`);
-    renderContainerPart("secondarySidebar", options.secondarySidebar);
-    const panelVisible = state.parts.panel.visible;
-    options.panel.classList.toggle("hidden", !panelVisible);
-    options.panelResizer.classList.toggle("hidden", !panelVisible);
-    options.panel.setAttribute("aria-hidden", String(!panelVisible));
     options.panel.style.setProperty("--panel-height", `${state.parts.panel.size}px`);
-    renderContainerPart("panel", options.panel);
+    options.panel.style.setProperty("--panel-width", `${state.parts.panel.size}px`);
+    renderPart("secondarySidebar", options.secondarySidebar, options.secondaryResizer);
+    renderPart("panel", options.panel, options.panelResizer);
   };
 
   const renderStructuralLabels = (): void => {
@@ -346,6 +396,12 @@ export function mountWorkbench(options: {
 
   const render = (): void => {
     state = boundState(state);
+    const body = options.activityBar.parentElement;
+    body?.setAttribute("data-primary-sidebar-position", state.positions.primarySidebar);
+    options.panel.parentElement?.setAttribute("data-panel-position", state.positions.panel);
+    options.primaryResizer.setAttribute("aria-orientation", "vertical");
+    options.secondaryResizer.setAttribute("aria-orientation", "vertical");
+    options.panelResizer.setAttribute("aria-orientation", state.positions.panel === "bottom" ? "horizontal" : "vertical");
     renderStructuralLabels();
     renderActivityBar();
     renderPrimarySidebar();
@@ -382,6 +438,15 @@ export function mountWorkbench(options: {
       next.parts.primarySidebar.visible = !next.parts.primarySidebar.visible;
       commit(next);
     },
+    moveView: (viewId, containerId, order) => commit(moveLayoutView(state, viewId, containerId, order)),
+    togglePart: (partId) => {
+      const next = normalizeWorkbenchLayout(state);
+      next.parts[partId].visible = !next.parts[partId].visible;
+      commit(next);
+    },
+    setPrimarySidebarPosition: (position) => commit(setLayoutPrimarySidebarPosition(state, position)),
+    setPanelPosition: (position) => commit(setLayoutPanelPosition(state, position)),
+    resetViewLocations: () => commit(resetLayoutViewLocations(state)),
     activateContainer: (id) => {
       commit(activateLayoutContainer(state, id));
       const view = viewsIn(id).find((candidate) => state.views[candidate.id].visible);
@@ -424,6 +489,7 @@ export function mountWorkbench(options: {
       window.removeEventListener("pointerup", finishResize);
       window.removeEventListener("pointercancel", finishResize);
       window.removeEventListener("blur", finishResize);
+      disposePartResizers.forEach((dispose) => dispose());
       window.removeEventListener("pointermove", onOutlinePointerMove);
       window.removeEventListener("pointerup", finishOutlineResize);
       window.removeEventListener("pointercancel", finishOutlineResize);
@@ -478,6 +544,76 @@ export function mountWorkbench(options: {
     }
     event.preventDefault();
   };
+
+  const bindPartResize = (
+    partId: "secondarySidebar" | "panel",
+    handle: HTMLElement,
+    config: () => {
+      axis: "x" | "y";
+      sizeProperty: "--secondary-sidebar-width" | "--panel-height" | "--panel-width";
+      direction: number;
+    },
+  ): (() => void) => {
+    let active = false;
+    let pointerId: number | null = null;
+    let start = 0;
+    let startSize = state.parts[partId].size;
+    let liveSize = startSize;
+    let movedPart = false;
+    let resizeConfig = config();
+    const finish = (): void => {
+      if (!active) return;
+      if (pointerId !== null && handle.hasPointerCapture(pointerId)) handle.releasePointerCapture(pointerId);
+      active = false;
+      pointerId = null;
+      handle.classList.remove("dragging");
+      document.body.classList.remove("resizing-sidebar", "resizing-panel");
+      if (movedPart) commit(setPartSize(state, partId, liveSize));
+    };
+    const move = (event: PointerEvent): void => {
+      if (!active) return;
+      movedPart = true;
+      const position = resizeConfig.axis === "x" ? event.clientX : event.clientY;
+      liveSize = boundState(setPartSize(state, partId, startSize + resizeConfig.direction * (position - start))).parts[partId].size;
+      (partId === "secondarySidebar" ? options.secondarySidebar : options.panel).style.setProperty(resizeConfig.sizeProperty, `${liveSize}px`);
+      handle.setAttribute("aria-valuenow", String(liveSize));
+    };
+    const down = (event: PointerEvent): void => {
+      if (event.button !== 0) return;
+      active = true;
+      pointerId = event.pointerId;
+      resizeConfig = config();
+      start = resizeConfig.axis === "x" ? event.clientX : event.clientY;
+      startSize = state.parts[partId].size;
+      liveSize = startSize;
+      movedPart = false;
+      handle.classList.add("dragging");
+      document.body.classList.add(partId === "panel" ? "resizing-panel" : "resizing-sidebar");
+      try { handle.setPointerCapture(event.pointerId); } catch { pointerId = null; }
+      event.preventDefault();
+    };
+    handle.addEventListener("pointerdown", down);
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", finish);
+    window.addEventListener("pointercancel", finish);
+    window.addEventListener("blur", finish);
+    return () => {
+      handle.removeEventListener("pointerdown", down);
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", finish);
+      window.removeEventListener("pointercancel", finish);
+      window.removeEventListener("blur", finish);
+    };
+  };
+
+  const disposePartResizers = [
+    bindPartResize("secondarySidebar", options.secondaryResizer, () => ({
+      axis: "x", sizeProperty: "--secondary-sidebar-width", direction: state.positions.primarySidebar === "left" ? -1 : 1,
+    })),
+    bindPartResize("panel", options.panelResizer, () => state.positions.panel === "bottom"
+      ? { axis: "y", sizeProperty: "--panel-height", direction: -1 }
+      : { axis: "x", sizeProperty: "--panel-width", direction: state.positions.panel === "left" ? 1 : -1 }),
+  ];
 
   let outlineResizing = false;
   let outlinePointerId: number | null = null;

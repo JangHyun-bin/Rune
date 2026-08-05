@@ -201,6 +201,7 @@ function setup({ rootWidth = 1024, sidebarHeight = 820 } = {}) {
   registry.registerContainer({ id: "explorer", titleKey: "view.explorer", icon: "files", order: 0 });
   registry.registerContainer({ id: "search", titleKey: "view.search", icon: "search", order: 1 });
   registry.registerContainer({ id: "auxiliary", titleKey: "view.auxiliary", icon: "aux", order: 0 });
+  registry.registerContainer({ id: "panel", titleKey: "view.panel", icon: "panel", order: 0 });
   registry.registerView({ id: "workspace", titleKey: "view.workspace", defaultContainerId: "explorer", order: 0, create: createWorkspace });
   registry.registerView({ id: "outline", titleKey: "view.outline", defaultContainerId: "explorer", order: 1, create: createOutline });
   registry.registerView({ id: "tags", titleKey: "view.tags", defaultContainerId: "explorer", order: 2, create: createTags });
@@ -345,6 +346,67 @@ describe("workbench", () => {
     ]);
     expect(createBacklinks).toHaveBeenCalledTimes(1);
     expect(focusBacklinks).toHaveBeenCalledTimes(1);
+  });
+
+  it("reparents a cached Outline element into Auxiliary exactly once", () => {
+    const { primarySidebar, secondarySidebar, secondaryResizer, workbench, createOutline } = setup();
+    const outline = viewById(primarySidebar as unknown as TestElement, "outline");
+    const element = byClass(outline, "workbench-view-body")[0].children[0];
+
+    workbench.moveView("outline", "auxiliary");
+
+    expect(byClass(viewById(secondarySidebar as unknown as TestElement, "outline"), "workbench-view-body")[0].children[0]).toBe(element);
+    expect(createOutline).toHaveBeenCalledTimes(1);
+    expect((secondarySidebar as unknown as TestElement).classList.contains("hidden")).toBe(false);
+    expect((secondaryResizer as unknown as TestElement).classList.contains("hidden")).toBe(false);
+  });
+
+  it("hides the source part after its last visible view moves away", () => {
+    const { workbench } = setup();
+
+    workbench.closeView("properties");
+    workbench.moveView("backlinks", "explorer");
+
+    expect(workbench.snapshot().parts.secondarySidebar.visible).toBe(false);
+  });
+
+  it("renders a moved Search view as a Panel tab and body", () => {
+    const { panel, workbench } = setup();
+
+    workbench.moveView("search", "panel");
+
+    expect(byClass(panel as unknown as TestElement, "panel-tab")[0].dataset.viewId).toBe("search");
+    expect(byClass(panel as unknown as TestElement, "panel-body")[0].children[0].dataset.viewId).toBe("search");
+  });
+
+  it("persists Panel height and side width in the same part size", () => {
+    const { panel, panelResizer, workbench } = setup();
+    workbench.moveView("search", "panel");
+    workbench.setPanelPosition("bottom");
+
+    (panelResizer as unknown as TestElement).dispatch("pointerdown", { button: 0, pointerId: 3, clientY: 300 });
+    testWindow.dispatch("pointermove", { clientY: 240 });
+    testWindow.dispatch("pointerup");
+    expect(workbench.snapshot().parts.panel.size).toBe(280);
+    expect((panel as unknown as TestElement).style["--panel-height"]).toBe("280px");
+
+    workbench.setPanelPosition("left");
+    (panelResizer as unknown as TestElement).dispatch("pointerdown", { button: 0, pointerId: 4, clientX: 300 });
+    testWindow.dispatch("pointermove", { clientX: 360 });
+    testWindow.dispatch("pointerup");
+    expect(workbench.snapshot().parts.panel.size).toBe(340);
+    expect((panel as unknown as TestElement).style["--panel-width"]).toBe("340px");
+  });
+
+  it("toggles a part without changing child view visibility", () => {
+    const { workbench } = setup();
+    workbench.moveView("search", "panel");
+    const visible = workbench.snapshot().views.search.visible;
+
+    workbench.togglePart("panel");
+
+    expect(workbench.snapshot().parts.panel.visible).toBe(false);
+    expect(workbench.snapshot().views.search.visible).toBe(visible);
   });
 
   it("returns focus to the editor when a focused Outline is closed", () => {
