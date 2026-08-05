@@ -14,7 +14,11 @@ class TestElement {
   offsetHeight = 0;
   offsetWidth = 0;
   rectHeight = 0;
+  rectLeft = 0;
+  rectTop = 0;
   rectWidth = 0;
+  scrollLeft = 0;
+  scrollTop = 0;
   children: TestElement[] = [];
   dataset: Record<string, string> = {};
   parentElement: TestElement | null = null;
@@ -89,14 +93,14 @@ class TestElement {
 
   getBoundingClientRect(): DOMRect {
     return {
-      bottom: this.rectHeight,
+      bottom: this.rectTop + this.rectHeight,
       height: this.rectHeight,
-      left: 0,
-      right: this.rectWidth,
-      top: 0,
+      left: this.rectLeft,
+      right: this.rectLeft + this.rectWidth,
+      top: this.rectTop,
       width: this.rectWidth,
-      x: 0,
-      y: 0,
+      x: this.rectLeft,
+      y: this.rectTop,
       toJSON: () => ({}),
     };
   }
@@ -245,6 +249,7 @@ function setup({ rootWidth = 1024, sidebarHeight = 820, onViewMenu = vi.fn() } =
 
   return {
     ...hosts,
+    workbenchHost,
     registry,
     workbench,
     focusEditor,
@@ -388,6 +393,38 @@ describe("workbench", () => {
     expect(createOutline).toHaveBeenCalledTimes(1);
   });
 
+  it("accepts a protected dragover from its MIME type and reads the payload only on drop", () => {
+    const { primarySidebar, secondarySidebar, workbench } = setup();
+    const header = byClass(viewById(primarySidebar as unknown as TestElement, "outline"), "workbench-view-header")[0];
+    const values = new Map<string, string>();
+    let protectedPhase = false;
+    const dataTransfer = {
+      types: [] as string[],
+      effectAllowed: "",
+      setData(type: string, value: string) {
+        values.set(type, value);
+        this.types = [...values.keys()];
+      },
+      getData: vi.fn((type: string) => protectedPhase ? "" : values.get(type) ?? ""),
+    };
+    header.dispatch("dragstart", { dataTransfer });
+    const target = byClass(secondarySidebar as unknown as TestElement, "view-container-body")[0];
+    const preventDragover = vi.fn();
+
+    protectedPhase = true;
+    target.dispatch("dragover", { clientY: 10, dataTransfer, preventDefault: preventDragover });
+
+    expect(preventDragover).toHaveBeenCalledTimes(1);
+    expect(dataTransfer.getData).not.toHaveBeenCalled();
+    expect(target.classList.contains("view-drop-target")).toBe(true);
+
+    protectedPhase = false;
+    target.dispatch("drop", { clientY: 10, dataTransfer });
+
+    expect(dataTransfer.getData).toHaveBeenCalledTimes(1);
+    expect(workbench.snapshot().views.outline.containerId).toBe("auxiliary");
+  });
+
   it("hides the source part after its last visible view moves away", () => {
     const { workbench } = setup();
 
@@ -404,6 +441,117 @@ describe("workbench", () => {
 
     expect(byClass(panel as unknown as TestElement, "panel-tab")[0].dataset.viewId).toBe("search");
     expect(byClass(panel as unknown as TestElement, "panel-body")[0].children[0].dataset.viewId).toBe("search");
+  });
+
+  it("keeps Panel movement available from the visible tab and More Actions", () => {
+    const onViewMenu = vi.fn();
+    const { panel, workbench } = setup({ onViewMenu });
+    workbench.moveView("search", "panel");
+    const root = panel as unknown as TestElement;
+    const tab = byClass(root, "panel-tab")[0];
+    const more = byClass(root, "panel-tab-more")[0];
+    const dataTransfer = {
+      types: [] as string[],
+      effectAllowed: "",
+      setData(type: string) { this.types = [type]; },
+      getData() { return "search"; },
+    };
+
+    expect((tab as unknown as { draggable: boolean }).draggable).toBe(true);
+    tab.dispatch("dragstart", { dataTransfer });
+    expect(dataTransfer.types).toContain(VIEW_DRAG_TYPE);
+    expect(dataTransfer.effectAllowed).toBe("move");
+
+    more.dispatch("click", { clientX: 24, clientY: 32 });
+    expect(more.getAttribute("aria-label")).toBe("Move View Search");
+    expect(onViewMenu).toHaveBeenLastCalledWith("search", 24, 32);
+
+    const preventContextMenu = vi.fn();
+    tab.dispatch("contextmenu", { clientX: 40, clientY: 48, preventDefault: preventContextMenu });
+    expect(preventContextMenu).toHaveBeenCalledTimes(1);
+    expect(onViewMenu).toHaveBeenLastCalledWith("search", 40, 48);
+  });
+
+  it("uses the horizontal Panel tab strip as its drop target", () => {
+    const { primarySidebar, panel, workbench } = setup();
+    workbench.moveView("search", "panel");
+    const header = byClass(viewById(primarySidebar as unknown as TestElement, "outline"), "workbench-view-header")[0];
+    const values = new Map<string, string>();
+    let protectedPhase = false;
+    const dataTransfer = {
+      types: [] as string[],
+      effectAllowed: "",
+      setData(type: string, value: string) {
+        values.set(type, value);
+        this.types = [...values.keys()];
+      },
+      getData(type: string) { return protectedPhase ? "" : values.get(type) ?? ""; },
+    };
+    header.dispatch("dragstart", { dataTransfer });
+    const tabs = byClass(panel as unknown as TestElement, "panel-tabs")[0];
+    const preventDragover = vi.fn();
+
+    protectedPhase = true;
+    tabs.dispatch("dragover", { clientX: 10, dataTransfer, preventDefault: preventDragover });
+    expect(preventDragover).toHaveBeenCalledTimes(1);
+
+    protectedPhase = false;
+    tabs.dispatch("drop", { clientX: 10, dataTransfer });
+
+    expect(workbench.snapshot().views.outline.containerId).toBe("panel");
+  });
+
+  it("places drop indicators at vertical header and horizontal tab insertion boundaries", () => {
+    const protectedTransfer = () => {
+      const values = new Map<string, string>();
+      return {
+        types: [] as string[],
+        effectAllowed: "",
+        setData(type: string, value: string) {
+          values.set(type, value);
+          this.types = [...values.keys()];
+        },
+        getData() { return ""; },
+      };
+    };
+    const sidebarSetup = setup();
+    const sidebarRoot = sidebarSetup.primarySidebar as unknown as TestElement;
+    const sidebarTarget = byClass(sidebarRoot, "view-container-body")[0];
+    sidebarTarget.rectTop = 100;
+    const sidebarHeaders = byClass(sidebarRoot, "workbench-view-header");
+    sidebarHeaders.forEach((header, index) => {
+      header.rectTop = 110 + index * 40;
+      header.rectHeight = 20;
+    });
+    const sidebarTransfer = protectedTransfer();
+    sidebarHeaders[1].dispatch("dragstart", { dataTransfer: sidebarTransfer });
+
+    sidebarTarget.dispatch("dragover", { clientY: 145, dataTransfer: sidebarTransfer });
+
+    const verticalIndicator = byClass(sidebarTarget, "view-drop-indicator")[0];
+    expect(verticalIndicator.dataset.axis).toBe("y");
+    expect(verticalIndicator.style["--view-drop-offset"]).toBe("90px");
+
+    const panelSetup = setup();
+    panelSetup.workbench.moveView("search", "panel");
+    panelSetup.workbench.moveView("workspace", "panel");
+    const panelRoot = panelSetup.panel as unknown as TestElement;
+    const tabs = byClass(panelRoot, "panel-tabs")[0];
+    tabs.rectLeft = 200;
+    const panelTabs = byClass(panelRoot, "panel-tab-item");
+    panelTabs[0].rectLeft = 200;
+    panelTabs[0].rectWidth = 60;
+    panelTabs[1].rectLeft = 260;
+    panelTabs[1].rectWidth = 80;
+    const outlineHeader = byClass(viewById(panelSetup.primarySidebar as unknown as TestElement, "outline"), "workbench-view-header")[0];
+    const panelTransfer = protectedTransfer();
+    outlineHeader.dispatch("dragstart", { dataTransfer: panelTransfer });
+
+    tabs.dispatch("dragover", { clientX: 270, dataTransfer: panelTransfer });
+
+    const horizontalIndicator = byClass(tabs, "view-drop-indicator")[0];
+    expect(horizontalIndicator.dataset.axis).toBe("x");
+    expect(horizontalIndicator.style["--view-drop-offset"]).toBe("60px");
   });
 
   it("shows a collapsed view body after moving it into the Panel", () => {
@@ -604,21 +752,38 @@ describe("workbench", () => {
     }
   });
 
-  it("clamps the Primary Sidebar to leave room for the Activity Bar, separator, and editor", () => {
-    const { primaryResizer, workbench, onDidChange } = setup({ rootWidth: 500 });
+  it("bounds the rendered Primary Sidebar without overwriting its stored size", () => {
+    const { primarySidebar, primaryResizer, workbench, onDidChange } = setup({ rootWidth: 500 });
     const restored = workbench.snapshot();
     restored.parts.primarySidebar.size = 720;
 
     workbench.restore(restored);
 
-    expect(workbench.snapshot().parts.primarySidebar.size).toBe(226);
+    expect(workbench.snapshot().parts.primarySidebar.size).toBe(720);
+    expect((primarySidebar as unknown as TestElement).style["--primary-sidebar-width"]).toBe("226px");
     expect((primaryResizer as unknown as TestElement).getAttribute("aria-valuemax")).toBe("226");
     expect((primaryResizer as unknown as TestElement).getAttribute("aria-valuenow")).toBe("226");
-    expect(onDidChange.mock.calls.at(-1)?.[0].parts.primarySidebar.size).toBe(226);
+    expect(onDidChange.mock.calls.at(-1)?.[0].parts.primarySidebar.size).toBe(720);
+  });
+
+  it("starts a narrow-window Primary Sidebar resize from its rendered bound", () => {
+    const { primarySidebar, primaryResizer, workbench, onDidChange } = setup({ rootWidth: 500 });
+    const restored = workbench.snapshot();
+    restored.parts.primarySidebar.size = 720;
+    workbench.restore(restored);
+    onDidChange.mockClear();
+
+    (primaryResizer as unknown as TestElement).dispatch("pointerdown", { button: 0, pointerId: 7, clientX: 100 });
+    testWindow.dispatch("pointermove", { clientX: 90 });
+
+    expect((primarySidebar as unknown as TestElement).style["--primary-sidebar-width"]).toBe("216px");
+    testWindow.dispatch("pointerup");
+    expect(workbench.snapshot().parts.primarySidebar.size).toBe(216);
+    expect(onDidChange).toHaveBeenCalledTimes(1);
   });
 
   it("uses bordered outer widths when reserving editor space", () => {
-    const { activityBar, primaryResizer, workbench } = setup({ rootWidth: 500 });
+    const { activityBar, primarySidebar, primaryResizer, workbench } = setup({ rootWidth: 500 });
     (activityBar as unknown as TestElement).rectWidth = 50;
     (primaryResizer as unknown as TestElement).rectWidth = 8;
     const restored = workbench.snapshot();
@@ -626,8 +791,37 @@ describe("workbench", () => {
 
     workbench.restore(restored);
 
-    expect(workbench.snapshot().parts.primarySidebar.size).toBe(222);
+    expect(workbench.snapshot().parts.primarySidebar.size).toBe(720);
+    expect((primarySidebar as unknown as TestElement).style["--primary-sidebar-width"]).toBe("222px");
     expect((primaryResizer as unknown as TestElement).getAttribute("aria-valuemax")).toBe("222");
+  });
+
+  it("temporarily hides horizontal auxiliary parts at 390px and restores their stored sizes", () => {
+    const { workbenchHost, primarySidebar, secondarySidebar, panel, workbench, onDidChange } = setup({ rootWidth: 390 });
+    workbench.openView("backlinks");
+    workbench.moveView("search", "panel");
+    workbench.setPanelPosition("left");
+    const saved = workbench.snapshot();
+    saved.parts.secondarySidebar.size = 300;
+    saved.parts.panel.size = 260;
+    workbench.restore(saved);
+    onDidChange.mockClear();
+
+    expect((secondarySidebar as unknown as TestElement).classList.contains("hidden")).toBe(true);
+    expect((panel as unknown as TestElement).classList.contains("hidden")).toBe(true);
+    expect((primarySidebar as unknown as TestElement).style["--primary-sidebar-width"]).toBe("116px");
+    expect(workbench.snapshot().parts.secondarySidebar).toMatchObject({ visible: true, size: 300 });
+    expect(workbench.snapshot().parts.panel).toMatchObject({ visible: true, size: 260 });
+
+    (workbenchHost as unknown as TestElement).clientWidth = 1400;
+    (workbenchHost as unknown as TestElement).rectWidth = 1400;
+    testWindow.dispatch("resize");
+
+    expect((secondarySidebar as unknown as TestElement).classList.contains("hidden")).toBe(false);
+    expect((panel as unknown as TestElement).classList.contains("hidden")).toBe(false);
+    expect((secondarySidebar as unknown as TestElement).style["--secondary-sidebar-width"]).toBe("300px");
+    expect((panel as unknown as TestElement).style["--panel-width"]).toBe("260px");
+    expect(onDidChange).not.toHaveBeenCalled();
   });
 
   it("clamps Outline height to preserve Workspace and shell controls in a short sidebar", () => {
@@ -729,12 +923,16 @@ describe("workbench", () => {
   });
 
   it("removes the Workbench resize listener when destroyed", () => {
-    const { workbench } = setup();
+    const { secondarySidebar, panel, workbench } = setup();
+    workbench.openView("backlinks");
+    workbench.moveView("search", "panel");
     expect(testWindow.listenerCount("resize")).toBe(1);
 
     workbench.destroy();
 
     expect(testWindow.listenerCount("resize")).toBe(0);
+    expect((secondarySidebar as unknown as TestElement).children).toHaveLength(0);
+    expect((panel as unknown as TestElement).children).toHaveLength(0);
   });
 
   it("restores and persists one clamped Outline size on pointer release", () => {

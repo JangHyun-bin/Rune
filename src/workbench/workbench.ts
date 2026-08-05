@@ -72,12 +72,14 @@ export function mountWorkbench(options: {
   let primaryContainerTitlebar: HTMLElement | null = null;
   let outlineResizer: HTMLElement | null = null;
   let draggingHeader: HTMLElement | null = null;
+  let draggingViewId: WorkbenchViewId | null = null;
   const dropIndicators = new Set<HTMLElement>();
   const OUTLINE_DEFAULT_SIZE = 220;
   const MIN_EDITOR_WIDTH = 220;
   const MIN_WORKSPACE_HEIGHT = 120;
   const ACTIVITY_BAR_FALLBACK_WIDTH = 48;
   const RESIZER_FALLBACK_SIZE = 6;
+  const MIN_PART_WIDTH = 96;
 
   const measuredSize = (size: number, fallback: number): number =>
     Number.isFinite(size) && size > 0 ? size : fallback;
@@ -94,8 +96,8 @@ export function mountWorkbench(options: {
     return measuredSize(Number.parseFloat(getComputedStyle(document.documentElement).fontSize), 16);
   };
 
-  const primarySidebarMax = (): number => {
-    const rootWidth = outerSize(
+  const workbenchWidth = (): number =>
+    outerSize(
       options.primarySidebar.parentElement,
       "width",
       measuredSize(
@@ -103,16 +105,64 @@ export function mountWorkbench(options: {
         measuredSize(window.innerWidth, 1024),
       ),
     );
-    const activityBarWidth = outerSize(options.activityBar, "width", ACTIVITY_BAR_FALLBACK_WIDTH);
+
+  const partHasVisibleView = (partId: WorkbenchPartId, value: WorkbenchLayoutSnapshot): boolean =>
+    Object.values(value.views).some((view) => view.visible && value.containers[view.containerId].part === partId);
+
+  const horizontalFit = (value = state): {
+    primarySize: number;
+    secondarySize: number;
+    panelSize: number;
+    primaryMax: number;
+    hideSecondary: boolean;
+    hidePanel: boolean;
+  } => {
+    const width = workbenchWidth();
+    const activityWidth = outerSize(options.activityBar, "width", ACTIVITY_BAR_FALLBACK_WIDTH);
     const primaryResizerWidth = outerSize(options.primaryResizer, "width", RESIZER_FALLBACK_SIZE);
-    const secondaryWidth = state.parts.secondarySidebar.visible
-      ? outerSize(options.secondarySidebar, "width", state.parts.secondarySidebar.size)
-        + outerSize(options.secondaryResizer, "width", RESIZER_FALLBACK_SIZE)
-      : 0;
-    const available = Math.floor(
-      rootWidth - activityBarWidth - primaryResizerWidth - secondaryWidth - MIN_EDITOR_WIDTH,
-    );
-    return Math.max(96, Math.min(720, available));
+    const secondaryResizerWidth = outerSize(options.secondaryResizer, "width", RESIZER_FALLBACK_SIZE);
+    const panelResizerWidth = outerSize(options.panelResizer, "width", RESIZER_FALLBACK_SIZE);
+    const primaryRequested = value.parts.primarySidebar.visible;
+    const secondaryRequested = value.parts.secondarySidebar.visible && partHasVisibleView("secondarySidebar", value);
+    const panelRequested = value.positions.panel !== "bottom"
+      && value.parts.panel.visible
+      && partHasVisibleView("panel", value);
+    const desiredPrimary = Math.min(720, Math.max(MIN_PART_WIDTH, value.parts.primarySidebar.size));
+    let primarySize = primaryRequested ? desiredPrimary : 0;
+    let secondarySize = Math.min(720, Math.max(MIN_PART_WIDTH, value.parts.secondarySidebar.size));
+    let panelSize = Math.min(600, Math.max(MIN_PART_WIDTH, value.parts.panel.size));
+    let hideSecondary = false;
+    let hidePanel = false;
+    let overflow = activityWidth + MIN_EDITOR_WIDTH
+      + (primaryRequested ? primaryResizerWidth + primarySize : 0)
+      + (secondaryRequested ? secondaryResizerWidth + secondarySize : 0)
+      + (panelRequested ? panelResizerWidth + panelSize : 0)
+      - width;
+    const shrink = (size: number): number => {
+      if (overflow <= 0) return size;
+      const reduction = Math.min(overflow, size - MIN_PART_WIDTH);
+      overflow -= reduction;
+      return size - reduction;
+    };
+    if (secondaryRequested) secondarySize = shrink(secondarySize);
+    if (panelRequested) panelSize = shrink(panelSize);
+    if (primaryRequested) primarySize = shrink(primarySize);
+    if (overflow > 0 && secondaryRequested) {
+      hideSecondary = true;
+      overflow -= secondarySize + secondaryResizerWidth;
+    }
+    if (overflow > 0 && panelRequested) {
+      hidePanel = true;
+      overflow -= panelSize + panelResizerWidth;
+    }
+    const primaryMax = Math.max(MIN_PART_WIDTH, Math.min(720,
+      width - activityWidth - MIN_EDITOR_WIDTH
+      - (primaryRequested ? primaryResizerWidth : 0)
+      - (secondaryRequested && !hideSecondary ? secondaryResizerWidth + secondarySize : 0)
+      - (panelRequested && !hidePanel ? panelResizerWidth + panelSize : 0),
+    ));
+    primarySize = primaryRequested ? Math.min(desiredPrimary, primaryMax) : 0;
+    return { primarySize, secondarySize, panelSize, primaryMax, hideSecondary, hidePanel };
   };
 
   const outlineMax = (): number => {
@@ -138,7 +188,6 @@ export function mountWorkbench(options: {
 
   const boundState = (value: WorkbenchLayoutSnapshot): WorkbenchLayoutSnapshot => {
     const next = normalizeWorkbenchLayout(value);
-    next.parts.primarySidebar.size = Math.min(next.parts.primarySidebar.size, primarySidebarMax());
     next.views.outline.size = Math.min(next.views.outline.size ?? OUTLINE_DEFAULT_SIZE, outlineMax());
     return normalizeWorkbenchLayout(next);
   };
@@ -170,6 +219,7 @@ export function mountWorkbench(options: {
     if (clearDragging) {
       draggingHeader?.classList.remove("view-dragging");
       draggingHeader = null;
+      draggingViewId = null;
     }
     for (const indicator of dropIndicators) {
       indicator.parentElement?.classList.remove("view-drop-target");
@@ -182,6 +232,23 @@ export function mountWorkbench(options: {
   const viewIdFromEvent = (event: DragEvent): WorkbenchViewId | null =>
     decodeViewDrag(event.dataTransfer?.getData(VIEW_DRAG_TYPE) ?? "");
 
+  const openViewMenu = (viewId: WorkbenchViewId, anchor: HTMLElement, event: MouseEvent): void => {
+    const rect = anchor.getBoundingClientRect();
+    options.onViewMenu?.(viewId, event.clientX || rect.left, event.clientY || rect.bottom);
+  };
+
+  const bindViewDrag = (element: HTMLElement, viewId: WorkbenchViewId): void => {
+    element.draggable = decodeViewDrag(encodeViewDrag(viewId)) !== null;
+    element.addEventListener("dragstart", (event) => {
+      event.dataTransfer?.setData(VIEW_DRAG_TYPE, encodeViewDrag(viewId));
+      if (event.dataTransfer) event.dataTransfer.effectAllowed = "move";
+      draggingHeader = element;
+      draggingViewId = viewId;
+      element.classList.add("view-dragging");
+    });
+    element.addEventListener("dragend", finishViewDrag);
+  };
+
   const bindDropTarget = (
     target: HTMLElement,
     containerId: WorkbenchContainerId,
@@ -189,28 +256,43 @@ export function mountWorkbench(options: {
     views: () => ViewContribution[],
     elementFor = (view: ViewContribution): HTMLElement | undefined => viewShells.get(view.id)?.header,
   ): void => {
-    const orderAt = (event: DragEvent, viewId: WorkbenchViewId): number => {
+    const rectsFor = (viewId: WorkbenchViewId | null): DOMRect[] =>
+      views()
+        .filter((view) => view.id !== viewId)
+        .map((view) => elementFor(view)?.getBoundingClientRect() ?? null)
+        .filter((rect): rect is DOMRect => rect !== null);
+    const orderAt = (event: DragEvent, viewId: WorkbenchViewId | null): number => {
       const pointer = axis === "x" ? event.clientX : event.clientY;
-      const midpoints = views().filter((view) => view.id !== viewId).map((view) => {
-        const rect = elementFor(view)?.getBoundingClientRect();
-        return rect ? (axis === "x" ? rect.left + rect.width / 2 : rect.top + rect.height / 2) : 0;
-      });
+      const midpoints = rectsFor(viewId).map((rect) =>
+        axis === "x" ? rect.left + rect.width / 2 : rect.top + rect.height / 2);
       return insertionIndex(midpoints, pointer);
     };
-    const show = (order: number): void => {
+    const boundaryAt = (order: number, viewId: WorkbenchViewId | null): number => {
+      const rects = rectsFor(viewId);
+      if (rects.length === 0) return axis === "x" ? target.scrollLeft : target.scrollTop;
+      const boundary = order < rects.length
+        ? (axis === "x" ? rects[order].left : rects[order].top)
+        : (axis === "x" ? rects[rects.length - 1].right : rects[rects.length - 1].bottom);
+      const targetRect = target.getBoundingClientRect();
+      const targetStart = axis === "x" ? targetRect.left : targetRect.top;
+      const scroll = axis === "x" ? target.scrollLeft : target.scrollTop;
+      return Math.max(0, Math.round(boundary - targetStart + scroll));
+    };
+    const show = (order: number, viewId: WorkbenchViewId | null): void => {
       clearViewDropIndicators(false);
       const indicator = document.createElement("div");
       indicator.className = "view-drop-indicator";
       indicator.dataset.order = String(order);
+      indicator.dataset.axis = axis;
+      indicator.style.setProperty("--view-drop-offset", `${boundaryAt(order, viewId)}px`);
       target.classList.add("view-drop-target");
       target.appendChild(indicator);
       dropIndicators.add(indicator);
     };
     target.addEventListener("dragover", (event) => {
-      const viewId = viewIdFromEvent(event);
-      if (!viewId) return;
+      if (!event.dataTransfer?.types.includes(VIEW_DRAG_TYPE)) return;
       event.preventDefault();
-      show(orderAt(event, viewId));
+      show(orderAt(event, draggingViewId), draggingViewId);
     });
     target.addEventListener("drop", (event) => {
       const viewId = viewIdFromEvent(event);
@@ -231,23 +313,13 @@ export function mountWorkbench(options: {
     section.dataset.viewId = view.id;
     const header = document.createElement("header");
     header.className = "workbench-view-header";
-    header.draggable = decodeViewDrag(encodeViewDrag(view.id)) !== null;
-    header.addEventListener("dragstart", (event) => {
-      event.dataTransfer?.setData(VIEW_DRAG_TYPE, encodeViewDrag(view.id));
-      if (event.dataTransfer) event.dataTransfer.effectAllowed = "move";
-      draggingHeader = header;
-      header.classList.add("view-dragging");
-    });
-    header.addEventListener("dragend", finishViewDrag);
+    bindViewDrag(header, view.id);
     const collapse = createButton("view-collapse", `Toggle ${view.titleKey}`, "›");
     collapse.addEventListener("click", () => workbench.toggleViewCollapsed(view.id));
     const title = document.createElement("span");
     title.className = "view-title";
     const more = createButton("view-more view-close", `${t("workbench.moveView")} ${t(view.titleKey)}`, "...");
-    more.addEventListener("click", (event) => {
-      const rect = more.getBoundingClientRect();
-      options.onViewMenu?.(view.id, event.clientX || rect.left, event.clientY || rect.bottom);
-    });
+    more.addEventListener("click", (event) => openViewMenu(view.id, more, event));
     const close = createButton("view-close", `Close ${view.titleKey}`, "×");
     close.addEventListener("click", () => workbench.closeView(view.id));
     header.appendChild(collapse);
@@ -316,15 +388,16 @@ export function mountWorkbench(options: {
 
   const renderPrimarySidebar = (): void => {
     const part = state.parts.primarySidebar;
-    const maxSize = primarySidebarMax();
+    const fit = horizontalFit();
+    const maxSize = fit.primaryMax;
     let renderedOutlineResizer: HTMLElement | null = null;
     options.primarySidebar.classList.toggle("hidden", !part.visible);
     options.primaryResizer.classList.toggle("hidden", !part.visible);
     options.primarySidebar.setAttribute("aria-hidden", String(!part.visible));
-    options.primarySidebar.style.setProperty("--primary-sidebar-width", `${part.size}px`);
+    options.primarySidebar.style.setProperty("--primary-sidebar-width", `${fit.primarySize}px`);
     options.primaryResizer.setAttribute("aria-valuemin", "96");
     options.primaryResizer.setAttribute("aria-valuemax", String(maxSize));
-    options.primaryResizer.setAttribute("aria-valuenow", String(part.size));
+    options.primaryResizer.setAttribute("aria-valuenow", String(fit.primarySize));
 
     const contribution = options.registry.containers().find((container) => container.id === part.activeContainerId);
     if (!contribution) {
@@ -386,12 +459,14 @@ export function mountWorkbench(options: {
     partId: WorkbenchPartId,
     host: HTMLElement,
     resizer: HTMLElement,
+    autoHidden = false,
+    renderedSize = state.parts[partId].size,
   ): void => {
     const part = state.parts[partId];
     const contribution = options.registry.containers()
       .find((container) => container.id === part.activeContainerId);
     const views = contribution ? viewsIn(contribution.id) : [];
-    const visible = part.visible && views.some((view) => state.views[view.id].visible);
+    const visible = !autoHidden && part.visible && views.some((view) => state.views[view.id].visible);
     host.dataset.partId = partId;
     resizer.dataset.partId = partId;
     host.classList.toggle("hidden", !visible);
@@ -399,7 +474,7 @@ export function mountWorkbench(options: {
     host.setAttribute("aria-hidden", String(!visible));
     resizer.setAttribute("aria-valuemin", "96");
     resizer.setAttribute("aria-valuemax", String(partId === "panel" ? 600 : 720));
-    resizer.setAttribute("aria-valuenow", String(part.size));
+    resizer.setAttribute("aria-valuenow", String(renderedSize));
     if (!contribution) {
       host.replaceChildren();
       return;
@@ -417,15 +492,27 @@ export function mountWorkbench(options: {
       tabs.dataset.containerId = contribution.id;
       const tabsByViewId = new Map<WorkbenchViewId, HTMLElement>();
       for (const view of visibleViews) {
+        const item = document.createElement("div");
+        item.className = "panel-tab-item";
+        item.dataset.viewId = view.id;
         const tab = createButton("panel-tab", t(view.titleKey), t(view.titleKey));
         tab.dataset.viewId = view.id;
-        tabsByViewId.set(view.id, tab);
+        bindViewDrag(tab, view.id);
+        tabsByViewId.set(view.id, item);
         tab.classList.toggle("active", view.id === panelActiveViewId);
         tab.addEventListener("click", () => {
           panelActiveViewId = view.id;
           render();
         });
-        tabs.appendChild(tab);
+        tab.addEventListener("contextmenu", (event) => {
+          event.preventDefault();
+          openViewMenu(view.id, tab, event);
+        });
+        const more = createButton("panel-tab-more", `${t("workbench.moveView")} ${t(view.titleKey)}`, "...");
+        more.addEventListener("click", (event) => openViewMenu(view.id, more, event));
+        item.appendChild(tab);
+        item.appendChild(more);
+        tabs.appendChild(item);
       }
       const body = document.createElement("div");
       body.className = "panel-body";
@@ -433,9 +520,9 @@ export function mountWorkbench(options: {
         const view = visibleViews.find((candidate) => candidate.id === panelActiveViewId);
         if (view) body.appendChild(renderView(view, visible, true));
       }
+      bindDropTarget(tabs, contribution.id, "x", () => visibleViews, (view) => tabsByViewId.get(view.id));
       container.appendChild(tabs);
       container.appendChild(body);
-      bindDropTarget(body, contribution.id, "x", () => visibleViews, (view) => tabsByViewId.get(view.id));
       host.replaceChildren(container);
       return;
     }
@@ -461,11 +548,12 @@ export function mountWorkbench(options: {
   };
 
   const renderOtherParts = (): void => {
-    options.secondarySidebar.style.setProperty("--secondary-sidebar-width", `${state.parts.secondarySidebar.size}px`);
-    options.panel.style.setProperty("--panel-height", `${state.parts.panel.size}px`);
-    options.panel.style.setProperty("--panel-width", `${state.parts.panel.size}px`);
-    renderPart("secondarySidebar", options.secondarySidebar, options.secondaryResizer);
-    renderPart("panel", options.panel, options.panelResizer);
+    const fit = horizontalFit();
+    options.secondarySidebar.style.setProperty("--secondary-sidebar-width", `${fit.secondarySize}px`);
+    options.panel.style.setProperty("--panel-height", `${fit.panelSize}px`);
+    options.panel.style.setProperty("--panel-width", `${fit.panelSize}px`);
+    renderPart("secondarySidebar", options.secondarySidebar, options.secondaryResizer, fit.hideSecondary, fit.secondarySize);
+    renderPart("panel", options.panel, options.panelResizer, fit.hidePanel, fit.panelSize);
   };
 
   const renderStructuralLabels = (): void => {
@@ -583,6 +671,8 @@ export function mountWorkbench(options: {
       window.removeEventListener("resize", onWindowResize);
       options.activityBar.replaceChildren();
       options.primarySidebar.replaceChildren();
+      options.secondarySidebar.replaceChildren();
+      options.panel.replaceChildren();
       options.registry.dispose();
     },
   };
@@ -607,9 +697,9 @@ export function mountWorkbench(options: {
   const onPointerMove = (event: PointerEvent): void => {
     if (!resizing) return;
     moved = true;
-    liveSize = boundState(
+    liveSize = horizontalFit(
       setPartSize(state, "primarySidebar", startSize + event.clientX - startX),
-    ).parts.primarySidebar.size;
+    ).primarySize;
     options.primarySidebar.style.setProperty("--primary-sidebar-width", `${liveSize}px`);
     options.primaryResizer.setAttribute("aria-valuenow", String(liveSize));
   };
@@ -618,7 +708,7 @@ export function mountWorkbench(options: {
     resizing = true;
     activePointerId = event.pointerId;
     startX = event.clientX;
-    startSize = state.parts.primarySidebar.size;
+    startSize = horizontalFit().primarySize;
     liveSize = startSize;
     moved = false;
     options.primaryResizer.classList.add("dragging");
@@ -660,7 +750,11 @@ export function mountWorkbench(options: {
       if (!active) return;
       movedPart = true;
       const position = resizeConfig.axis === "x" ? event.clientX : event.clientY;
-      liveSize = boundState(setPartSize(state, partId, startSize + resizeConfig.direction * (position - start))).parts[partId].size;
+      const next = setPartSize(state, partId, startSize + resizeConfig.direction * (position - start));
+      const fit = horizontalFit(next);
+      liveSize = partId === "secondarySidebar"
+        ? fit.secondarySize
+        : state.positions.panel === "bottom" ? next.parts.panel.size : fit.panelSize;
       (partId === "secondarySidebar" ? options.secondarySidebar : options.panel).style.setProperty(resizeConfig.sizeProperty, `${liveSize}px`);
       handle.setAttribute("aria-valuenow", String(liveSize));
     };
@@ -670,7 +764,10 @@ export function mountWorkbench(options: {
       pointerId = event.pointerId;
       resizeConfig = config();
       start = resizeConfig.axis === "x" ? event.clientX : event.clientY;
-      startSize = state.parts[partId].size;
+      const fit = horizontalFit();
+      startSize = partId === "secondarySidebar"
+        ? fit.secondarySize
+        : state.positions.panel === "bottom" ? state.parts.panel.size : fit.panelSize;
       liveSize = startSize;
       movedPart = false;
       handle.classList.add("dragging");
