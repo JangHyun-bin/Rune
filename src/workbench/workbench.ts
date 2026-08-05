@@ -18,6 +18,7 @@ import {
   type SidebarPosition,
 } from "./workbenchLayout";
 import type { ViewContribution, ViewRegistry } from "./viewRegistry";
+import { decodeViewDrag, encodeViewDrag, insertionIndex, VIEW_DRAG_TYPE } from "./viewDrop";
 import { t } from "../i18n/i18n";
 
 export interface Workbench {
@@ -70,6 +71,8 @@ export function mountWorkbench(options: {
   const viewShells = new Map<WorkbenchViewId, ViewShell>();
   let primaryContainerTitlebar: HTMLElement | null = null;
   let outlineResizer: HTMLElement | null = null;
+  let draggingHeader: HTMLElement | null = null;
+  const dropIndicators = new Set<HTMLElement>();
   const OUTLINE_DEFAULT_SIZE = 220;
   const MIN_EDITOR_WIDTH = 220;
   const MIN_WORKSPACE_HEIGHT = 120;
@@ -163,6 +166,62 @@ export function mountWorkbench(options: {
     return button;
   };
 
+  const clearViewDropIndicators = (clearDragging = true): void => {
+    if (clearDragging) {
+      draggingHeader?.classList.remove("view-dragging");
+      draggingHeader = null;
+    }
+    for (const indicator of dropIndicators) {
+      indicator.parentElement?.classList.remove("view-drop-target");
+      indicator.remove();
+    }
+    dropIndicators.clear();
+  };
+  const finishViewDrag = (): void => clearViewDropIndicators();
+
+  const viewIdFromEvent = (event: DragEvent): WorkbenchViewId | null =>
+    decodeViewDrag(event.dataTransfer?.getData(VIEW_DRAG_TYPE) ?? "");
+
+  const bindDropTarget = (
+    target: HTMLElement,
+    containerId: WorkbenchContainerId,
+    axis: "x" | "y",
+    views: () => ViewContribution[],
+    elementFor = (view: ViewContribution): HTMLElement | undefined => viewShells.get(view.id)?.header,
+  ): void => {
+    const orderAt = (event: DragEvent, viewId: WorkbenchViewId): number => {
+      const pointer = axis === "x" ? event.clientX : event.clientY;
+      const midpoints = views().filter((view) => view.id !== viewId).map((view) => {
+        const rect = elementFor(view)?.getBoundingClientRect();
+        return rect ? (axis === "x" ? rect.left + rect.width / 2 : rect.top + rect.height / 2) : 0;
+      });
+      return insertionIndex(midpoints, pointer);
+    };
+    const show = (order: number): void => {
+      clearViewDropIndicators(false);
+      const indicator = document.createElement("div");
+      indicator.className = "view-drop-indicator";
+      indicator.dataset.order = String(order);
+      target.classList.add("view-drop-target");
+      target.appendChild(indicator);
+      dropIndicators.add(indicator);
+    };
+    target.addEventListener("dragover", (event) => {
+      const viewId = viewIdFromEvent(event);
+      if (!viewId) return;
+      event.preventDefault();
+      show(orderAt(event, viewId));
+    });
+    target.addEventListener("drop", (event) => {
+      const viewId = viewIdFromEvent(event);
+      if (viewId) {
+        event.preventDefault();
+        workbench.moveView(viewId, containerId, orderAt(event, viewId));
+      }
+      clearViewDropIndicators();
+    });
+  };
+
   const shellFor = (view: ViewContribution): ViewShell => {
     let shell = viewShells.get(view.id);
     if (shell) return shell;
@@ -172,6 +231,14 @@ export function mountWorkbench(options: {
     section.dataset.viewId = view.id;
     const header = document.createElement("header");
     header.className = "workbench-view-header";
+    header.draggable = decodeViewDrag(encodeViewDrag(view.id)) !== null;
+    header.addEventListener("dragstart", (event) => {
+      event.dataTransfer?.setData(VIEW_DRAG_TYPE, encodeViewDrag(view.id));
+      if (event.dataTransfer) event.dataTransfer.effectAllowed = "move";
+      draggingHeader = header;
+      header.classList.add("view-dragging");
+    });
+    header.addEventListener("dragend", finishViewDrag);
     const collapse = createButton("view-collapse", `Toggle ${view.titleKey}`, "›");
     collapse.addEventListener("click", () => workbench.toggleViewCollapsed(view.id));
     const title = document.createElement("span");
@@ -305,6 +372,7 @@ export function mountWorkbench(options: {
       children.push(renderView(view));
     }
     body.replaceChildren(...children);
+    bindDropTarget(body, contribution.id, "y", () => views.filter((view) => state.views[view.id].visible));
     container.appendChild(titlebar);
     container.appendChild(body);
     options.primarySidebar.replaceChildren(container);
@@ -347,9 +415,11 @@ export function mountWorkbench(options: {
       tabs.className = "panel-tabs";
       tabs.dataset.partId = partId;
       tabs.dataset.containerId = contribution.id;
+      const tabsByViewId = new Map<WorkbenchViewId, HTMLElement>();
       for (const view of visibleViews) {
         const tab = createButton("panel-tab", t(view.titleKey), t(view.titleKey));
         tab.dataset.viewId = view.id;
+        tabsByViewId.set(view.id, tab);
         tab.classList.toggle("active", view.id === panelActiveViewId);
         tab.addEventListener("click", () => {
           panelActiveViewId = view.id;
@@ -365,6 +435,7 @@ export function mountWorkbench(options: {
       }
       container.appendChild(tabs);
       container.appendChild(body);
+      bindDropTarget(body, contribution.id, "x", () => visibleViews, (view) => tabsByViewId.get(view.id));
       host.replaceChildren(container);
       return;
     }
@@ -383,6 +454,7 @@ export function mountWorkbench(options: {
     const body = document.createElement("div");
     body.className = "view-container-body";
     body.replaceChildren(...views.map((view) => renderView(view, visible)));
+    bindDropTarget(body, contribution.id, "y", () => views.filter((view) => state.views[view.id].visible));
     container.appendChild(titlebar);
     container.appendChild(body);
     host.replaceChildren(container);
@@ -506,6 +578,8 @@ export function mountWorkbench(options: {
       window.removeEventListener("pointerup", finishOutlineResize);
       window.removeEventListener("pointercancel", finishOutlineResize);
       window.removeEventListener("blur", finishOutlineResize);
+      window.removeEventListener("blur", finishViewDrag);
+      finishViewDrag();
       window.removeEventListener("resize", onWindowResize);
       options.activityBar.replaceChildren();
       options.primarySidebar.replaceChildren();
@@ -686,6 +760,7 @@ export function mountWorkbench(options: {
   window.addEventListener("pointerup", finishOutlineResize);
   window.addEventListener("pointercancel", finishOutlineResize);
   window.addEventListener("blur", finishOutlineResize);
+  window.addEventListener("blur", finishViewDrag);
   window.addEventListener("resize", onWindowResize);
   render();
   return workbench;

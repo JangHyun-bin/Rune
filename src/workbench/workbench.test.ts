@@ -3,6 +3,7 @@ import { setLocale, type Locale } from "../i18n/i18n";
 import { DEFAULT_WORKBENCH_LAYOUT } from "./workbenchLayout";
 import { createViewRegistry } from "./viewRegistry";
 import { mountWorkbench } from "./workbench";
+import { VIEW_DRAG_TYPE } from "./viewDrop";
 
 type Listener = (event: Event) => void;
 
@@ -361,6 +362,28 @@ describe("workbench", () => {
     expect(createOutline).toHaveBeenCalledTimes(1);
     expect((secondarySidebar as unknown as TestElement).classList.contains("hidden")).toBe(false);
     expect((secondaryResizer as unknown as TestElement).classList.contains("hidden")).toBe(false);
+  });
+
+  it("moves a dragged view through the Workbench controller without recreating it", () => {
+    const { primarySidebar, secondarySidebar, workbench, createOutline } = setup();
+    const outline = viewById(primarySidebar as unknown as TestElement, "outline");
+    const header = byClass(outline, "workbench-view-header")[0];
+    const dataTransfer = {
+      values: new Map<string, string>(),
+      effectAllowed: "",
+      setData(type: string, value: string) { this.values.set(type, value); },
+      getData(type: string) { return this.values.get(type) ?? ""; },
+    };
+
+    expect((header as unknown as { draggable: boolean }).draggable).toBe(true);
+    header.dispatch("dragstart", { dataTransfer });
+    const target = byClass(secondarySidebar as unknown as TestElement, "view-container-body")[0];
+    target.dispatch("drop", { clientY: 10, dataTransfer });
+
+    expect(dataTransfer.values.get(VIEW_DRAG_TYPE)).toBe("outline");
+    expect(dataTransfer.effectAllowed).toBe("move");
+    expect(workbench.snapshot().views.outline.containerId).toBe("auxiliary");
+    expect(createOutline).toHaveBeenCalledTimes(1);
   });
 
   it("hides the source part after its last visible view moves away", () => {
