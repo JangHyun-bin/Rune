@@ -177,4 +177,30 @@ describe("Project View data", () => {
     expect(writeFileIfUnchanged).toHaveBeenCalled();
     expect(host.textContent).toContain("Published with Default");
   });
+
+  it("keeps the earlier successful profile when a PDF publish fails", async () => {
+    const original = createProject("Book", ["a.md"]);
+    original.publishing.profiles.push({
+      ...original.publishing.profiles[0], id: "pdf", name: "PDF", format: "pdf",
+    });
+    original.publishing.activeProfileId = "pdf";
+    original.publishing.lastSuccessfulProfileId = "default";
+    pathExists.mockResolvedValue({ status: "ok", data: true });
+    readFile.mockResolvedValue({ status: "ok", data: serializeProject(original) });
+    const publish = vi.fn().mockResolvedValueOnce(false).mockResolvedValueOnce(true);
+    const panel = mountProjectPanel(host as unknown as HTMLElement, vi.fn().mockResolvedValue([]), vi.fn(), publish);
+    await panel.refresh("C:\\book", [{ path: "C:\\book\\a.md" }]);
+
+    button("Publish").dispatch("click");
+
+    await vi.waitFor(() => expect(host.textContent).toContain("Publishing failed"));
+    expect(publish.mock.calls[0][1]).toMatchObject({ id: "pdf", format: "pdf" });
+    expect(writeFileIfUnchanged).not.toHaveBeenCalled();
+
+    await panel.publishAgain();
+
+    expect(publish.mock.calls[1][1]).toMatchObject({ id: "default", format: "html" });
+    const saved = JSON.parse(writeFileIfUnchanged.mock.calls[0][2] as string);
+    expect(saved.publishing.lastSuccessfulProfileId).toBe("default");
+  });
 });
