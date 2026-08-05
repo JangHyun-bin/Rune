@@ -1,6 +1,8 @@
 export type WorkbenchPartId = "primarySidebar" | "secondarySidebar" | "panel";
 export type WorkbenchContainerId = "explorer" | "search" | "auxiliary" | "panel";
 export type WorkbenchViewId = "workspace" | "outline" | "tags" | "project" | "search" | "backlinks" | "properties";
+export type SidebarPosition = "left" | "right";
+export type PanelPosition = "bottom" | "left" | "right";
 
 export interface WorkbenchPartState {
   visible: boolean;
@@ -26,6 +28,10 @@ export interface WorkbenchLayoutSnapshot {
   parts: Record<WorkbenchPartId, WorkbenchPartState>;
   containers: Record<WorkbenchContainerId, WorkbenchContainerState>;
   views: Record<WorkbenchViewId, WorkbenchViewState>;
+  positions: {
+    primarySidebar: SidebarPosition;
+    panel: PanelPosition;
+  };
 }
 
 export const DEFAULT_WORKBENCH_LAYOUT: WorkbenchLayoutSnapshot = {
@@ -49,6 +55,10 @@ export const DEFAULT_WORKBENCH_LAYOUT: WorkbenchLayoutSnapshot = {
     search: { containerId: "search", order: 0, visible: true, collapsed: false, size: null },
     backlinks: { containerId: "auxiliary", order: 0, visible: true, collapsed: false, size: null },
     properties: { containerId: "auxiliary", order: 1, visible: true, collapsed: false, size: null },
+  },
+  positions: {
+    primarySidebar: "left",
+    panel: "bottom",
   },
 };
 
@@ -81,6 +91,7 @@ function cloneLayout(layout: WorkbenchLayoutSnapshot): WorkbenchLayoutSnapshot {
       backlinks: { ...layout.views.backlinks },
       properties: { ...layout.views.properties },
     },
+    positions: { ...layout.positions },
   };
 }
 
@@ -119,6 +130,7 @@ function migrateWorkbenchLayout(value: unknown): WorkbenchLayoutSnapshot | null 
   const parts = value.parts;
   const containers = value.containers;
   const views = value.views;
+  const positions = value.positions;
   if (!hasOnlyKeys(parts, partIds) || !hasOnlyKeys(containers, containerIds)
     || Object.keys(views).some((id) => !viewIds.includes(id as WorkbenchViewId))
     || !["workspace", "outline", "search"].every((id) => id in views)) {
@@ -134,7 +146,10 @@ function migrateWorkbenchLayout(value: unknown): WorkbenchLayoutSnapshot | null 
     return isRecord(container) && isPartId(container.part) && isFiniteNumber(container.order);
   }) && Object.values(views).every((view) => {
     return isRecord(view) && isContainerId(view.containerId) && isFiniteNumber(view.order) && typeof view.visible === "boolean" && typeof view.collapsed === "boolean" && (view.size === null || isFiniteNumber(view.size));
-  });
+  }) && (positions === undefined || (isRecord(positions)
+    && hasOnlyKeys(positions, ["primarySidebar", "panel"])
+    && (positions.primarySidebar === "left" || positions.primarySidebar === "right")
+    && (positions.panel === "bottom" || positions.panel === "left" || positions.panel === "right")));
   if (!valid) return null;
   const migrated = cloneLayout(DEFAULT_WORKBENCH_LAYOUT);
   for (const id of partIds) migrated.parts[id] = { ...(parts[id] as unknown as WorkbenchPartState) };
@@ -142,6 +157,7 @@ function migrateWorkbenchLayout(value: unknown): WorkbenchLayoutSnapshot | null 
   for (const id of viewIds) {
     if (isRecord(views[id])) migrated.views[id] = { ...(views[id] as unknown as WorkbenchViewState) };
   }
+  if (isRecord(positions)) migrated.positions = { ...positions } as WorkbenchLayoutSnapshot["positions"];
   return migrated;
 }
 
@@ -182,6 +198,35 @@ export function closeView(layout: WorkbenchLayoutSnapshot, viewId: WorkbenchView
   return next;
 }
 
+export function moveView(
+  layout: WorkbenchLayoutSnapshot,
+  viewId: WorkbenchViewId,
+  containerId: WorkbenchContainerId,
+  order?: number,
+): WorkbenchLayoutSnapshot {
+  const next = cloneLayout(layout);
+  const sourceContainerId = next.views[viewId].containerId;
+  const orderedViews = (targetContainerId: WorkbenchContainerId): WorkbenchViewId[] =>
+    viewIds.filter((id) => id !== viewId && next.views[id].containerId === targetContainerId)
+      .sort((a, b) => next.views[a].order - next.views[b].order || a.localeCompare(b));
+  const sourceViews = orderedViews(sourceContainerId);
+  const destinationViews = sourceContainerId === containerId ? sourceViews : orderedViews(containerId);
+  const index = Number.isFinite(order) ? Math.max(0, Math.min(destinationViews.length, Math.trunc(order as number))) : destinationViews.length;
+  destinationViews.splice(index, 0, viewId);
+  next.views[viewId].containerId = containerId;
+  next.views[viewId].visible = true;
+  if (sourceContainerId !== containerId) sourceViews.forEach((id, index) => { next.views[id].order = index; });
+  destinationViews.forEach((id, index) => { next.views[id].containerId = containerId; next.views[id].order = index; });
+  const destinationPart = next.containers[containerId].part;
+  next.parts[destinationPart].visible = true;
+  next.parts[destinationPart].activeContainerId = containerId;
+  const sourcePart = next.containers[sourceContainerId].part;
+  if (sourcePart !== destinationPart && !viewIds.some((id) => next.views[id].visible && next.containers[next.views[id].containerId].part === sourcePart)) {
+    next.parts[sourcePart].visible = false;
+  }
+  return next;
+}
+
 export function toggleViewCollapsed(layout: WorkbenchLayoutSnapshot, viewId: WorkbenchViewId): WorkbenchLayoutSnapshot {
   const next = cloneLayout(layout);
   next.views[viewId].collapsed = !next.views[viewId].collapsed;
@@ -199,6 +244,28 @@ export function activateContainer(layout: WorkbenchLayoutSnapshot, containerId: 
 export function setPartSize(layout: WorkbenchLayoutSnapshot, partId: WorkbenchPartId, size: number): WorkbenchLayoutSnapshot {
   const next = cloneLayout(layout);
   if (Number.isFinite(size)) next.parts[partId].size = clampPartSize(partId, size);
+  return next;
+}
+
+export function setPrimarySidebarPosition(
+  layout: WorkbenchLayoutSnapshot,
+  position: SidebarPosition,
+): WorkbenchLayoutSnapshot {
+  const next = cloneLayout(layout);
+  if (position === "left" || position === "right") next.positions.primarySidebar = position;
+  return next;
+}
+
+export function setPanelPosition(layout: WorkbenchLayoutSnapshot, position: PanelPosition): WorkbenchLayoutSnapshot {
+  const next = cloneLayout(layout);
+  if (position === "bottom" || position === "left" || position === "right") next.positions.panel = position;
+  return next;
+}
+
+export function resetViewLocations(layout: WorkbenchLayoutSnapshot): WorkbenchLayoutSnapshot {
+  const next = cloneLayout(DEFAULT_WORKBENCH_LAYOUT);
+  for (const partId of partIds) next.parts[partId].size = layout.parts[partId].size;
+  next.positions = { ...layout.positions };
   return next;
 }
 

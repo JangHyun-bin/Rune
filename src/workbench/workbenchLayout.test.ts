@@ -3,10 +3,14 @@ import {
   DEFAULT_WORKBENCH_LAYOUT,
   activateContainer,
   closeView,
+  moveView,
   normalizeWorkbenchLayout,
   openView,
   resetViewVisibility,
+  resetViewLocations,
+  setPanelPosition,
   setPartSize,
+  setPrimarySidebarPosition,
   toggleViewCollapsed,
 } from "./workbenchLayout";
 
@@ -89,6 +93,51 @@ describe("workbench layout", () => {
     });
     expect(reopened.parts.primarySidebar.visible).toBe(true);
     expect(reopened.parts.primarySidebar.activeContainerId).toBe("explorer");
+  });
+
+  it("moves Outline to the auxiliary container and opens Secondary Sidebar", () => {
+    const state = moveView(DEFAULT_WORKBENCH_LAYOUT, "outline", "auxiliary");
+    expect(state.views.outline.containerId).toBe("auxiliary");
+    expect(state.parts.secondarySidebar.visible).toBe(true);
+    expect(state.parts.secondarySidebar.activeContainerId).toBe("auxiliary");
+  });
+
+  it("sets all allowed sidebar and panel positions while ignoring invalid positions", () => {
+    expect(setPrimarySidebarPosition(DEFAULT_WORKBENCH_LAYOUT, "right").positions.primarySidebar).toBe("right");
+    expect(setPrimarySidebarPosition(DEFAULT_WORKBENCH_LAYOUT, "left").positions.primarySidebar).toBe("left");
+    expect(setPrimarySidebarPosition(DEFAULT_WORKBENCH_LAYOUT, "top" as never).positions.primarySidebar).toBe("left");
+    expect(setPanelPosition(DEFAULT_WORKBENCH_LAYOUT, "bottom").positions.panel).toBe("bottom");
+    expect(setPanelPosition(DEFAULT_WORKBENCH_LAYOUT, "left").positions.panel).toBe("left");
+    expect(setPanelPosition(DEFAULT_WORKBENCH_LAYOUT, "right").positions.panel).toBe("right");
+    expect(setPanelPosition(DEFAULT_WORKBENCH_LAYOUT, "top" as never).positions.panel).toBe("bottom");
+  });
+
+  it("normalizes orders after moving into an occupied container", () => {
+    const first = moveView(DEFAULT_WORKBENCH_LAYOUT, "outline", "search", 0);
+    expect(first.views.outline.order).toBe(0);
+    expect(first.views.search.order).toBe(1);
+  });
+
+  it("hides a source part when its last visible view moves away", () => {
+    const noPrimaryViews = (["outline", "tags", "project", "search"] as const)
+      .reduce((state, viewId) => closeView(state, viewId), DEFAULT_WORKBENCH_LAYOUT);
+    const moved = moveView(noPrimaryViews, "workspace", "auxiliary");
+    expect(moved.parts.primarySidebar.visible).toBe(false);
+  });
+
+  it("resets locations without resetting part sizes or positions", () => {
+    const resized = setPartSize(DEFAULT_WORKBENCH_LAYOUT, "primarySidebar", 360);
+    const moved = moveView(setPanelPosition(resized, "right"), "outline", "panel");
+    const reset = resetViewLocations(moved);
+    expect(reset.views.outline).toMatchObject(DEFAULT_WORKBENCH_LAYOUT.views.outline);
+    expect(reset.parts.primarySidebar.size).toBe(360);
+    expect(reset.positions.panel).toBe("right");
+  });
+
+  it("migrates position-less version 1 snapshots with default positions", () => {
+    const legacy = { ...DEFAULT_WORKBENCH_LAYOUT } as { positions?: unknown } & typeof DEFAULT_WORKBENCH_LAYOUT;
+    delete legacy.positions;
+    expect(normalizeWorkbenchLayout(legacy).positions).toEqual({ primarySidebar: "left", panel: "bottom" });
   });
 
   it("collapses a visible view without closing it", () => {
