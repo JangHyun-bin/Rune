@@ -115,6 +115,7 @@ export function parseLayoutSettingsJson(text: string): {
     const parsed = JSON.parse(text) as unknown;
     if (!parsed || typeof parsed !== "object") return null;
     const record = parsed as Record<string, unknown>;
+    if ("version" in record && record.version !== 1 && record.version !== 2) return null;
     if (record.version === 2) {
       if (!record.layout || !hasLayoutValue(record.layout as Partial<LayoutSettings>) || !isMigratableWorkbenchLayout(record.workbench)) return null;
       return {

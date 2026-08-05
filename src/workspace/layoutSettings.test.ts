@@ -56,6 +56,10 @@ describe("layout settings", () => {
     expect(parseLayoutSettingsJson('{"version":2,"layout":{"sidebarWidth":300},"workbench":null}')).toBeNull();
   });
 
+  it("rejects an unsupported versioned layout wrapper", () => {
+    expect(parseLayoutSettingsJson('{"version":3,"layout":{"sidebarWidth":300}}')).toBeNull();
+  });
+
   it("rejects invalid json", () => {
     expect(parseLayoutSettingsJson("{bad")).toBeNull();
   });
