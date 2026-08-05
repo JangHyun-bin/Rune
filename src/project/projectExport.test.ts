@@ -1,5 +1,20 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { createProject } from "./project";
+
+const renderDelays = vi.hoisted(() => new Map<string, number>());
+
+vi.mock("../export/render", async (importOriginal) => {
+  const original = await importOriginal<typeof import("../export/render")>();
+  return {
+    ...original,
+    renderBody: async (markdown: string, options?: Parameters<typeof original.renderBody>[1]) => {
+      const delay = renderDelays.get(markdown) ?? 0;
+      if (delay) await new Promise((resolve) => setTimeout(resolve, delay));
+      return original.renderBody(markdown, options);
+    },
+  };
+});
+
 import {
   buildProjectHtml,
   buildProjectPublication,
@@ -57,6 +72,43 @@ describe("project HTML assembly", () => {
     expect(publication.html).toContain('id="fn-doc-2-note"');
     expect(publication.html).toContain('href="#fn-doc-1-note"');
     expect(publication.html).toContain('href="#fn-doc-2-note"');
+  });
+
+  it("assembles the same logical project deterministically across paths and render timing", async () => {
+    const project = createProject("Book", ["chapters/intro.md", "chapters/two.md"]);
+    const intro = "# Shared\n[Other](two.md#shared)\nText[^note].\n\n[^note]: Intro note\n\n![Intro](../assets/intro.png)";
+    const two = "# Shared\n[Back](intro.md#shared)\nText[^note].\n\n[^note]: Two note\n\n![Two](../assets/two.png)";
+    const windows = [
+      { path: "chapters/two.md", absolutePath: "C:\\book\\chapters\\two.md", markdown: two },
+      { path: "chapters/intro.md", absolutePath: "C:\\book\\chapters\\intro.md", markdown: intro },
+    ];
+    const posix = [
+      { path: "chapters/two.md", absolutePath: "/book/chapters/two.md", markdown: two },
+      { path: "chapters/intro.md", absolutePath: "/book/chapters/intro.md", markdown: intro },
+    ];
+    const sourceMarkdown = windows.map((document) => document.markdown);
+
+    renderDelays.set(intro, 10);
+    const windowsPublication = await buildProjectPublication(project, windows, { workspaceRoot: "C:\\book" });
+    renderDelays.clear();
+    renderDelays.set(two, 10);
+    const posixPublication = await buildProjectPublication(project, posix, { workspaceRoot: "/book" });
+    renderDelays.clear();
+
+    expect(windows.map((document) => document.markdown)).toEqual(sourceMarkdown);
+    expect(windowsPublication.html).toBe(posixPublication.html);
+    expect(windowsPublication.html).toContain('<h1 id="doc-1-shared">Shared</h1>');
+    expect(windowsPublication.html).toContain('<h1 id="doc-2-shared">Shared</h1>');
+    expect(windowsPublication.html).toContain('href="#doc-1-shared"');
+    expect(windowsPublication.html).toContain('href="#doc-2-shared"');
+    expect(windowsPublication.html).toContain('id="fn-doc-1-note"');
+    expect(windowsPublication.html).toContain('id="fn-doc-2-note"');
+    expect(windowsPublication.assets.map(({ token, relativePath }) => ({ token, relativePath }))).toEqual([
+      { token: "__RUNE_PROJECT_ASSET_0001__", relativePath: "doc-1/asset-1-intro.png" },
+      { token: "__RUNE_PROJECT_ASSET_0002__", relativePath: "doc-2/asset-2-two.png" },
+    ]);
+    expect(posixPublication.assets.map(({ token, relativePath }) => ({ token, relativePath })))
+      .toEqual(windowsPublication.assets.map(({ token, relativePath }) => ({ token, relativePath })));
   });
 
   it("collects relative images with stable collision-free paths and preserves remote and data URLs", async () => {

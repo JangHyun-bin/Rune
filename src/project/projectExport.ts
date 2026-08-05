@@ -176,7 +176,8 @@ export async function buildProjectPublication(
   const assets: ProjectAsset[] = [];
   const assetBySource = new Map<string, ProjectAsset>();
 
-  const sections = await Promise.all(contexts.map(async (context) => {
+  const sections: string[] = [];
+  for (const context of contexts) {
     const windows = /^[A-Za-z]:[\\/]/.test(context.document.absolutePath ?? "");
     const rewriteHref = (href: string, kind: "link" | "image"): string => {
       const parts = hrefParts(href);
@@ -208,8 +209,8 @@ export async function buildProjectPublication(
       return asset.token;
     };
     const body = await renderBody(context.document.markdown, { idPrefix: context.idPrefix, rewriteHref });
-    return `<section id="${context.sectionId}" class="project-document" data-project-file="${escapeAttribute(context.document.path)}">${body}</section>`;
-  }));
+    sections.push(`<section id="${context.sectionId}" class="project-document" data-project-file="${escapeAttribute(context.document.path)}">${body}</section>`);
+  }
 
   const tocDepth = Math.max(1, Math.min(6, Math.trunc(options.tableOfContentsDepth ?? 3)));
   const toc = options.tableOfContents ? buildTableOfContents(contexts, tocDepth) : "";
