@@ -23,7 +23,7 @@ import {
   type PaletteItem,
   type WorkspaceHeading,
 } from "./workspace/commandPalette";
-import { exportHtml, exportPdf, saveHtmlDocument, showHtmlPreview } from "./export/exportDoc";
+import { exportHtml, exportPdf, printHtmlDocument, showHtmlPreview } from "./export/exportDoc";
 import { mountSearchPanel } from "./workspace/searchPanel";
 import { mountFindReplacePanel, type FindReplacePanel } from "./workspace/findReplacePanel";
 import { mountSettingsPanel } from "./workspace/settingsPanel";
@@ -41,7 +41,7 @@ import { clearFindHighlights, findHighlightExtension, setFindHighlights } from "
 import { createSettingsSaveScheduler, DEFAULT_LAYOUT, normalizeLayoutSettings, normalizePersistedWorkbenchLayout, parseLayoutSettingsJson, serializeLayoutSettings, type LayoutSettings, type ResolvedLayoutSettings } from "./workspace/layoutSettings";
 import { clampEditorFontScale, stepEditorFontScale, EDITOR_FONT_DEFAULT, clampUiScale, UI_SCALE_DEFAULT } from "./theme/scale";
 import { createPaneWorkspace, type PaneWorkspace } from "./workspace/paneWorkspace";
-import { isTauri } from "@tauri-apps/api/core";
+import { convertFileSrc, isTauri } from "@tauri-apps/api/core";
 import { normalizePaneWorkspaceSnapshot } from "./workspace/panePersistence";
 import { dropZoneRect, firstMarkdownPath, hitPaneDropZone, physicalToCssPoint } from "./workspace/dropTargets";
 import { handleNativeFileDrop, type ResolvedDropTarget } from "./workspace/fileDrop";
@@ -64,8 +64,14 @@ import { mountBacklinksPanel, type BacklinksPanel } from "./workspace/backlinksP
 import { mountPropertiesPanel, type PropertiesPanel } from "./workspace/propertiesPanel";
 import { mountTagsPanel, type TagsPanel } from "./workspace/tagsPanel";
 import { mountProjectPanel, projectRelativePath, type ProjectPanel } from "./workspace/projectPanel";
-import { buildProjectHtml, type ProjectDocument } from "./project/projectExport";
-import type { RuneProject } from "./project/project";
+import {
+  buildProjectPublication,
+  materializeProjectHtml,
+  materializeProjectHtmlForOutput,
+  type ProjectDocument,
+  type ProjectPublication,
+} from "./project/projectExport";
+import type { PublishingProfile, RuneProject } from "./project/project";
 import { preflightProject, type ProjectDiagnostic } from "./project/projectPreflight";
 
 const chrome = mountChrome(document.getElementById("titlebar")!, document.getElementById("statusbar")!, {
@@ -167,7 +173,7 @@ viewRegistry.registerView({
   order: 3,
   create() {
     const element = document.createElement("div");
-    projectPanel = mountProjectPanel(element, preflightCurrentProject, previewProject, exportProjectHtml);
+    projectPanel = mountProjectPanel(element, preflightCurrentProject, previewProject, publishProject);
     void projectPanel.refresh(currentFolder, workspaceFiles);
     return {
       element,
@@ -617,7 +623,7 @@ async function projectDocuments(project: RuneProject): Promise<ProjectDocument[]
     if (!absolutePath) throw new Error(`Missing project document: ${path}`);
     const result = await commands.readFile(absolutePath);
     if (result.status === "error") throw new Error(result.error);
-    return { path, markdown: result.data };
+    return { path, absolutePath, markdown: result.data };
   }));
   if (!currentFolder || !samePath(currentFolder, root)) throw new Error("Workspace changed while building project");
   return documents;
@@ -632,25 +638,79 @@ async function preflightCurrentProject(project: RuneProject): Promise<ProjectDia
   return diagnostics;
 }
 
-async function projectHtml(project: RuneProject): Promise<string> {
-  return buildProjectHtml(project, await projectDocuments(project));
+function projectExportOptions(profile: PublishingProfile) {
+  return {
+    workspaceRoot: currentFolder ?? undefined,
+    theme: profile.theme,
+    pageSize: profile.pageSize,
+    margins: profile.margins,
+    pageBreakDocuments: profile.pageBreakDocuments,
+    tableOfContents: profile.tableOfContents,
+    tableOfContentsDepth: profile.tableOfContentsDepth,
+    metadata: profile.metadata,
+  };
 }
 
-async function previewProject(project: RuneProject): Promise<void> {
+async function projectPublication(project: RuneProject, profile: PublishingProfile): Promise<{
+  publication: ProjectPublication;
+  documents: ProjectDocument[];
+}> {
+  const documents = await projectDocuments(project);
+  return { publication: await buildProjectPublication(project, documents, projectExportOptions(profile)), documents };
+}
+
+function previewPublicationHtml(publication: ProjectPublication): string {
+  return materializeProjectHtml(publication, (asset) => isTauri()
+    ? convertFileSrc(asset.sourcePath)
+    : encodeURI(`file:///${asset.sourcePath.replace(/\\/g, "/")}`));
+}
+
+function safePublicationName(title: string): string {
+  return title.replace(/[<>:"/\\|?*\u0000-\u001f]/g, "_").replace(/[. ]+$/g, "").trim() || "publication";
+}
+
+function projectOutputPath(root: string, profile: PublishingProfile, title: string): string {
+  const separator = root.includes("\\") ? "\\" : "/";
+  const directory = profile.outputDirectory === "."
+    ? root.replace(/[\\/]$/, "")
+    : `${root.replace(/[\\/]$/, "")}${separator}${profile.outputDirectory.replace(/[\\/]/g, separator)}`;
+  return `${directory}${separator}${safePublicationName(title)}.html`;
+}
+
+async function previewProject(project: RuneProject, profile: PublishingProfile): Promise<void> {
   try {
-    showHtmlPreview(await projectHtml(project), tr("project.previewTitle", { title: project.title }), tr("project.close"));
+    const { publication } = await projectPublication(project, profile);
+    showHtmlPreview(previewPublicationHtml(publication), tr("project.previewTitle", { title: project.title }), tr("project.close"));
   } catch (error) {
     console.error(error);
     errorBanner.show(tr("project.exportError"));
+    throw error;
   }
 }
 
-async function exportProjectHtml(project: RuneProject): Promise<void> {
+async function publishProject(project: RuneProject, profile: PublishingProfile): Promise<boolean> {
   try {
-    await saveHtmlDocument(await projectHtml(project), project.title);
+    const root = currentFolder;
+    if (!root) throw new Error("No workspace folder");
+    const { publication, documents } = await projectPublication(project, profile);
+    if (profile.format === "pdf") {
+      await printHtmlDocument(previewPublicationHtml(publication), project.title);
+      return true;
+    }
+    const outputPath = projectOutputPath(root, profile, project.title);
+    const result = await commands.publishProjectHtml(
+      root,
+      outputPath,
+      materializeProjectHtmlForOutput(publication, outputPath),
+      publication.assets.map(({ sourcePath, relativePath }) => ({ sourcePath, relativePath })),
+      documents.map((document) => document.absolutePath!),
+    );
+    if (result.status === "error") throw new Error(result.error);
+    return true;
   } catch (error) {
     console.error(error);
-    errorBanner.show(tr("project.exportError"));
+    errorBanner.show(tr("project.publishError", { msg: error instanceof Error ? error.message : String(error) }));
+    return false;
   }
 }
 
@@ -927,6 +987,7 @@ function paletteItems(): PaletteItem[] {
     { label: tr("cmd.closeTab"), run: () => { const id = activePane().activeTabId(); if (id) requestClose(id); } },
     { label: tr("cmd.exportHtml"), run: () => void exportHtml(activeView().state.doc.toString(), exportTitle()) },
     { label: tr("cmd.project"), run: () => workbench.openView("project") },
+    { label: tr("cmd.publishAgain"), run: () => { workbench.openView("project"); void projectPanel?.publishAgain(); } },
     { label: tr("cmd.exportPdf"), run: () => void exportPdf(activeView().state.doc.toString(), exportTitle()) },
     { label: tr("cmd.findReplace"), run: () => findReplacePanel?.open() },
     { label: tr("cmd.search"), run: () => workbench.toggleView("search") },

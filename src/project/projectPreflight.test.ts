@@ -44,7 +44,7 @@ describe("project preflight", () => {
     expect(hasFatalProjectDiagnostics(diagnostics)).toBe(true);
   });
 
-  it("finds duplicate IDs, broken inline and reference links, and unresolved relative images as warnings", async () => {
+  it("namespaces IDs across documents while reporting broken links and unresolved relative images", async () => {
     const markdown = new Map([
       ["C:\\book\\a.md", "# Shared\n![local](assets/missing.png)\n[missing](gone.md)\n[ref broken][lost]\n\n[lost]: absent.markdown\n[^note]: one"],
       ["C:\\book\\b.md", "# Shared\n![remote](https://example.com/cover.png)\n![ref][cover]\n\n[cover]: assets/also-missing.png\n[^note]: two"],
@@ -56,16 +56,35 @@ describe("project preflight", () => {
     const diagnostics = await preflightProject(project, "C:\\book", files);
 
     expect(diagnostics).toEqual([
-      { severity: "warning", kind: "duplicateHeadingId", path: "a.md", line: 1, value: "shared" },
       { severity: "warning", kind: "unresolvedImage", path: "a.md", line: 2, value: "assets/missing.png" },
       { severity: "warning", kind: "brokenLink", path: "a.md", line: 3, value: "gone.md" },
       { severity: "warning", kind: "brokenLink", path: "a.md", line: 4, value: "absent.markdown" },
-      { severity: "warning", kind: "duplicateFootnoteId", path: "a.md", line: 7, value: "note" },
-      { severity: "warning", kind: "duplicateHeadingId", path: "b.md", line: 1, value: "shared" },
       { severity: "warning", kind: "unresolvedImage", path: "b.md", line: 3, value: "assets/also-missing.png" },
-      { severity: "warning", kind: "duplicateFootnoteId", path: "b.md", line: 6, value: "note" },
     ]);
     expect(hasFatalProjectDiagnostics(diagnostics)).toBe(false);
+  });
+
+  it("reports duplicate heading and footnote IDs within one document", async () => {
+    readFile.mockResolvedValue({ status: "ok", data: "# Same\n# Same\n[^note]: One\n[^note]: Two" });
+
+    const diagnostics = await preflightProject(createProject("Book", ["a.md"]), "C:\\book", files);
+
+    expect(diagnostics).toEqual([
+      { severity: "warning", kind: "duplicateHeadingId", path: "a.md", line: 1, value: "same" },
+      { severity: "warning", kind: "duplicateHeadingId", path: "a.md", line: 2, value: "same" },
+      { severity: "warning", kind: "duplicateFootnoteId", path: "a.md", line: 3, value: "note" },
+      { severity: "warning", kind: "duplicateFootnoteId", path: "a.md", line: 4, value: "note" },
+    ]);
+  });
+
+  it("reports links to workspace documents excluded from the project", async () => {
+    readFile.mockResolvedValue({ status: "ok", data: "[Excluded](b.md)" });
+
+    const diagnostics = await preflightProject(createProject("Book", ["a.md"]), "C:\\book", files);
+
+    expect(diagnostics).toEqual([
+      { severity: "warning", kind: "brokenLink", path: "a.md", line: 1, value: "b.md" },
+    ]);
   });
 
   it("treats an unavailable Workspace Index as fatal instead of silently skipping link validation", async () => {
@@ -103,5 +122,16 @@ describe("project preflight", () => {
 
     expect(diagnostics).toEqual([]);
     expect(pathExists).toHaveBeenCalledWith("C:\\book\\assets\\My Cover.png");
+  });
+
+  it("does not publish relative images that escape the workspace root", async () => {
+    readFile.mockResolvedValue({ status: "ok", data: "![Secret](../secret.png)" });
+
+    const diagnostics = await preflightProject(createProject("Book", ["a.md"]), "C:\\book", files);
+
+    expect(diagnostics).toEqual([
+      { severity: "warning", kind: "unresolvedImage", path: "a.md", line: 1, value: "../secret.png" },
+    ]);
+    expect(pathExists).not.toHaveBeenCalled();
   });
 });

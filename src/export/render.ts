@@ -1,6 +1,7 @@
 import MarkdownIt from "markdown-it";
 import katexPlugin from "@vscode/markdown-it-katex";
 import hljs from "highlight.js";
+import { markdownHeadingSlug } from "../editor/markdownLinks";
 
 // PluginSimple: (md: MarkdownIt) => void
 type PluginSimple = (md: MarkdownIt) => void;
@@ -17,6 +18,14 @@ interface RuneRenderEnv {
   footnoteNumbers?: Map<string, number>;
   footnoteRefCounts?: Map<string, number>;
   footnoteBackrefs?: Map<string, string[]>;
+  idPrefix?: string;
+  headingCounts?: Map<string, number>;
+  rewriteHref?: (href: string, kind: "link" | "image") => string;
+}
+
+export interface RenderOptions {
+  idPrefix?: string;
+  rewriteHref?: (href: string, kind: "link" | "image") => string;
 }
 
 // @vscode/markdown-it-katex is a CJS module; when imported as ESM the default
@@ -47,18 +56,19 @@ const md: MarkdownIt = new MarkdownIt({
 
 md.use(calloutPlugin);
 md.use(footnoteRefPlugin);
+installProjectRenderRules(md);
 
 /** 동기 마크다운→HTML (테스트/단순 미리보기용; mermaid 미처리). */
-export function mdRender(s: string): string {
+export function mdRender(s: string, options: RenderOptions = {}): string {
   const { markdown, footnotes } = prepareMarkdown(s);
-  const env = createRenderEnv(footnotes);
+  const env = createRenderEnv(footnotes, options);
   return appendFootnotes(md.render(markdown, env), env);
 }
 
 let mermaidReady = false;
 /** 전체 본문 HTML. mermaid 코드블록은 SVG로 비동기 치환. (브라우저 전용) */
-export async function renderBody(markdown: string): Promise<string> {
-  let html = mdRender(markdown);
+export async function renderBody(markdown: string, options: RenderOptions = {}): Promise<string> {
+  let html = mdRender(markdown, options);
   const re = /<pre class="mermaid-src">([\s\S]*?)<\/pre>/g;
   const matches = [...html.matchAll(re)];
   if (matches.length > 0) {
@@ -71,7 +81,8 @@ export async function renderBody(markdown: string): Promise<string> {
     for (const m of matches) {
       const code = decodeEntities(m[1]);
       try {
-        const { svg } = await mermaid.render("exp-" + seq++, code);
+        const renderId = `exp-${(options.idPrefix ?? "").replace(/[^A-Za-z0-9_-]/g, "-")}${seq++}`;
+        const { svg } = await mermaid.render(renderId, code);
         html = html.replace(m[0], `<div class="mermaid">${svg}</div>`);
       } catch {
         html = html.replace(m[0], `<pre>${m[1]}</pre>`);
@@ -138,14 +149,21 @@ function extractFootnotes(source: string): { markdown: string; footnotes: Footno
   return { markdown: kept.join("\n"), footnotes };
 }
 
-function createRenderEnv(footnotes: FootnoteDefinition[]): RuneRenderEnv {
+function createRenderEnv(footnotes: FootnoteDefinition[], options: RenderOptions = {}): RuneRenderEnv {
   return {
     footnotesByLabel: new Map(footnotes.map((footnote) => [footnote.label, footnote])),
     footnoteOrder: [],
     footnoteNumbers: new Map(),
     footnoteRefCounts: new Map(),
     footnoteBackrefs: new Map(),
+    idPrefix: options.idPrefix,
+    headingCounts: new Map(),
+    rewriteHref: options.rewriteHref,
   };
+}
+
+function scopedId(env: RuneRenderEnv, id: string): string {
+  return `${env.idPrefix ?? ""}${id}`;
 }
 
 function appendFootnotes(html: string, env: RuneRenderEnv): string {
@@ -157,12 +175,15 @@ function appendFootnotes(html: string, env: RuneRenderEnv): string {
     .map((label) => {
       const footnote = footnotes.get(label);
       if (!footnote) return "";
-      const body = md.renderInline(footnote.content, createRenderEnv([]));
-      const backrefs = env.footnoteBackrefs?.get(label) ?? [`fnref-${footnote.id}`];
+      const body = md.renderInline(footnote.content, createRenderEnv([], {
+        idPrefix: env.idPrefix,
+        rewriteHref: env.rewriteHref,
+      }));
+      const backrefs = env.footnoteBackrefs?.get(label) ?? [`fnref-${scopedId(env, footnote.id)}`];
       const links = backrefs
         .map((refId, index) => `<a class="footnote-backref" href="#${refId}" aria-label="Back to reference ${index + 1}">&#8617;</a>`)
         .join(" ");
-      return `<li id="fn-${footnote.id}">${body} ${links}</li>`;
+      return `<li id="fn-${scopedId(env, footnote.id)}">${body} ${links}</li>`;
     })
     .filter(Boolean)
     .join("\n");
@@ -232,13 +253,55 @@ function footnoteRefPlugin(markdownIt: MarkdownIt): void {
 
     const refCount = (renderEnv.footnoteRefCounts?.get(label) ?? 0) + 1;
     renderEnv.footnoteRefCounts?.set(label, refCount);
-    const refId = refCount === 1 ? `fnref-${footnote.id}` : `fnref-${footnote.id}-${refCount}`;
+    const scopedFootnoteId = scopedId(renderEnv, footnote.id);
+    const refId = refCount === 1 ? `fnref-${scopedFootnoteId}` : `fnref-${scopedFootnoteId}-${refCount}`;
     const backrefs = renderEnv.footnoteBackrefs?.get(label) ?? [];
     backrefs.push(refId);
     renderEnv.footnoteBackrefs?.set(label, backrefs);
 
-    return `<sup class="footnote-ref" id="${refId}"><a href="#fn-${footnote.id}">${number}</a></sup>`;
+    return `<sup class="footnote-ref" id="${refId}"><a href="#fn-${scopedFootnoteId}">${number}</a></sup>`;
   };
+}
+
+function installProjectRenderRules(markdownIt: MarkdownIt): void {
+  const defaultHeadingOpen = markdownIt.renderer.rules.heading_open
+    ?? ((tokens, idx, options, _env, self) => self.renderToken(tokens, idx, options));
+  const defaultLinkOpen = markdownIt.renderer.rules.link_open
+    ?? ((tokens, idx, options, _env, self) => self.renderToken(tokens, idx, options));
+  const defaultImage = markdownIt.renderer.rules.image
+    ?? ((tokens, idx, options, _env, self) => self.renderToken(tokens, idx, options));
+
+  markdownIt.renderer.rules.heading_open = (tokens, idx, options, env, self) => {
+    const renderEnv = env as RuneRenderEnv;
+    if (renderEnv.idPrefix !== undefined) {
+      const base = markdownHeadingSlug(tokens[idx + 1]?.content ?? "") || "section";
+      const count = (renderEnv.headingCounts?.get(base) ?? 0) + 1;
+      renderEnv.headingCounts?.set(base, count);
+      const suffix = count === 1 ? "" : `-${count}`;
+      tokens[idx].attrSet("id", scopedId(renderEnv, `${base}${suffix}`));
+    }
+    return defaultHeadingOpen(tokens, idx, options, env, self);
+  };
+
+  markdownIt.renderer.rules.link_open = (tokens, idx, options, env, self) => {
+    rewriteTokenAttribute(tokens[idx], "href", "link", env as RuneRenderEnv);
+    return defaultLinkOpen(tokens, idx, options, env, self);
+  };
+
+  markdownIt.renderer.rules.image = (tokens, idx, options, env, self) => {
+    rewriteTokenAttribute(tokens[idx], "src", "image", env as RuneRenderEnv);
+    return defaultImage(tokens, idx, options, env, self);
+  };
+}
+
+function rewriteTokenAttribute(
+  token: { attrGet(name: string): string | null; attrSet(name: string, value: string): void },
+  attribute: "href" | "src",
+  kind: "link" | "image",
+  env: RuneRenderEnv,
+): void {
+  const href = token.attrGet(attribute);
+  if (href !== null && env.rewriteHref) token.attrSet(attribute, env.rewriteHref(href, kind));
 }
 
 function titleCase(value: string): string {

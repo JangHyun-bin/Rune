@@ -43,6 +43,23 @@ pub fn write_file_if_unchanged(
 }
 
 #[tauri::command]
+pub fn publish_project_html(
+    workspace_root: String,
+    path: String,
+    contents: String,
+    assets: Vec<fs_ops::PublishAsset>,
+    protected_paths: Vec<String>,
+) -> Result<(), String> {
+    fs_ops::publish_html(
+        &PathBuf::from(workspace_root),
+        &PathBuf::from(path),
+        &contents,
+        &assets,
+        &protected_paths,
+    )
+}
+
+#[tauri::command]
 pub fn save_asset(doc_path: String, bytes: Vec<u8>, ext: String) -> Result<String, String> {
     let dir = Path::new(&doc_path).parent().ok_or("문서 경로에 폴더가 없음")?;
     fs_ops::save_asset(dir, &bytes, &ext)

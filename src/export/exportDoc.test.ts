@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { showHtmlPreview } from "./exportDoc";
+import { buildHtmlDocument, printHtmlDocument, showHtmlPreview } from "./exportDoc";
 
 type Listener = () => void;
 
@@ -9,7 +9,10 @@ class TestElement {
   srcdoc = "";
   textContent = "";
   type = "";
+  style: Record<string, string> = {};
   parent: TestElement | null = null;
+  contentWindow = { focus: vi.fn(), print: vi.fn() };
+  contentDocument = { fonts: { ready: Promise.resolve() }, images: [] };
   private listeners = new Map<string, Listener[]>();
   private attributes = new Map<string, string>();
 
@@ -67,5 +70,35 @@ describe("HTML preview", () => {
 
     dialog.children[2].dispatch("click");
     expect(body.children).toHaveLength(0);
+  });
+
+  it("builds bounded print CSS from the same HTML document", () => {
+    const html = buildHtmlDocument("Book", "<table><tr><td>Body</td></tr></table>", {
+      theme: "serif",
+      pageSize: "Letter",
+      margins: { top: 1, right: 11, bottom: 99, left: 13 },
+      pageBreakDocuments: true,
+      metadata: { author: "Writer", subject: "Report" },
+    });
+
+    expect(html).toContain("font-family:Georgia");
+    expect(html).toContain("@page{size:Letter;margin:5mm 11mm 50mm 13mm}");
+    expect(html).toContain(".project-document:not(:first-of-type){break-before:page");
+    expect(html).toContain('<meta name="author" content="Writer">');
+    expect(html).toContain("pre.hljs{white-space:pre-wrap");
+    expect(html).toContain("img,svg{max-width:100%!important;height:auto!important}");
+  });
+
+  it("waits for the print document before opening the native print dialog", async () => {
+    const printing = printHtmlDocument("<!doctype html><h1>Book</h1>", "Book");
+    const iframe = body.children[0];
+
+    expect(iframe.srcdoc).toContain("Book");
+    expect(iframe.contentWindow.print).not.toHaveBeenCalled();
+    iframe.dispatch("load");
+    await printing;
+
+    expect(iframe.contentWindow.focus).toHaveBeenCalledOnce();
+    expect(iframe.contentWindow.print).toHaveBeenCalledOnce();
   });
 });

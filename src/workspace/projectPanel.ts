@@ -1,14 +1,25 @@
 import { t } from "../i18n/i18n";
 import {
+  activePublishingProfile,
+  addPublishingProfile,
   createProject,
+  deletePublishingProfile,
+  markPublishingSuccessful,
   moveProjectFile,
+  normalizeProjectPath,
   parseProject,
+  replacePublishingProfile,
+  serializeProject,
+  setActivePublishingProfile,
   setProjectFileIncluded,
+  updateProjectTitle,
   validateProject,
+  type PublishingProfile,
   type RuneProject,
 } from "../project/project";
 import { loadProjectManifest, saveProjectManifest } from "../project/projectManifest";
 import { hasFatalProjectDiagnostics, type ProjectDiagnostic } from "../project/projectPreflight";
+import { promptModal } from "./promptModal";
 
 export interface ProjectChoice {
   path: string;
@@ -19,9 +30,12 @@ export interface ProjectChoice {
 export interface ProjectPanel {
   refresh(root: string | null, files: { path: string }[]): Promise<void>;
   focus(): void;
+  publishAgain(): Promise<void>;
   relabel(): void;
   dispose(): void;
 }
+
+type ProfileNamePrompt = (title: string, value?: string) => Promise<string | null>;
 
 export function projectManifestPath(root: string): string {
   const separator = root.includes("\\") ? "\\" : "/";
@@ -37,7 +51,7 @@ export function projectRelativePath(root: string, absolutePath: string): string 
   const prefix = `${comparableRoot}/`;
   if (!comparablePath.startsWith(prefix)) throw new Error(`Project file is outside workspace: ${absolutePath}`);
   const relative = normalizedPath.slice(normalizedRoot.length + 1);
-  return createProject("Project", [relative]).files[0];
+  return normalizeProjectPath(relative);
 }
 
 export function buildProjectChoices(project: RuneProject, availableFiles: string[]): ProjectChoice[] {
@@ -58,8 +72,9 @@ function folderName(path: string): string {
 export function mountProjectPanel(
   host: HTMLElement,
   onPreflight: (project: RuneProject) => Promise<ProjectDiagnostic[]>,
-  onPreview: (project: RuneProject) => Promise<void>,
-  onExport: (project: RuneProject) => Promise<void>,
+  onPreview: (project: RuneProject, profile: PublishingProfile) => Promise<void>,
+  onPublish: (project: RuneProject, profile: PublishingProfile) => Promise<boolean>,
+  requestProfileName: ProfileNamePrompt = (title, value) => promptModal({ title, value }),
 ): ProjectPanel {
   host.className = "project-panel";
   let root: string | null = null;
@@ -88,9 +103,11 @@ export function mountProjectPanel(
   const currentProject = (): RuneProject | null => {
     if (!project) return null;
     try {
-      return createProject(titleInput?.value ?? project.title, project.files);
+      const value = updateProjectTitle(project, titleInput?.value ?? project.title);
+      parseProject(serializeProject(value));
+      return value;
     } catch {
-      message = t("project.titleRequired");
+      message = t("project.invalidSettings");
       draw();
       return null;
     }
@@ -104,6 +121,22 @@ export function mountProjectPanel(
     if (statusElement) statusElement.textContent = "";
   };
 
+  const persistProject = async (value: RuneProject, successMessage: string): Promise<boolean> => {
+    const request = ++operation;
+    const result = await saveProjectManifest(projectManifestPath(root!), value, manifestSource);
+    if (request !== operation) return false;
+    if (result.status === "saved") {
+      manifestSource = result.source;
+      project = value;
+      message = successMessage;
+      draw();
+      return true;
+    }
+    message = t(result.status === "conflict" ? "project.manifestConflict" : "project.saveError");
+    draw();
+    return false;
+  };
+
   const saveProject = async (): Promise<void> => {
     const value = currentProject();
     if (!value) return;
@@ -113,28 +146,24 @@ export function mountProjectPanel(
       draw();
       return;
     }
-    const request = ++operation;
-    const result = await saveProjectManifest(projectManifestPath(root!), value, manifestSource);
-    if (request !== operation) return;
-    if (result.status === "saved") {
-      manifestSource = result.source;
-      project = value;
-      message = t("project.saved");
-    } else {
-      message = t(result.status === "conflict" ? "project.manifestConflict" : "project.saveError");
-    }
-    draw();
+    await persistProject(value, t("project.saved"));
   };
 
-  const runPreflight = async (action?: (value: RuneProject) => Promise<void>): Promise<void> => {
-    const value = currentProject();
+  const runPreflight = async (
+    action?: (value: RuneProject, profile: PublishingProfile) => Promise<boolean | void>,
+    profileId?: string,
+    rememberSuccess = false,
+  ): Promise<void> => {
+    let value = currentProject();
     if (!value) return;
+    if (profileId) value = setActivePublishingProfile(value, profileId);
     if (value.files.length === 0) {
       message = t("project.noFiles");
       diagnostics = [];
       draw();
       return;
     }
+    const profile = activePublishingProfile(value);
     const request = ++operation;
     project = value;
     message = "";
@@ -147,12 +176,148 @@ export function mountProjectPanel(
       const fatal = hasFatalProjectDiagnostics(diagnostics);
       message = fatal ? t("project.publishBlocked") : diagnostics.length === 0 ? t("project.diagnosticsClean") : "";
       draw();
-      if (!fatal && action) await action(value);
+      if (fatal || !action) return;
+      const completed = await action(value, profile);
+      if (request !== operation) return;
+      if (completed === false) {
+        message = t("project.publishFailed");
+        draw();
+        return;
+      }
+      if (!rememberSuccess) return;
+      const published = markPublishingSuccessful(value, profile.id);
+      await persistProject(published, t("project.published", { profile: profile.name }));
     } catch {
       if (request !== operation) return;
-      message = t("project.preflightError");
+      message = t(action ? "project.exportError" : "project.preflightError");
       draw();
     }
+  };
+
+  const updateProfile = (change: (profile: PublishingProfile) => PublishingProfile): void => {
+    if (!project) return;
+    try {
+      project = replacePublishingProfile(project, change(activePublishingProfile(project)));
+      clearFeedback();
+      draw();
+    } catch {
+      message = t("project.invalidSettings");
+      draw();
+    }
+  };
+
+  const editProfileName = async (mode: "new" | "rename" | "duplicate"): Promise<void> => {
+    if (!project) return;
+    const current = activePublishingProfile(project);
+    const value = await requestProfileName(t(`project.profile.${mode}`), mode === "new" ? "" : current.name);
+    if (!value?.trim() || !project) return;
+    try {
+      if (mode === "rename") project = replacePublishingProfile(project, { ...current, name: value.trim() });
+      else project = addPublishingProfile(project, value, mode === "duplicate" ? current : undefined);
+      clearFeedback();
+      draw();
+    } catch {
+      message = t("project.invalidSettings");
+      draw();
+    }
+  };
+
+  const labeled = (labelText: string, control: HTMLElement): HTMLElement => {
+    const label = document.createElement("label");
+    label.className = "project-profile-field";
+    const text = document.createElement("span");
+    text.textContent = labelText;
+    label.append(text, control);
+    return label;
+  };
+
+  const select = (value: string, choices: { value: string; label: string }[], change: (value: string) => void): HTMLSelectElement => {
+    const element = document.createElement("select");
+    for (const choice of choices) {
+      const option = document.createElement("option");
+      option.value = choice.value;
+      option.textContent = choice.label;
+      element.appendChild(option);
+    }
+    element.value = value;
+    element.addEventListener("change", () => change(element.value));
+    return element;
+  };
+
+  const textInput = (value: string, change: (value: string) => void, type = "text"): HTMLInputElement => {
+    const element = document.createElement("input");
+    element.type = type;
+    element.value = value;
+    element.addEventListener("change", () => change(element.value));
+    return element;
+  };
+
+  const checkbox = (checked: boolean, change: (checked: boolean) => void): HTMLInputElement => {
+    const element = document.createElement("input");
+    element.type = "checkbox";
+    element.checked = checked;
+    element.addEventListener("change", () => change(element.checked));
+    return element;
+  };
+
+  const drawProfile = (): HTMLElement => {
+    const container = document.createElement("section");
+    container.className = "project-profile";
+    const profile = activePublishingProfile(project!);
+    const header = document.createElement("div");
+    header.className = "project-profile-header";
+    const picker = select(project!.publishing.activeProfileId, project!.publishing.profiles.map((item) => ({ value: item.id, label: item.name })), (id) => {
+      project = setActivePublishingProfile(project!, id);
+      clearFeedback();
+      draw();
+    });
+    picker.setAttribute("aria-label", t("project.profile"));
+    const profileActions = document.createElement("span");
+    profileActions.className = "project-profile-actions";
+    const remove = button(t("project.profile.delete"), () => {
+      project = deletePublishingProfile(project!, profile.id);
+      clearFeedback();
+      draw();
+    }, "−");
+    remove.disabled = project!.publishing.profiles.length === 1;
+    profileActions.append(
+      button(t("project.profile.new"), () => { void editProfileName("new"); }, "+"),
+      button(t("project.profile.rename"), () => { void editProfileName("rename"); }, "✎"),
+      button(t("project.profile.duplicate"), () => { void editProfileName("duplicate"); }, "⧉"),
+      remove,
+    );
+    header.append(picker, profileActions);
+
+    const fields = document.createElement("div");
+    fields.className = "project-profile-fields";
+    fields.append(
+      labeled(t("project.profile.format"), select(profile.format, [
+        { value: "html", label: "HTML" }, { value: "pdf", label: "PDF" },
+      ], (value) => updateProfile((item) => ({ ...item, format: value as PublishingProfile["format"] })))),
+      labeled(t("project.profile.outputDirectory"), textInput(profile.outputDirectory, (value) => updateProfile((item) => ({ ...item, outputDirectory: value })))),
+      labeled(t("project.profile.theme"), select(profile.theme, [
+        { value: "default", label: t("project.profile.theme.default") }, { value: "serif", label: t("project.profile.theme.serif") },
+      ], (value) => updateProfile((item) => ({ ...item, theme: value as PublishingProfile["theme"] })))),
+      labeled(t("project.profile.pageSize"), select(profile.pageSize, [
+        { value: "A4", label: "A4" }, { value: "Letter", label: "Letter" },
+      ], (value) => updateProfile((item) => ({ ...item, pageSize: value as PublishingProfile["pageSize"] })))),
+      labeled(t("project.profile.toc"), checkbox(profile.tableOfContents, (checked) => updateProfile((item) => ({ ...item, tableOfContents: checked })))),
+      labeled(t("project.profile.tocDepth"), textInput(String(profile.tableOfContentsDepth), (value) => updateProfile((item) => ({ ...item, tableOfContentsDepth: Number(value) })), "number")),
+      labeled(t("project.profile.pageBreak"), checkbox(profile.pageBreakDocuments, (checked) => updateProfile((item) => ({ ...item, pageBreakDocuments: checked })))),
+      labeled(t("project.profile.author"), textInput(profile.metadata.author, (value) => updateProfile((item) => ({ ...item, metadata: { ...item.metadata, author: value } })))),
+      labeled(t("project.profile.subject"), textInput(profile.metadata.subject, (value) => updateProfile((item) => ({ ...item, metadata: { ...item.metadata, subject: value } })))),
+    );
+    const margins = document.createElement("div");
+    margins.className = "project-profile-margins";
+    for (const side of ["top", "right", "bottom", "left"] as const) {
+      margins.append(labeled(t(`project.profile.margin.${side}`), textInput(String(profile.margins[side]), (value) => updateProfile((item) => ({
+        ...item,
+        margins: { ...item.margins, [side]: Number(value) },
+      })), "number")));
+    }
+    fields.appendChild(margins);
+    container.append(header, fields);
+    return container;
   };
 
   const draw = (): void => {
@@ -182,8 +347,9 @@ export function mountProjectPanel(
     actions.append(
       button(t("project.save"), () => { void saveProject(); }),
       button(t("project.preflight"), () => { void runPreflight(); }),
-      button(t("project.preview"), () => { void runPreflight(onPreview); }),
-      button(t("project.exportHtml"), () => { void runPreflight(onExport); }),
+      button(t("project.preview"), () => { void runPreflight(async (value, profile) => onPreview(value, profile)); }),
+      button(t("project.publish"), () => { void runPreflight(onPublish, undefined, true); }),
+      button(t("project.publishAgain"), () => { void panel.publishAgain(); }),
     );
 
     const list = document.createElement("div");
@@ -238,10 +404,10 @@ export function mountProjectPanel(
     status.textContent = message;
     status.setAttribute("aria-live", "polite");
     statusElement = status;
-    host.append(title, actions, list, diagnosticList, status);
+    host.append(title, drawProfile(), actions, list, diagnosticList, status);
   };
 
-  return {
+  const panel: ProjectPanel = {
     async refresh(nextRoot, files) {
       const request = ++load;
       if (root === nextRoot && state === "ready" && project) {
@@ -263,8 +429,7 @@ export function mountProjectPanel(
       state = "loading";
       draw();
       availableFiles = files.map((file) => projectRelativePath(root!, file.path));
-      const manifestPath = projectManifestPath(root);
-      const result = await loadProjectManifest(manifestPath);
+      const result = await loadProjectManifest(projectManifestPath(root));
       if (request !== load) return;
       try {
         if (result.status === "error") throw new Error("Project manifest unavailable");
@@ -279,7 +444,17 @@ export function mountProjectPanel(
       draw();
     },
     focus() { titleInput?.focus(); },
+    async publishAgain() {
+      const id = project?.publishing.lastSuccessfulProfileId;
+      if (!id) {
+        message = t("project.noPreviousPublish");
+        draw();
+        return;
+      }
+      await runPreflight(onPublish, id, true);
+    },
     relabel: draw,
     dispose() { load++; operation++; host.replaceChildren(); },
   };
+  return panel;
 }

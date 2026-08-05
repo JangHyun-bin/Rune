@@ -8,13 +8,33 @@ function escapeHtml(s: string): string {
   return s.replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c] as string));
 }
 
-export function buildHtmlDocument(title: string, body: string): string {
-  return `<!doctype html><html lang="ko"><head><meta charset="utf-8"><title>${escapeHtml(title)}</title>
+export interface HtmlDocumentOptions {
+  theme?: "default" | "serif";
+  pageSize?: "A4" | "Letter";
+  margins?: { top: number; right: number; bottom: number; left: number };
+  pageBreakDocuments?: boolean;
+  metadata?: { author?: string; subject?: string };
+}
+
+function safeMargin(value: number | undefined, fallback: number): number {
+  return Number.isFinite(value) ? Math.max(5, Math.min(50, value as number)) : fallback;
+}
+
+function meta(name: string, value: string | undefined): string {
+  return value?.trim() ? `<meta name="${name}" content="${escapeHtml(value.trim()).replace(/"/g, "&quot;")}">` : "";
+}
+
+export function buildHtmlDocument(title: string, body: string, options: HtmlDocumentOptions = {}): string {
+  const margins = options.margins ?? { top: 18, right: 18, bottom: 18, left: 18 };
+  const family = options.theme === "serif"
+    ? "Georgia,'Times New Roman','Noto Serif KR',serif"
+    : "'Pretendard Variable',Pretendard,-apple-system,system-ui,'Apple SD Gothic Neo',sans-serif";
+  return `<!doctype html><html lang="ko"><head><meta charset="utf-8"><title>${escapeHtml(title)}</title>${meta("author", options.metadata?.author)}${meta("description", options.metadata?.subject)}
 <style>
 ${katexCss}
 ${hljsCss}
 :root{color-scheme:light}
-body{font-family:'Pretendard Variable',Pretendard,-apple-system,system-ui,'Apple SD Gothic Neo',sans-serif;max-width:760px;margin:40px auto;padding:0 24px;line-height:1.7;color:#1a1a1a;background:#fff}
+body{font-family:${family};max-width:760px;margin:40px auto;padding:0 24px;line-height:1.7;color:#1a1a1a;background:#fff}
 h1,h2,h3,h4{line-height:1.25}
 pre.hljs{background:#f6f8fa;padding:12px 14px;border-radius:8px;overflow:auto}
 code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:.92em}
@@ -33,6 +53,19 @@ blockquote.callout-caution{border-left-color:#cf222e}
 .footnote-backref{text-decoration:none;margin-left:.25em}
 .mermaid{display:flex;justify-content:center;margin:1em 0}
 img{max-width:100%}
+.project-title{margin-bottom:2rem}.project-title>h1{font-size:2rem}
+.project-toc{margin:0 0 3rem}.project-toc ol{list-style:none;padding:0}.toc-entry{margin:.25rem 0}.toc-entry a{color:inherit;text-decoration:none}.toc-level-2{padding-left:1rem}.toc-level-3{padding-left:2rem}.toc-level-4{padding-left:3rem}.toc-level-5{padding-left:4rem}.toc-level-6{padding-left:5rem}
+.project-document{min-width:0}
+@page{size:${options.pageSize ?? "A4"};margin:${safeMargin(margins.top, 18)}mm ${safeMargin(margins.right, 18)}mm ${safeMargin(margins.bottom, 18)}mm ${safeMargin(margins.left, 18)}mm}
+@media print{
+  body{max-width:none;margin:0;padding:0;color:#000;background:#fff}
+  ${options.pageBreakDocuments === false ? "" : ".project-document:not(:first-of-type){break-before:page;page-break-before:always}"}
+  h1,h2,h3,h4{break-after:avoid-page;page-break-after:avoid}
+  table,blockquote,.mermaid,figure,img,pre{break-inside:avoid-page;page-break-inside:avoid}
+  table{width:100%;table-layout:auto}pre.hljs{white-space:pre-wrap;overflow-wrap:anywhere;overflow:visible}
+  img,svg{max-width:100%!important;height:auto!important}.mermaid{overflow:visible}.mermaid svg{max-height:90vh}
+  a{color:inherit}.project-toc a{text-decoration:none}
+}
 </style></head><body><article>${body}</article></body></html>`;
 }
 
@@ -75,13 +108,33 @@ export async function exportHtml(markdown: string, title: string): Promise<void>
 export async function exportPdf(markdown: string, title: string): Promise<void> {
   const body = await renderBody(markdown);
   const html = buildHtmlDocument(title, body);
+  await printHtmlDocument(html, title);
+}
+
+export async function printHtmlDocument(html: string, title: string): Promise<void> {
   const iframe = document.createElement("iframe");
+  iframe.setAttribute("title", title);
   Object.assign(iframe.style, { position: "fixed", right: "0", bottom: "0", width: "0", height: "0", border: "0" });
   document.body.appendChild(iframe);
-  iframe.srcdoc = html;
-  iframe.addEventListener("load", () => {
+  try {
+    await new Promise<void>((resolve, reject) => {
+      iframe.addEventListener("load", () => resolve(), { once: true });
+      iframe.addEventListener("error", () => reject(new Error("Print preview failed to load")), { once: true });
+      iframe.srcdoc = html;
+    });
     const w = iframe.contentWindow;
-    if (w) { w.focus(); w.print(); }
+    if (!w) throw new Error("Print window is unavailable");
+    await iframe.contentDocument?.fonts?.ready;
+    const images = [...(iframe.contentDocument?.images ?? [])];
+    await Promise.all(images.map((image) => image.complete ? Promise.resolve() : new Promise<void>((resolve) => {
+      image.addEventListener("load", () => resolve(), { once: true });
+      image.addEventListener("error", () => resolve(), { once: true });
+    })));
+    w.focus();
+    w.print();
     setTimeout(() => iframe.remove(), 1500);
-  });
+  } catch (error) {
+    iframe.remove();
+    throw error;
+  }
 }

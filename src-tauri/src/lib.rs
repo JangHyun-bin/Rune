@@ -69,6 +69,7 @@ pub fn run() {
             commands::read_file,
             commands::write_file,
             commands::write_file_if_unchanged,
+            commands::publish_project_html,
             commands::save_asset,
             commands::list_dir,
             commands::load_settings,

@@ -1,4 +1,4 @@
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::fs;
 use std::io::Write;
@@ -56,6 +56,179 @@ fn write_bytes_atomic(path: &Path, bytes: &[u8]) -> Result<(), String> {
         f.sync_all().map_err(|e| format!("sync failed '{}': {e}", tmp.display()))?;
     }
     fs::rename(&tmp, path).map_err(|e| format!("rename failed: {e}"))
+}
+
+#[derive(Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct PublishAsset {
+    pub source_path: String,
+    pub relative_path: String,
+}
+
+const PUBLICATION_MARKER: &str = ".rune-publication";
+
+fn safe_relative_asset_path(path: &str) -> Result<PathBuf, String> {
+    let value = Path::new(path);
+    if value.is_absolute()
+        || value.components().any(|component| !matches!(component, std::path::Component::Normal(_)))
+    {
+        return Err(format!("invalid publish asset path: {path}"));
+    }
+    Ok(value.to_path_buf())
+}
+
+/// HTML과 복사된 asset 디렉터리를 한 publication 단위로 교체한다.
+/// asset 준비가 실패하면 기존 HTML과 asset은 그대로 남는다.
+pub fn publish_html(
+    root: &Path,
+    path: &Path,
+    contents: &str,
+    assets: &[PublishAsset],
+    protected_paths: &[String],
+) -> Result<(), String> {
+    if !path.extension().and_then(|value| value.to_str()).is_some_and(|value| value.eq_ignore_ascii_case("html")) {
+        return Err("publish output must be an .html file".into());
+    }
+    let parent = path.parent().ok_or_else(|| format!("invalid publish path: {}", path.display()))?;
+    let canonical_root = fs::canonicalize(root)
+        .map_err(|error| format!("resolve workspace root failed '{}': {error}", root.display()))?;
+    let mut existing_parent = parent;
+    while !existing_parent.exists() {
+        existing_parent = existing_parent.parent()
+            .ok_or_else(|| format!("publish path is outside workspace: {}", path.display()))?;
+    }
+    let canonical_existing_parent = fs::canonicalize(existing_parent)
+        .map_err(|error| format!("resolve publish directory failed '{}': {error}", existing_parent.display()))?;
+    if !canonical_existing_parent.starts_with(&canonical_root) {
+        return Err(format!("publish path is outside workspace: {}", path.display()));
+    }
+    if path.exists() {
+        let metadata = fs::symlink_metadata(path)
+            .map_err(|error| format!("inspect publish output failed '{}': {error}", path.display()))?;
+        if metadata.file_type().is_symlink() {
+            return Err(format!("publish output may not be a symlink: {}", path.display()));
+        }
+        let canonical_output = fs::canonicalize(path)
+            .map_err(|error| format!("resolve publish output failed '{}': {error}", path.display()))?;
+        for protected in protected_paths {
+            if fs::canonicalize(protected).is_ok_and(|source| source == canonical_output) {
+                return Err(format!("publish output would overwrite a source file: {}", path.display()));
+            }
+        }
+    }
+    fs::create_dir_all(parent).map_err(|error| format!("create publish directory failed '{}': {error}", parent.display()))?;
+    let canonical_parent = fs::canonicalize(parent)
+        .map_err(|error| format!("resolve publish directory failed '{}': {error}", parent.display()))?;
+    if !canonical_parent.starts_with(&canonical_root) {
+        return Err(format!("publish path is outside workspace: {}", path.display()));
+    }
+    let stem = path.file_stem().and_then(|value| value.to_str()).filter(|value| !value.is_empty())
+        .ok_or_else(|| format!("invalid publish filename: {}", path.display()))?;
+    let target_assets = parent.join(format!("{stem}.assets"));
+    let staged_assets = parent.join(format!(".{stem}.assets.tmp"));
+    let backup_assets = parent.join(format!(".{stem}.assets.backup"));
+
+    if target_assets.exists() {
+        let metadata = fs::symlink_metadata(&target_assets)
+            .map_err(|error| format!("inspect publish assets failed '{}': {error}", target_assets.display()))?;
+        if metadata.file_type().is_symlink() {
+            return Err(format!("publish assets may not be a symlink: {}", target_assets.display()));
+        }
+        if !metadata.is_dir()
+            || !fs::read_to_string(target_assets.join(PUBLICATION_MARKER))
+                .is_ok_and(|value| value == "Rune project assets\n")
+        {
+            return Err(format!(
+                "publish assets would replace an unmanaged path: {}",
+                target_assets.display()
+            ));
+        }
+        let canonical_assets = fs::canonicalize(&target_assets)
+            .map_err(|error| format!("resolve publish assets failed '{}': {error}", target_assets.display()))?;
+        let protected_source = protected_paths.iter()
+            .filter_map(|protected| fs::canonicalize(protected).ok())
+            .chain(assets.iter().filter_map(|asset| fs::canonicalize(&asset.source_path).ok()))
+            .find(|source| source.starts_with(&canonical_assets));
+        if let Some(source) = protected_source {
+            return Err(format!(
+                "publish assets would replace a source file: {}",
+                source.display()
+            ));
+        }
+    }
+
+    if backup_assets.exists() && !target_assets.exists() {
+        fs::rename(&backup_assets, &target_assets)
+            .map_err(|error| format!("restore interrupted publish failed: {error}"))?;
+    }
+    if backup_assets.exists() {
+        return Err(format!("publish backup already exists: {}", backup_assets.display()));
+    }
+    if staged_assets.exists() {
+        fs::remove_dir_all(&staged_assets)
+            .map_err(|error| format!("remove stale publish staging failed: {error}"))?;
+    }
+
+    if !assets.is_empty() {
+        fs::create_dir(&staged_assets)
+            .map_err(|error| format!("create publish staging failed '{}': {error}", staged_assets.display()))?;
+        let staged = (|| -> Result<(), String> {
+            fs::write(staged_assets.join(PUBLICATION_MARKER), "Rune project assets\n")
+                .map_err(|error| format!("write publish marker failed: {error}"))?;
+            for asset in assets {
+                let relative = safe_relative_asset_path(&asset.relative_path)?;
+                let source = Path::new(&asset.source_path);
+                if !source.is_file() {
+                    return Err(format!("publish asset is not a readable file: {}", source.display()));
+                }
+                let canonical_source = fs::canonicalize(source)
+                    .map_err(|error| format!("resolve publish asset failed '{}': {error}", source.display()))?;
+                if !canonical_source.starts_with(&canonical_root) {
+                    return Err(format!("publish asset is outside workspace: {}", source.display()));
+                }
+                let target = staged_assets.join(relative);
+                if let Some(directory) = target.parent() {
+                    fs::create_dir_all(directory)
+                        .map_err(|error| format!("create publish asset directory failed '{}': {error}", directory.display()))?;
+                }
+                fs::copy(source, &target)
+                    .map_err(|error| format!("copy publish asset failed '{}' -> '{}': {error}", source.display(), target.display()))?;
+            }
+            Ok(())
+        })();
+        if let Err(error) = staged {
+            let _ = fs::remove_dir_all(&staged_assets);
+            return Err(error);
+        }
+    }
+
+    if target_assets.exists() {
+        fs::rename(&target_assets, &backup_assets)
+            .map_err(|error| format!("backup previous publish assets failed: {error}"))?;
+    }
+    if !assets.is_empty() {
+        if let Err(error) = fs::rename(&staged_assets, &target_assets) {
+            if backup_assets.exists() {
+                let _ = fs::rename(&backup_assets, &target_assets);
+            }
+            return Err(format!("promote publish assets failed: {error}"));
+        }
+    }
+
+    if let Err(error) = write_text_file_atomic(path, contents) {
+        if target_assets.exists() {
+            let _ = fs::remove_dir_all(&target_assets);
+        }
+        if backup_assets.exists() {
+            let _ = fs::rename(&backup_assets, &target_assets);
+        }
+        return Err(error);
+    }
+    if backup_assets.exists() {
+        fs::remove_dir_all(&backup_assets)
+            .map_err(|error| format!("remove previous publish assets failed: {error}"))?;
+    }
+    Ok(())
 }
 
 /// 바이트를 <doc_dir>/assets/<sha256>.<ext> 에 저장하고 "assets/<name>" 반환.
@@ -244,6 +417,127 @@ mod tests {
         let a1 = save_asset(dir.path(), b, "png").unwrap();
         let a2 = save_asset(dir.path(), b, "png").unwrap();
         assert_eq!(a1, a2);
+    }
+
+    #[test]
+    fn publish_html_copies_assets_and_replaces_the_previous_publication() {
+        let dir = tempfile::tempdir().unwrap();
+        let source = dir.path().join("cover.png");
+        fs::write(&source, b"png bytes").unwrap();
+        let output = dir.path().join("dist").join("Book.html");
+
+        publish_html(dir.path(), &output, "first", &[PublishAsset {
+            source_path: source.to_string_lossy().into_owned(),
+            relative_path: "doc-1/cover.png".into(),
+        }], &[]).unwrap();
+
+        assert_eq!(fs::read_to_string(&output).unwrap(), "first");
+        assert_eq!(fs::read(output.parent().unwrap().join("Book.assets/doc-1/cover.png")).unwrap(), b"png bytes");
+
+        publish_html(dir.path(), &output, "second", &[], &[]).unwrap();
+        assert_eq!(fs::read_to_string(&output).unwrap(), "second");
+        assert!(!output.parent().unwrap().join("Book.assets").exists());
+    }
+
+    #[test]
+    fn publish_html_keeps_the_previous_publication_when_asset_staging_fails() {
+        let dir = tempfile::tempdir().unwrap();
+        let output = dir.path().join("Book.html");
+        fs::write(&output, "original").unwrap();
+        fs::create_dir(dir.path().join("Book.assets")).unwrap();
+        fs::write(dir.path().join("Book.assets/keep.txt"), "keep").unwrap();
+
+        let result = publish_html(dir.path(), &output, "replacement", &[PublishAsset {
+            source_path: dir.path().join("missing.png").to_string_lossy().into_owned(),
+            relative_path: "doc-1/missing.png".into(),
+        }], &[]);
+
+        assert!(result.is_err());
+        assert_eq!(fs::read_to_string(&output).unwrap(), "original");
+        assert_eq!(fs::read_to_string(dir.path().join("Book.assets/keep.txt")).unwrap(), "keep");
+    }
+
+    #[test]
+    fn publish_html_rejects_unsafe_asset_destinations() {
+        let dir = tempfile::tempdir().unwrap();
+        let source = dir.path().join("asset.bin");
+        fs::write(&source, "asset").unwrap();
+        let result = publish_html(dir.path(), &dir.path().join("Book.html"), "html", &[PublishAsset {
+            source_path: source.to_string_lossy().into_owned(),
+            relative_path: "../escape.bin".into(),
+        }], &[]);
+        assert!(result.is_err());
+        assert!(!dir.path().join("escape.bin").exists());
+    }
+
+    #[test]
+    fn publish_html_rejects_assets_and_outputs_outside_the_workspace() {
+        let workspace = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        let source = outside.path().join("secret.png");
+        fs::write(&source, "secret").unwrap();
+        let asset_result = publish_html(workspace.path(), &workspace.path().join("Book.html"), "html", &[PublishAsset {
+            source_path: source.to_string_lossy().into_owned(),
+            relative_path: "doc-1/secret.png".into(),
+        }], &[]);
+        let output_result = publish_html(workspace.path(), &outside.path().join("Book.html"), "html", &[], &[]);
+
+        assert!(asset_result.is_err());
+        assert!(output_result.is_err());
+        assert!(!outside.path().join("Book.html").exists());
+    }
+
+    #[test]
+    fn publish_html_rejects_an_asset_directory_containing_source_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let output = dir.path().join("Book.html");
+        let assets = dir.path().join("Book.assets");
+        fs::create_dir(&assets).unwrap();
+        fs::write(assets.join(PUBLICATION_MARKER), "Rune project assets\n").unwrap();
+        let document = assets.join("chapter.md");
+        let image = assets.join("cover.png");
+        fs::write(&document, "# Chapter").unwrap();
+        fs::write(&image, "image").unwrap();
+
+        let document_result = publish_html(
+            dir.path(),
+            &output,
+            "replacement",
+            &[],
+            &[document.to_string_lossy().into_owned()],
+        );
+        let image_result = publish_html(
+            dir.path(),
+            &output,
+            "replacement",
+            &[PublishAsset {
+                source_path: image.to_string_lossy().into_owned(),
+                relative_path: "doc-1/cover.png".into(),
+            }],
+            &[],
+        );
+
+        assert!(document_result.is_err());
+        assert!(image_result.is_err());
+        assert_eq!(fs::read_to_string(document).unwrap(), "# Chapter");
+        assert_eq!(fs::read_to_string(image).unwrap(), "image");
+        assert!(!output.exists());
+    }
+
+    #[test]
+    fn publish_html_does_not_replace_an_unmanaged_asset_path() {
+        let dir = tempfile::tempdir().unwrap();
+        let output = dir.path().join("Book.html");
+        let assets = dir.path().join("Book.assets");
+        fs::create_dir(&assets).unwrap();
+        let user_file = assets.join("notes.txt");
+        fs::write(&user_file, "keep").unwrap();
+
+        let result = publish_html(dir.path(), &output, "replacement", &[], &[]);
+
+        assert!(result.is_err());
+        assert_eq!(fs::read_to_string(user_file).unwrap(), "keep");
+        assert!(!output.exists());
     }
 
     #[test]

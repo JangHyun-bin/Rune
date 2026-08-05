@@ -27,6 +27,7 @@ export interface PlannedDocumentEdit { path: string; resultingPath: string; repl
 export type PathChangeIssueKind = "destinationExists" | "staleIndex" | "unreadableDocument" | "unresolvedLink" | "unsupportedLink";
 export interface PathChangeIssue { kind: PathChangeIssueKind; path: string; href: string | null; blocking: boolean; }
 export interface PathChangePlan { planId: string; source: string; destination: string; canApply: boolean; pathChanges: PathChange[]; edits: PlannedDocumentEdit[]; issues: PathChangeIssue[]; }
+export interface PublishAsset { sourcePath: string; relativePath: string; }
 
 async function call<T>(cmd: string, args: Record<string, unknown>): Promise<Result<T>> {
   try {
@@ -43,6 +44,8 @@ export const commands = {
     call<null>("write_file", { path, contents }),
   writeFileIfUnchanged: (path: string, expectedContents: string | null, contents: string) =>
     call<boolean>("write_file_if_unchanged", { path, expectedContents, contents }),
+  publishProjectHtml: (workspaceRoot: string, path: string, contents: string, assets: PublishAsset[], protectedPaths: string[]) =>
+    call<null>("publish_project_html", { workspaceRoot, path, contents, assets, protectedPaths }),
   saveAsset: (docPath: string, bytes: number[], ext: string) =>
     call<string>("save_asset", { docPath, bytes, ext }),
   listDir: (path: string) => call<FileNode[]>("list_dir", { path }),

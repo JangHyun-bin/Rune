@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { createProject } from "./project";
+import { createProject, serializeProject } from "./project";
 
 const pathExists = vi.hoisted(() => vi.fn());
 const readFile = vi.hoisted(() => vi.fn());
@@ -34,10 +34,7 @@ describe("project manifest persistence", () => {
 
     const result = await saveProjectManifest("manifest", createProject("Book", ["a.md"]), "original");
 
-    expect(result).toEqual({
-      status: "saved",
-      source: "{\n  \"version\": 1,\n  \"title\": \"Book\",\n  \"files\": [\n    \"a.md\"\n  ]\n}\n",
-    });
+    expect(result).toEqual({ status: "saved", source: serializeProject(createProject("Book", ["a.md"])) });
     expect(writeFileIfUnchanged).toHaveBeenCalledWith("manifest", "original", result.status === "saved" ? result.source : "");
   });
 

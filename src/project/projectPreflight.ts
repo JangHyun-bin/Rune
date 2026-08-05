@@ -134,7 +134,29 @@ function localImagePath(sourcePath: string, href: string): string | null | false
   if (split < 0) return false;
   const directory = sourcePath.slice(0, split);
   const separator = directory.includes("\\") ? "\\" : "/";
-  return `${directory}${separator}${decoded.replace(/[\\/]/g, separator)}`;
+  const combined = `${directory}${separator}${decoded.replace(/[\\/]/g, separator)}`;
+  const windows = /^[A-Za-z]:[\\/]/.test(combined);
+  const prefix = windows ? combined.slice(0, 3) : "/";
+  const segments: string[] = [];
+  for (const segment of combined.replace(/\\/g, "/").slice(prefix.length).split("/")) {
+    if (!segment || segment === ".") continue;
+    if (segment === "..") {
+      if (segments.length === 0) return false;
+      segments.pop();
+    } else {
+      segments.push(segment);
+    }
+  }
+  return windows ? `${prefix.replace("/", "\\")}${segments.join("\\")}` : `/${segments.join("/")}`;
+}
+
+function isWithinRoot(path: string, root: string): boolean {
+  const normalizedRoot = root.replace(/\\/g, "/").replace(/\/$/, "");
+  const normalizedPath = path.replace(/\\/g, "/");
+  const windows = /^[A-Za-z]:\//.test(normalizedRoot);
+  const comparableRoot = windows ? normalizedRoot.toLocaleLowerCase() : normalizedRoot;
+  const comparablePath = windows ? normalizedPath.toLocaleLowerCase() : normalizedPath;
+  return comparablePath === comparableRoot || comparablePath.startsWith(`${comparableRoot}/`);
 }
 
 function footnoteDefinitions(markdown: string): { id: string; line: number }[] {
@@ -149,21 +171,21 @@ function duplicateIdDiagnostics(
   kind: "duplicateHeadingId" | "duplicateFootnoteId",
   occurrences: (source: ProjectSource) => { id: string; line: number }[],
 ): ProjectDiagnostic[] {
-  const byId = new Map<string, { path: string; line: number }[]>();
-  for (const source of sources) {
+  return sources.flatMap((source) => {
+    const byId = new Map<string, { path: string; line: number }[]>();
     for (const occurrence of occurrences(source)) {
       const values = byId.get(occurrence.id) ?? [];
       values.push({ path: source.path, line: occurrence.line });
       byId.set(occurrence.id, values);
     }
-  }
-  return [...byId].flatMap(([id, values]) => values.length < 2 ? [] : values.map((value) => ({
-    severity: "warning" as const,
-    kind,
-    path: value.path,
-    line: value.line,
-    value: id,
-  })));
+    return [...byId].flatMap(([id, values]) => values.length < 2 ? [] : values.map((value) => ({
+      severity: "warning" as const,
+      kind,
+      path: value.path,
+      line: value.line,
+      value: id,
+    })));
+  });
 }
 
 function sortDiagnostics(project: RuneProject, diagnostics: ProjectDiagnostic[]): ProjectDiagnostic[] {
@@ -220,6 +242,7 @@ export async function preflightProject(
   }
 
   const selectedHeadings = new Map(sources.map((source) => [pathKey(source.absolutePath), source.headings]));
+  const selectedPaths = new Set(selectedHeadings.keys());
   for (const source of sources) {
     source.targets = source.targets?.map((target) => {
       const headings = selectedHeadings.get(pathKey(target.path));
@@ -242,12 +265,14 @@ export async function preflightProject(
         const resolved = resolveMarkdownHref(destination.href, source.targets, source.absolutePath, source.markdown);
         if (resolved.kind === "missing" || resolved.kind === "ambiguous" || resolved.kind === "invalid") {
           diagnostics.push({ severity: "warning", kind: "brokenLink", path: source.path, line: destination.line, value: destination.href });
+        } else if (resolved.kind === "resolved" && !selectedPaths.has(pathKey(resolved.path))) {
+          diagnostics.push({ severity: "warning", kind: "brokenLink", path: source.path, line: destination.line, value: destination.href });
         }
         continue;
       }
       const imagePath = localImagePath(source.absolutePath, destination.href);
       if (imagePath === null) continue;
-      const exists = imagePath === false ? null : await commands.pathExists(imagePath);
+      const exists = imagePath === false || !isWithinRoot(imagePath, root) ? null : await commands.pathExists(imagePath);
       if (!exists || exists.status === "error" || !exists.data) {
         diagnostics.push({ severity: "warning", kind: "unresolvedImage", path: source.path, line: destination.line, value: destination.href });
       }
