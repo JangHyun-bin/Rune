@@ -11,8 +11,8 @@ describe("README", () => {
     }
   });
   it("links the current macOS dmg downloads", () => {
-    expect(readme).toContain("Rune_0.1.19_aarch64.dmg");
-    expect(readme).toContain("Rune_0.1.19_x64.dmg");
+    expect(readme).toContain("Rune_0.1.20_aarch64.dmg");
+    expect(readme).toContain("Rune_0.1.20_x64.dmg");
     expect(readme).toContain("signs, notarizes, staples, and verifies");
   });
   it("references the Korean mirror and the hero image", () => {
