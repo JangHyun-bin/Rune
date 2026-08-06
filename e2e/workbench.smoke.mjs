@@ -47,6 +47,7 @@ const tearOffOutline = async () => {
 describe("native Workbench release smoke", () => {
   it("preserves a dirty editor while tearing off and persists the detached layout", async () => {
     await $('html[data-wdio-ready="true"]').waitForExist();
+    await browser.execute(() => window.dispatchEvent(new Event("rune:wdio-restore-view-windows")));
     await resetDetachedViews();
     const main = await mainHandle();
     await browser.switchToWindow(main);

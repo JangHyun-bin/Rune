@@ -8,14 +8,19 @@ const waitForWindowCount = async (count) => {
 
 describe("native Workbench layout recovery smoke", () => {
   it("restores the detached View group in a new app session and re-docks it", async () => {
+    await $('html[data-wdio-ready="true"][data-wdio-pending-window-count="1"]').waitForExist();
+    await browser.execute(() => window.dispatchEvent(new Event("rune:wdio-restore-view-windows")));
     const handles = await waitForWindowCount(2);
     let main;
     let detached;
-    for (const handle of handles) {
-      await browser.switchToWindow(handle);
-      if (await $("#editor").isExisting()) main = handle;
-      if (await $(".detached-view-redock").isExisting()) detached = handle;
-    }
+    await browser.waitUntil(async () => {
+      for (const handle of handles) {
+        await browser.switchToWindow(handle);
+        if (await $("#editor").isExisting()) main = handle;
+        if (await $(".detached-view-redock").isExisting()) detached = handle;
+      }
+      return Boolean(main && detached);
+    }, { timeout: 15_000, timeoutMsg: "Expected restored Rune windows to become ready" });
     expect(main).toBeTruthy();
     expect(detached).toBeTruthy();
 

@@ -1424,7 +1424,19 @@ async function restore(): Promise<void> {
   }
   if (!activePane().activeTabId()) newDoc();
   syncActiveUI();
-  if (viewWindowHost) await viewWindowHost.restoreLayout(normalizeViewWindowLayout(s.viewWindowLayout, workbench.snapshot()));
+  if (viewWindowHost) {
+    const viewWindows = normalizeViewWindowLayout(s.viewWindowLayout, workbench.snapshot());
+    if (import.meta.env.VITE_WDIO === "1" && viewWindows.windows.length > 0) {
+      document.documentElement.dataset.wdioPendingWindowCount = String(viewWindows.windows.length);
+      window.addEventListener("rune:wdio-restore-view-windows", () => {
+        void viewWindowHost!.restoreLayout(viewWindows).then(() => {
+          delete document.documentElement.dataset.wdioPendingWindowCount;
+        }).catch((error) => console.warn(error));
+      }, { once: true });
+    } else {
+      await viewWindowHost.restoreLayout(viewWindows);
+    }
+  }
 
   // Persist startup-only migrations after folder fallback has stabilized lastFolder.
   if (firstRun || !s.workbenchLayout || !s.paneLayout || loadedRestoredFolder) saveSettingsNow();
