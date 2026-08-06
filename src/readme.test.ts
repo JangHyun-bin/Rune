@@ -5,7 +5,7 @@ const at = (p: string) => new URL("../" + p, import.meta.url);
 const readme = readFileSync(at("README.md"), "utf8");
 const koreanReadme = readFileSync(at("README.ko.md"), "utf8");
 const releaseWorkflow = readFileSync(at(".github/workflows/release.yml"), "utf8");
-const version = JSON.parse(readFileSync(at("package.json"), "utf8")).version;
+const projectVersion: string = JSON.parse(readFileSync(at("package.json"), "utf8")).version;
 
 describe("README", () => {
   it("keeps the core product sections", () => {
@@ -13,7 +13,11 @@ describe("README", () => {
       expect(readme).toContain(h);
     }
   });
-  it("links all current release downloads in both READMEs", () => {
+  it("links all current stable release downloads in both READMEs", () => {
+    const stableMatch = readme.match(/Rune_([^\s)_]+)_aarch64\.dmg/);
+    expect(stableMatch).not.toBeNull();
+    const version = projectVersion.includes("-") ? stableMatch![1] : projectVersion;
+    if (projectVersion.includes("-")) expect(version).not.toContain("-");
     const releaseUrl = `https://github.com/JangHyun-bin/Rune/releases/download/v${version}/`;
     const assets = [
       `Rune_${version}_aarch64.dmg`,

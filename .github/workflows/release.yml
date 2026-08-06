@@ -109,8 +109,67 @@ jobs:
       - name: Build frontend
         run: npm run build
 
+  native-workbench-smoke:
+    needs: verify-source
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos-15
+            os: macos
+          - platform: ubuntu-22.04
+            os: linux
+          - platform: windows-latest
+            os: windows
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Linux dependencies
+        if: matrix.os == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            build-essential \
+            xvfb
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: "./src-tauri -> target"
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Build native Workbench smoke app
+        env:
+          VITE_WDIO: "1"
+        run: npm run tauri -- build --debug --no-bundle --features webdriver --config src-tauri/tauri.smoke.conf.json
+
+      - name: Verify native Workbench windows
+        if: matrix.os != 'linux'
+        run: npm run test:e2e:workbench
+
+      - name: Verify native Workbench windows on Linux
+        if: matrix.os == 'linux'
+        run: xvfb-run -a npm run test:e2e:workbench
+
   build:
-    needs: [preflight, verify-source]
+    needs: [preflight, verify-source, native-workbench-smoke]
     timeout-minutes: 60
     strategy:
       fail-fast: false
@@ -408,12 +467,34 @@ jobs:
             --dir "${RUNNER_TEMP}"
           jq -e \
             --arg version "${version}" \
-            '.version == $version and
-             (.platforms["darwin-aarch64"].url | length > 0) and
-             (.platforms["darwin-x86_64"].url | length > 0) and
-             (.platforms["linux-x86_64"].url | length > 0) and
-             (.platforms["windows-x86_64"].url | length > 0)' \
+            --arg tag "${GITHUB_REF_NAME}" \
+            '. as $release |
+             $release.version == $version and
+             ($release.notes | contains("Unknown publisher")) and
+             ($release.notes | contains("알 수 없는 게시자")) and
+             (["darwin-aarch64", "darwin-aarch64-app",
+               "darwin-x86_64", "darwin-x86_64-app",
+               "linux-x86_64", "linux-x86_64-appimage", "linux-x86_64-deb", "linux-x86_64-rpm",
+               "windows-x86_64", "windows-x86_64-nsis", "windows-x86_64-msi"] |
+               all(. as $platform |
+                 ($release.platforms[$platform].signature | length > 0) and
+                 ($release.platforms[$platform].url | contains("/releases/download/" + $tag + "/"))))' \
             "${RUNNER_TEMP}/latest.json"
+
+      - name: Verify release channel
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          if [[ "${version}" == *-* ]]; then
+            test "$(gh release view "${GITHUB_REF_NAME}" \
+              --repo "${GITHUB_REPOSITORY}" \
+              --json isPrerelease \
+              --jq '.isPrerelease')" = "true"
+            test "$(gh api "repos/${GITHUB_REPOSITORY}/releases/latest" \
+              --jq '.tag_name')" != "${GITHUB_REF_NAME}"
+          fi
 
       - name: Publish and verify SHA-256 checksums
         env:
@@ -443,6 +524,7 @@ jobs:
             grep -Fxq 'SHA256SUMS.txt'
 
   promote:
+    if: ${{ !contains(github.ref_name, '-') }}
     needs: verify-release-assets
     runs-on: ubuntu-22.04
     steps:

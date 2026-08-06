@@ -1,0 +1,31 @@
+{
+  "identifier": "com.rune.editor.rc1-smoke",
+  "app": {
+    "security": {
+      "capabilities": [
+        {
+          "identifier": "rc-smoke",
+          "windows": ["*"],
+          "permissions": [
+            "core:default",
+            "core:webview:allow-create-webview-window",
+            "core:window:allow-close",
+            "core:window:allow-destroy",
+            "core:window:allow-set-focus",
+            "core:window:allow-set-position",
+            "core:window:allow-set-size",
+            "dialog:allow-open",
+            "dialog:allow-save",
+            "dialog:allow-confirm",
+            "opener:allow-reveal-item-in-dir",
+            "updater:default",
+            "process:default",
+            "opener:allow-open-url",
+            "wdio:default",
+            "wdio-webdriver:default"
+          ]
+        }
+      ]
+    }
+  }
+}

@@ -1,4 +1,5 @@
 import "./styles.css";
+if (import.meta.env.VITE_WDIO === "1") void import("@wdio/tauri-plugin");
 import { type EditorMode } from "./editor/editor";
 import { commands, type FileNode, type LinkTarget, type PathChangePlan } from "./ipc/bindings";
 import { confirm as confirmDialog, open, save } from "@tauri-apps/plugin-dialog";

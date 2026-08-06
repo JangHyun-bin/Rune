@@ -1,4 +1,5 @@
 import "./styles.css";
+if (import.meta.env.VITE_WDIO === "1") void import("@wdio/tauri-plugin");
 import { emitTo } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";

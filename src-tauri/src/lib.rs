@@ -85,6 +85,13 @@ pub fn run() {
         }));
     }
 
+    #[cfg(feature = "webdriver")]
+    {
+        builder = builder
+            .plugin(tauri_plugin_wdio::init())
+            .plugin(tauri_plugin_wdio_webdriver::init());
+    }
+
     builder
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
