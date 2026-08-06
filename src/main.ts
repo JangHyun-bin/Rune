@@ -46,8 +46,14 @@ import { normalizePaneWorkspaceSnapshot } from "./workspace/panePersistence";
 import { dropZoneRect, firstMarkdownPath, hitPaneDropZone, physicalToCssPoint } from "./workspace/dropTargets";
 import { createNativeFileOpenQueue, handleNativeFileDrop, type ResolvedDropTarget } from "./workspace/fileDrop";
 import { createViewRegistry } from "./workbench/viewRegistry";
+import { createCommandRegistry } from "./workbench/commandRegistry";
 import { mountWorkbench } from "./workbench/workbench";
-import { DEFAULT_WORKBENCH_LAYOUT } from "./workbench/workbenchLayout";
+import {
+  DEFAULT_WORKBENCH_LAYOUT,
+  type WorkbenchContainerId,
+  type WorkbenchPartId,
+  type WorkbenchViewId,
+} from "./workbench/workbenchLayout";
 import {
   captureNamedLayout,
   deleteSavedLayout,
@@ -88,10 +94,18 @@ import {
   type CitationLibrary,
 } from "./project/citations";
 
+const commandRegistry = createCommandRegistry();
+const togglePartCommandId = (id: WorkbenchPartId): string => `workbench.part.toggle.${id}`;
+const openViewCommandId = (id: WorkbenchViewId): string => `workbench.view.open.${id}`;
+const closeViewCommandId = (id: WorkbenchViewId): string => `workbench.view.close.${id}`;
+const toggleViewCommandId = (id: WorkbenchViewId): string => `workbench.view.toggle.${id}`;
+const moveViewCommandId = (id: WorkbenchViewId, containerId: WorkbenchContainerId): string =>
+  `workbench.view.move.${id}.${containerId}`;
+
 const chrome = mountChrome(document.getElementById("titlebar")!, document.getElementById("statusbar")!, {
-  onTogglePrimarySidebar: () => workbench.togglePrimarySidebar(),
-  onToggleSecondarySidebar: () => workbench.togglePart("secondarySidebar"),
-  onTogglePanel: () => workbench.togglePart("panel"),
+  onTogglePrimarySidebar: () => commandRegistry.execute(togglePartCommandId("primarySidebar")),
+  onToggleSecondarySidebar: () => commandRegistry.execute(togglePartCommandId("secondarySidebar")),
+  onTogglePanel: () => commandRegistry.execute(togglePartCommandId("panel")),
   onOpenSettings: () => settingsPanel.open(),
 });
 const editorRoot = document.getElementById("editor")!;
@@ -313,7 +327,6 @@ const workbench = mountWorkbench({
   registry: viewRegistry,
   initialState: DEFAULT_WORKBENCH_LAYOUT,
   focusEditor: () => { if (typeof paneWorkspace !== "undefined") activeView().focus(); },
-  onDidChange: () => { activeNamedLayout = null; scheduleSaveSettings(); },
   onViewMenu: (id, x, y) => {
     const current = workbench.snapshot().views[id].containerId;
     const destinations = [
@@ -324,11 +337,59 @@ const workbench = mountWorkbench({
     showContextMenu(x, y, [
       ...destinations
         .filter(([containerId]) => containerId !== current)
-        .map(([containerId, label]) => ({ label: tr(label), run: () => workbench.moveView(id, containerId) })),
-      { label: tr("view.close"), run: () => workbench.closeView(id) },
+        .map(([containerId, label]) => ({ label: tr(label), run: () => commandRegistry.execute(moveViewCommandId(id, containerId)) })),
+      { label: tr("view.close"), run: () => commandRegistry.execute(closeViewCommandId(id)) },
     ]);
   },
 });
+workbench.onDidChange(() => { activeNamedLayout = null; scheduleSaveSettings(); });
+
+const viewDestinations = [
+  ["explorer", "workbench.moveToPrimarySidebar"],
+  ["auxiliary", "workbench.moveToSecondarySidebar"],
+  ["panel", "workbench.moveToPanel"],
+] as const;
+
+commandRegistry.register({
+  id: togglePartCommandId("primarySidebar"),
+  title: () => tr("workbench.togglePrimarySidebar"),
+  run: () => workbench.togglePrimarySidebar(),
+});
+for (const partId of ["secondarySidebar", "panel"] as const) {
+  commandRegistry.register({
+    id: togglePartCommandId(partId),
+    title: () => tr(partId === "secondarySidebar" ? "workbench.toggleSecondarySidebar" : "workbench.togglePanel"),
+    run: () => workbench.togglePart(partId),
+  });
+}
+commandRegistry.register({ id: "workbench.primarySidebar.left", title: () => tr("workbench.movePrimarySidebarLeft"), run: () => workbench.setPrimarySidebarPosition("left") });
+commandRegistry.register({ id: "workbench.primarySidebar.right", title: () => tr("workbench.movePrimarySidebarRight"), run: () => workbench.setPrimarySidebarPosition("right") });
+commandRegistry.register({ id: "workbench.panel.bottom", title: () => tr("workbench.movePanelBottom"), run: () => workbench.setPanelPosition("bottom") });
+commandRegistry.register({ id: "workbench.panel.left", title: () => tr("workbench.movePanelLeft"), run: () => workbench.setPanelPosition("left") });
+commandRegistry.register({ id: "workbench.panel.right", title: () => tr("workbench.movePanelRight"), run: () => workbench.setPanelPosition("right") });
+commandRegistry.register({ id: "workbench.views.resetLocations", title: () => tr("workbench.resetViewLocations"), run: () => workbench.resetViewLocations() });
+commandRegistry.register({ id: "workbench.views.resetVisibility", title: () => tr("workbench.resetViewVisibility"), run: () => workbench.resetViewVisibility() });
+commandRegistry.register({ id: toggleViewCommandId("search"), title: () => tr("cmd.search"), run: () => workbench.toggleView("search") });
+for (const view of viewRegistry.allViews()) {
+  commandRegistry.register({
+    id: openViewCommandId(view.id),
+    title: () => tr(view.titleKey),
+    run: () => workbench.openView(view.id),
+  });
+  commandRegistry.register({
+    id: closeViewCommandId(view.id),
+    title: () => `${tr("view.close")} ${tr(view.titleKey)}`,
+    run: () => workbench.closeView(view.id),
+    palette: false,
+  });
+  for (const [containerId, titleKey] of viewDestinations) {
+    commandRegistry.register({
+      id: moveViewCommandId(view.id, containerId),
+      title: () => `${tr("workbench.moveView")}: ${tr(view.titleKey)} — ${tr(titleKey)}`,
+      run: () => workbench.moveView(view.id, containerId),
+    });
+  }
+}
 
 const SPLIT_RATIO_DEFAULT = DEFAULT_LAYOUT.splitRatio;
 const SPLIT_RATIO_MIN = 0.12;
@@ -1119,32 +1180,13 @@ function paletteItems(): PaletteItem[] {
     { label: tr("cmd.toggleFocusLayout"), run: () => applyFocusLayout(!focusLayout) },
     { label: tr("cmd.closeTab"), run: () => { const id = activePane().activeTabId(); if (id) requestClose(id); } },
     { label: tr("cmd.exportHtml"), run: () => void exportHtml(activeView().state.doc.toString(), exportTitle()) },
-    { label: tr("cmd.project"), run: () => workbench.openView("project") },
-    { label: tr("cmd.publishAgain"), run: () => { workbench.openView("project"); void projectPanel?.publishAgain(); } },
+    { label: tr("cmd.project"), run: () => commandRegistry.execute(openViewCommandId("project")) },
+    { label: tr("cmd.publishAgain"), run: () => { commandRegistry.execute(openViewCommandId("project")); void projectPanel?.publishAgain(); } },
     { label: tr("cmd.exportPdf"), run: () => void exportPdf(activeView().state.doc.toString(), exportTitle()) },
     { label: tr("cmd.findReplace"), run: () => findReplacePanel?.open() },
-    { label: tr("cmd.search"), run: () => workbench.toggleView("search") },
-    { label: tr("workbench.togglePrimarySidebar"), run: () => workbench.togglePrimarySidebar() },
-    { label: tr("workbench.toggleSecondarySidebar"), run: () => workbench.togglePart("secondarySidebar") },
-    { label: tr("workbench.togglePanel"), run: () => workbench.togglePart("panel") },
-    { label: tr("workbench.movePrimarySidebarLeft"), run: () => workbench.setPrimarySidebarPosition("left") },
-    { label: tr("workbench.movePrimarySidebarRight"), run: () => workbench.setPrimarySidebarPosition("right") },
-    { label: tr("workbench.movePanelBottom"), run: () => workbench.setPanelPosition("bottom") },
-    { label: tr("workbench.movePanelLeft"), run: () => workbench.setPanelPosition("left") },
-    { label: tr("workbench.movePanelRight"), run: () => workbench.setPanelPosition("right") },
-    { label: tr("workbench.resetViewLocations"), run: () => workbench.resetViewLocations() },
-    ...(["workspace", "outline", "tags", "project", "search", "backlinks", "properties"] as const).flatMap((id) => [
-      { label: `${tr("workbench.moveView")}: ${tr(`view.${id}`)} — ${tr("workbench.moveToPrimarySidebar")}`, run: () => workbench.moveView(id, "explorer") },
-      { label: `${tr("workbench.moveView")}: ${tr(`view.${id}`)} — ${tr("workbench.moveToSecondarySidebar")}`, run: () => workbench.moveView(id, "auxiliary") },
-      { label: `${tr("workbench.moveView")}: ${tr(`view.${id}`)} — ${tr("workbench.moveToPanel")}`, run: () => workbench.moveView(id, "panel") },
-    ]),
-    { label: tr("view.workspace"), run: () => workbench.openView("workspace") },
-    { label: tr("view.outline"), run: () => workbench.openView("outline") },
-    { label: tr("view.search"), run: () => workbench.openView("search") },
-    { label: tr("view.backlinks"), run: () => workbench.openView("backlinks") },
-    { label: tr("view.properties"), run: () => workbench.openView("properties") },
-    { label: tr("view.tags"), run: () => workbench.openView("tags") },
-    { label: tr("workbench.resetViewVisibility"), run: () => workbench.resetViewVisibility() },
+    ...commandRegistry.commands()
+      .filter((command) => command.palette !== false)
+      .map((command) => ({ label: command.title(), run: () => commandRegistry.execute(command.id) })),
     { label: tr("cmd.reveal"), run: () => revealActive() },
     { label: tr("settings.title"), run: () => settingsPanel.open() },
     ...layoutChoices.map((choice) => ({ label: `${tr("layout.load")}: ${namedLayoutLabel(choice)}`, run: () => void loadNamedLayout(choice.value) })),
@@ -1223,7 +1265,7 @@ async function restore(): Promise<void> {
   applyTypewriterMode(s.typewriterMode === true, false);
   layoutModeControl?.setMode(editorMode);
   applyUiScale(s.uiScale ?? UI_SCALE_DEFAULT, false);
-  workbench.restore(normalizePersistedWorkbenchLayout(s.workbenchLayout, s.layout, s.sidebarWidth));
+  workbench.restore(normalizePersistedWorkbenchLayout(s.workbenchLayout, s.layout, s.sidebarWidth), { emitChange: false });
   applySplitRatio(s.layout?.splitRatio ?? DEFAULT_LAYOUT.splitRatio, false);
   applyEditorFontScale(s.editorFontScale ?? EDITOR_FONT_DEFAULT, false);
   namedLayouts = normalizeSavedLayouts(s.namedLayouts);
@@ -1488,7 +1530,7 @@ window.addEventListener("keydown", (e) => {
   if (mod && (e.key === "-" || e.key === "_")) { e.preventDefault(); zoomEditorFont(-1); return; }
   if (mod && (e.key === "=" || e.key === "+")) { e.preventDefault(); zoomEditorFont(1); return; }
   if (mod && e.key === "0") { e.preventDefault(); applyEditorFontScale(EDITOR_FONT_DEFAULT); return; }
-  if (mod && e.shiftKey && e.key.toLowerCase() === "f") { e.preventDefault(); workbench.toggleView("search"); return; }
+  if (mod && e.shiftKey && e.key.toLowerCase() === "f") { e.preventDefault(); commandRegistry.execute(toggleViewCommandId("search")); return; }
   if (mod && !e.shiftKey && e.key.toLowerCase() === "f") { e.preventDefault(); findReplacePanel?.open(); return; }
   if (mod && e.shiftKey && e.key.toLowerCase() === "o") { e.preventDefault(); void openFolder(); return; }
   if (mod && e.shiftKey && e.key.toLowerCase() === "l") { e.preventDefault(); flipEditorWidth(); return; }

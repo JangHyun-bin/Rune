@@ -243,9 +243,9 @@ function setup({ rootWidth = 1024, sidebarHeight = 820, onViewMenu = vi.fn() } =
     registry,
     initialState: DEFAULT_WORKBENCH_LAYOUT,
     focusEditor,
-    onDidChange,
     onViewMenu,
   });
+  workbench.onDidChange(onDidChange);
 
   return {
     ...hosts,
@@ -646,6 +646,38 @@ describe("workbench", () => {
       visible: true,
     });
     expect(onDidChange.mock.calls[2][0].parts.primarySidebar.visible).toBe(false);
+  });
+
+  it("supports independently disposable layout persistence listeners", () => {
+    const { workbench } = setup();
+    const first = vi.fn();
+    const second = vi.fn();
+    const stopFirst = workbench.onDidChange(first);
+    workbench.onDidChange(second);
+
+    workbench.togglePart("panel");
+    stopFirst();
+    workbench.togglePart("panel");
+
+    expect(first).toHaveBeenCalledTimes(1);
+    expect(second).toHaveBeenCalledTimes(2);
+    expect(second.mock.calls[1][0].parts.panel.visible).toBe(false);
+  });
+
+  it("restores startup layout without marking persistence dirty", () => {
+    const { workbench, onDidChange } = setup();
+    const restored = {
+      ...DEFAULT_WORKBENCH_LAYOUT,
+      parts: {
+        ...DEFAULT_WORKBENCH_LAYOUT.parts,
+        primarySidebar: { ...DEFAULT_WORKBENCH_LAYOUT.parts.primarySidebar, visible: false },
+      },
+    };
+
+    workbench.restore(restored, { emitChange: false });
+
+    expect(workbench.snapshot().parts.primarySidebar.visible).toBe(false);
+    expect(onDidChange).not.toHaveBeenCalled();
   });
 
   it("toggles the Primary Sidebar through the public API", () => {

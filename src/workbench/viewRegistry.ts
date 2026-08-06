@@ -26,6 +26,7 @@ export interface ViewRegistry {
   registerContainer(value: ViewContainerContribution): void;
   registerView(value: ViewContribution): void;
   containers(): ViewContainerContribution[];
+  allViews(): ViewContribution[];
   views(containerId: WorkbenchContainerId): ViewContribution[];
   view(id: WorkbenchViewId): ViewContribution;
   resolveView(id: WorkbenchViewId): WorkbenchView;
@@ -56,6 +57,9 @@ export function createViewRegistry(): ViewRegistry {
     },
     containers() {
       return [...containerContributions.values()].sort(byOrderThenId);
+    },
+    allViews() {
+      return [...viewContributions.values()].sort(byOrderThenId);
     },
     views(containerId) {
       return [...viewContributions.values()].filter((value) => value.defaultContainerId === containerId).sort(byOrderThenId);

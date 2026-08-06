@@ -23,7 +23,8 @@ import { t } from "../i18n/i18n";
 
 export interface Workbench {
   snapshot(): WorkbenchLayoutSnapshot;
-  restore(snapshot: WorkbenchLayoutSnapshot): void;
+  restore(snapshot: WorkbenchLayoutSnapshot, options?: { emitChange?: boolean }): void;
+  onDidChange(listener: (snapshot: WorkbenchLayoutSnapshot) => void): () => void;
   openView(id: WorkbenchViewId): void;
   closeView(id: WorkbenchViewId): void;
   toggleView(id: WorkbenchViewId): void;
@@ -63,11 +64,11 @@ export function mountWorkbench(options: {
   registry: ViewRegistry;
   initialState: WorkbenchLayoutSnapshot;
   focusEditor: () => void;
-  onDidChange: (snapshot: WorkbenchLayoutSnapshot) => void;
   onViewMenu?: (viewId: WorkbenchViewId, x: number, y: number) => void;
 }): Workbench {
   let state = normalizeWorkbenchLayout(options.initialState);
   let destroyed = false;
+  const changeListeners = new Set<(snapshot: WorkbenchLayoutSnapshot) => void>();
   const viewShells = new Map<WorkbenchViewId, ViewShell>();
   let primaryContainerTitlebar: HTMLElement | null = null;
   let outlineResizer: HTMLElement | null = null;
@@ -192,13 +193,7 @@ export function mountWorkbench(options: {
     return normalizeWorkbenchLayout(next);
   };
 
-  const contributions = (): ViewContribution[] => {
-    const values = new Map<WorkbenchViewId, ViewContribution>();
-    for (const container of options.registry.containers()) {
-      for (const view of options.registry.views(container.id)) values.set(view.id, view);
-    }
-    return [...values.values()];
-  };
+  const contributions = (): ViewContribution[] => options.registry.allViews();
 
   const viewsIn = (containerId: WorkbenchContainerId): ViewContribution[] =>
     contributions()
@@ -580,15 +575,21 @@ export function mountWorkbench(options: {
     renderOtherParts();
   };
 
-  const commit = (nextState: WorkbenchLayoutSnapshot): void => {
+  const commit = (nextState: WorkbenchLayoutSnapshot, emitChange = true): void => {
     state = boundState(nextState);
     render();
-    options.onDidChange(normalizeWorkbenchLayout(state));
+    if (!emitChange) return;
+    const snapshot = normalizeWorkbenchLayout(state);
+    for (const listener of changeListeners) listener(snapshot);
   };
 
   const workbench: Workbench = {
     snapshot: () => normalizeWorkbenchLayout(state),
-    restore: (snapshot) => commit(normalizeWorkbenchLayout(snapshot)),
+    restore: (snapshot, restoreOptions) => commit(normalizeWorkbenchLayout(snapshot), restoreOptions?.emitChange !== false),
+    onDidChange: (listener) => {
+      changeListeners.add(listener);
+      return () => changeListeners.delete(listener);
+    },
     openView: (id) => {
       commit(openLayoutView(state, id));
       options.registry.resolveView(id).focus?.();
@@ -648,6 +649,7 @@ export function mountWorkbench(options: {
     destroy: () => {
       if (destroyed) return;
       destroyed = true;
+      changeListeners.clear();
       if (resizing) {
         moved = false;
         finishResize();

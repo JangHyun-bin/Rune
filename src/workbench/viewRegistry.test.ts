@@ -72,6 +72,14 @@ describe("view registry", () => {
     expect(registry.views("explorer").map(({ id }) => id)).toEqual(["outline", "search"]);
   });
 
+  it("lists every registered view once for shared command and layout lifecycles", () => {
+    const registry = createViewRegistry();
+    registry.registerView({ id: "search", titleKey: "search", defaultContainerId: "search", order: 0, create: () => ({ element: {} as HTMLElement, dispose() {} }) });
+    registry.registerView({ id: "outline", titleKey: "outline", defaultContainerId: "explorer", order: 1, create: () => ({ element: {} as HTMLElement, dispose() {} }) });
+
+    expect(registry.allViews().map(({ id }) => id)).toEqual(["search", "outline"]);
+  });
+
   it("rejects an unknown view", () => {
     expect(() => createViewRegistry().view("outline")).toThrow("Unknown view: outline");
   });
