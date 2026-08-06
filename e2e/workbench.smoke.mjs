@@ -1,14 +1,17 @@
 const waitForWindowCount = async (count) => {
-  await browser.waitUntil(async () => (await browser.tauri.listWindows()).length === count, {
+  await browser.waitUntil(async () => (await browser.getWindowHandles()).length === count, {
     timeout: 15_000,
     timeoutMsg: `Expected ${count} native Rune window(s)`,
   });
-  return browser.tauri.listWindows();
+  return browser.getWindowHandles();
 };
 
 const mainHandle = async () => {
-  await browser.tauri.switchWindow("main");
-  return browser.getWindowHandle();
+  for (const handle of await browser.getWindowHandles()) {
+    await browser.switchToWindow(handle);
+    if (await $("#editor").isExisting()) return handle;
+  }
+  throw new Error("Rune main window was not found");
 };
 
 const resetDetachedViews = async () => {
@@ -43,9 +46,9 @@ const tearOffOutline = async () => {
 
 describe("native Workbench release smoke", () => {
   it("preserves a dirty editor while tearing off and persists the detached layout", async () => {
-    const main = await mainHandle();
     await $('html[data-wdio-ready="true"]').waitForExist();
     await resetDetachedViews();
+    const main = await mainHandle();
     await browser.switchToWindow(main);
     const editor = await $('.cm-content[contenteditable="true"]');
     await editor.waitForDisplayed();
@@ -54,11 +57,11 @@ describe("native Workbench release smoke", () => {
 
     await browser.execute(() => delete document.documentElement.dataset.wdioSavedWindowCount);
     const handles = await tearOffOutline();
-    const detachedLabel = handles.find((label) => label !== "main");
-    expect(detachedLabel).toBeTruthy();
-    await browser.tauri.switchWindow(detachedLabel);
+    const detachedHandle = handles.find((handle) => handle !== main);
+    expect(detachedHandle).toBeTruthy();
+    await browser.switchToWindow(detachedHandle);
     await $(".detached-view-redock").waitForDisplayed();
-    await browser.tauri.switchWindow("main");
+    await browser.switchToWindow(main);
     expect(await $('.cm-content[contenteditable="true"]').getText()).toContain("RC dirty buffer sentinel");
     await $('html[data-wdio-saved-window-count="1"]').waitForExist();
   });
