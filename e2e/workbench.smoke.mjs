@@ -69,12 +69,13 @@ describe("native Workbench release smoke", () => {
     await $('html[data-wdio-shutdown-saved="true"]').waitForExist();
     if (!(await browser.execute(() => navigator.userAgent.includes("Linux")))) return;
 
-    await browser.switchToWindow(detachedHandle);
-    await $(".detached-view-redock").click();
-    await waitForWindowCount(1);
     await browser.switchToWindow(main);
     await browser.refresh();
     await $('html[data-wdio-ready="true"][data-wdio-pending-window-count="1"]').waitForExist();
+    await browser.switchToWindow(detachedHandle);
+    await browser.closeWindow();
+    await waitForWindowCount(1);
+    await browser.switchToWindow(main);
     await browser.execute(() => window.dispatchEvent(new Event("rune:wdio-restore-view-windows")));
     const restored = await waitForWindowCount(2);
     for (const handle of restored) {
