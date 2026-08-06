@@ -7,7 +7,9 @@ export interface ViewDropTarget {
   order: number;
 }
 
-const draggableViewIds = new Set<WorkbenchViewId>(["workspace", "outline", "search"]);
+const draggableViewIds = new Set<WorkbenchViewId>([
+  "workspace", "outline", "tags", "project", "search", "backlinks", "properties", "references",
+]);
 
 export function encodeViewDrag(id: WorkbenchViewId): string {
   return id;

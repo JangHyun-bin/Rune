@@ -393,6 +393,53 @@ describe("workbench", () => {
     expect(createOutline).toHaveBeenCalledTimes(1);
   });
 
+  it("combines, reorders, closes, reopens, and splits view tab groups", () => {
+    const { workbench } = setup();
+
+    workbench.moveViewToGroup("outline", "explorer", "explorer:workspace");
+    expect(workbench.snapshot().viewGroups.explorer.groups["explorer:workspace"].viewIds).toEqual(["workspace", "outline"]);
+    expect(workbench.snapshot().viewGroups.explorer.groups["explorer:outline"]).toBeUndefined();
+
+    workbench.moveViewToGroup("outline", "explorer", "explorer:workspace", 0);
+    expect(workbench.snapshot().viewGroups.explorer.groups["explorer:workspace"].viewIds).toEqual(["outline", "workspace"]);
+    workbench.closeView("outline");
+    workbench.openView("outline");
+    expect(workbench.snapshot().viewGroups.explorer.groups["explorer:workspace"]).toMatchObject({
+      viewIds: ["outline", "workspace"],
+      activeViewId: "outline",
+    });
+
+    workbench.splitViewGroup("outline", "explorer", "explorer:workspace", "row", "after");
+    expect(workbench.snapshot().viewGroups.explorer.root).toMatchObject({ type: "split" });
+    expect(Object.values(workbench.snapshot().viewGroups.explorer.groups).find((group) => group.viewIds[0] === "outline")?.id)
+      .not.toBe("explorer:workspace");
+  });
+
+  it("splits a view group when a dragged header is dropped on its edge", () => {
+    const { primarySidebar, workbench } = setup();
+    const root = primarySidebar as unknown as TestElement;
+    const outlineHeader = byClass(viewById(root, "outline"), "workbench-view-header")[0];
+    const workspaceGroup = byData(root, "groupId", "explorer:workspace");
+    workspaceGroup.rectLeft = 100;
+    workspaceGroup.rectTop = 100;
+    workspaceGroup.rectWidth = 200;
+    workspaceGroup.rectHeight = 200;
+    const values = new Map<string, string>();
+    const dataTransfer = {
+      types: [] as string[],
+      effectAllowed: "",
+      setData(type: string, value: string) { values.set(type, value); this.types = [...values.keys()]; },
+      getData(type: string) { return values.get(type) ?? ""; },
+    };
+
+    outlineHeader.dispatch("dragstart", { dataTransfer });
+    workspaceGroup.dispatch("drop", { clientX: 299, clientY: 200, dataTransfer });
+
+    expect(workbench.snapshot().viewGroups.explorer.root).toMatchObject({ type: "split" });
+    expect(workbench.snapshot().viewGroups.explorer.groups["explorer:outline"]).toBeUndefined();
+    expect(Object.values(workbench.snapshot().viewGroups.explorer.groups).some((group) => group.viewIds[0] === "outline")).toBe(true);
+  });
+
   it("accepts a protected dragover from its MIME type and reads the payload only on drop", () => {
     const { primarySidebar, secondarySidebar, workbench } = setup();
     const header = byClass(viewById(primarySidebar as unknown as TestElement, "outline"), "workbench-view-header")[0];

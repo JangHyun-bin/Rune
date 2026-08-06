@@ -8,6 +8,9 @@ import {
   openView,
   resetViewVisibility,
   resetViewLocations,
+  activateViewGroup,
+  combineWorkbenchViewGroups,
+  splitWorkbenchViewGroup,
   setPanelPosition,
   setPartSize,
   setPrimarySidebarPosition,
@@ -133,6 +136,8 @@ describe("workbench layout", () => {
     const first = moveView(DEFAULT_WORKBENCH_LAYOUT, "outline", "search", 0);
     expect(first.views.outline.order).toBe(0);
     expect(first.views.search.order).toBe(1);
+    expect(first.viewGroups.search.groups["search:outline"].viewIds).toEqual(["outline"]);
+    expect(first.viewGroups.explorer.groups["explorer:outline"]).toBeUndefined();
   });
 
   it("hides a source part when its last visible view moves away", () => {
@@ -152,9 +157,40 @@ describe("workbench layout", () => {
   });
 
   it("migrates position-less version 1 snapshots with default positions", () => {
-    const legacy = { ...DEFAULT_WORKBENCH_LAYOUT } as { positions?: unknown } & typeof DEFAULT_WORKBENCH_LAYOUT;
+    const { viewGroups: _viewGroups, ...current } = DEFAULT_WORKBENCH_LAYOUT;
+    const legacy = { ...current, version: 1 } as { positions?: unknown } & typeof current;
     delete legacy.positions;
     expect(normalizeWorkbenchLayout(legacy).positions).toEqual({ primarySidebar: "left", panel: "bottom" });
+  });
+
+  it("migrates version 1 view order into version 2 view groups", () => {
+    const { viewGroups: _viewGroups, ...current } = moveView(DEFAULT_WORKBENCH_LAYOUT, "outline", "panel");
+    const migrated = normalizeWorkbenchLayout({ ...current, version: 1 });
+
+    expect(migrated.version).toBe(2);
+    expect(migrated.viewGroups.explorer.root).toMatchObject({ type: "split", direction: "column" });
+    expect(migrated.viewGroups.panel.groups["panel:main"].viewIds).toEqual(["outline"]);
+  });
+
+  it("splits, activates, and combines persisted workbench view groups", () => {
+    const split = splitWorkbenchViewGroup(
+      DEFAULT_WORKBENCH_LAYOUT,
+      "outline",
+      "explorer",
+      "explorer:workspace",
+      "explorer:outline-right",
+      "row",
+      "after",
+    );
+    expect(split.viewGroups.explorer.groups["explorer:outline-right"].viewIds).toEqual(["outline"]);
+    expect(split.views.outline).toMatchObject({ containerId: "explorer", visible: true });
+
+    const activated = activateViewGroup(split, "explorer", "explorer:outline-right", "outline");
+    expect(activated.viewGroups.explorer.groups["explorer:outline-right"].activeViewId).toBe("outline");
+
+    const combined = combineWorkbenchViewGroups(activated, "explorer", "explorer:outline-right", "explorer:workspace");
+    expect(combined.viewGroups.explorer.groups["explorer:workspace"].viewIds).toEqual(["workspace", "outline"]);
+    expect(combined.viewGroups.explorer.groups["explorer:outline-right"]).toBeUndefined();
   });
 
   it("collapses a visible view without closing it", () => {

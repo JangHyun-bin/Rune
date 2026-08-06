@@ -1,11 +1,14 @@
 import {
   activateContainer as activateLayoutContainer,
+  activateViewGroup as activateLayoutViewGroup,
   closeView as closeLayoutView,
   normalizeWorkbenchLayout,
   openView as openLayoutView,
   moveView as moveLayoutView,
+  moveViewToWorkbenchGroup as moveLayoutViewToGroup,
   resetViewVisibility as resetLayoutViewVisibility,
   resetViewLocations as resetLayoutViewLocations,
+  splitWorkbenchViewGroup as splitLayoutViewGroup,
   setPanelPosition as setLayoutPanelPosition,
   setPartSize,
   setPrimarySidebarPosition as setLayoutPrimarySidebarPosition,
@@ -17,6 +20,7 @@ import {
   type PanelPosition,
   type SidebarPosition,
 } from "./workbenchLayout";
+import type { ViewGroupLayoutNode, ViewGroupSplitDirection } from "./viewGroupLayout";
 import type { ViewContribution, ViewRegistry } from "./viewRegistry";
 import { decodeViewDrag, encodeViewDrag, insertionIndex, VIEW_DRAG_TYPE } from "./viewDrop";
 import { t } from "../i18n/i18n";
@@ -31,6 +35,14 @@ export interface Workbench {
   toggleViewCollapsed(id: WorkbenchViewId): void;
   togglePrimarySidebar(): void;
   moveView(viewId: WorkbenchViewId, containerId: WorkbenchContainerId, order?: number): void;
+  moveViewToGroup(viewId: WorkbenchViewId, containerId: WorkbenchContainerId, groupId: string, order?: number): void;
+  splitViewGroup(
+    viewId: WorkbenchViewId,
+    containerId: WorkbenchContainerId,
+    targetGroupId: string,
+    direction: ViewGroupSplitDirection,
+    side: "before" | "after",
+  ): void;
   togglePart(partId: WorkbenchPartId): void;
   setPrimarySidebarPosition(position: SidebarPosition): void;
   setPanelPosition(position: PanelPosition): void;
@@ -74,6 +86,7 @@ export function mountWorkbench(options: {
   let outlineResizer: HTMLElement | null = null;
   let draggingHeader: HTMLElement | null = null;
   let draggingViewId: WorkbenchViewId | null = null;
+  let groupIdSequence = 0;
   const dropIndicators = new Set<HTMLElement>();
   const OUTLINE_DEFAULT_SIZE = 220;
   const MIN_EDITOR_WIDTH = 220;
@@ -250,6 +263,7 @@ export function mountWorkbench(options: {
     axis: "x" | "y",
     views: () => ViewContribution[],
     elementFor = (view: ViewContribution): HTMLElement | undefined => viewShells.get(view.id)?.header,
+    onDrop = (viewId: WorkbenchViewId, order: number): void => workbench.moveView(viewId, containerId, order),
   ): void => {
     const rectsFor = (viewId: WorkbenchViewId | null): DOMRect[] =>
       views()
@@ -287,13 +301,15 @@ export function mountWorkbench(options: {
     target.addEventListener("dragover", (event) => {
       if (!event.dataTransfer?.types.includes(VIEW_DRAG_TYPE)) return;
       event.preventDefault();
+      event.stopPropagation?.();
       show(orderAt(event, draggingViewId), draggingViewId);
     });
     target.addEventListener("drop", (event) => {
       const viewId = viewIdFromEvent(event);
       if (viewId) {
         event.preventDefault();
-        workbench.moveView(viewId, containerId, orderAt(event, viewId));
+        event.stopPropagation?.();
+        onDrop(viewId, orderAt(event, viewId));
       }
       clearViewDropIndicators();
     });
@@ -360,6 +376,140 @@ export function mountWorkbench(options: {
     return shell.section;
   };
 
+  const renderViewGroup = (
+    containerId: WorkbenchContainerId,
+    groupId: string,
+    visible: boolean,
+    panelStyle: boolean,
+  ): HTMLElement => {
+    const group = state.viewGroups[containerId].groups[groupId];
+    const views = group.viewIds.map((viewId) => contributions().find((view) => view.id === viewId)).filter((view): view is ViewContribution => Boolean(view));
+    const visibleViews = views.filter((view) => state.views[view.id].visible);
+    const activeViewId = visibleViews.some((view) => view.id === group.activeViewId) ? group.activeViewId : visibleViews[0]?.id ?? null;
+    const wrapper = document.createElement("section");
+    wrapper.className = "view-group";
+    wrapper.dataset.groupId = groupId;
+    wrapper.dataset.containerId = containerId;
+
+    const splitDrop = (event: DragEvent): void => {
+      const viewId = viewIdFromEvent(event);
+      if (!viewId) return;
+      event.preventDefault();
+      event.stopPropagation?.();
+      const rect = wrapper.getBoundingClientRect();
+      const x = rect.width > 0 ? (event.clientX - rect.left) / rect.width : 0.5;
+      const y = rect.height > 0 ? (event.clientY - rect.top) / rect.height : 0.5;
+      const edges = [
+        { distance: x, direction: "row" as const, side: "before" as const },
+        { distance: 1 - x, direction: "row" as const, side: "after" as const },
+        { distance: y, direction: "column" as const, side: "before" as const },
+        { distance: 1 - y, direction: "column" as const, side: "after" as const },
+      ].sort((a, b) => a.distance - b.distance);
+      if (edges[0].distance < 0.25) {
+        workbench.splitViewGroup(viewId, containerId, groupId, edges[0].direction, edges[0].side);
+      } else {
+        workbench.moveViewToGroup(viewId, containerId, groupId);
+      }
+      clearViewDropIndicators();
+    };
+    wrapper.addEventListener("dragover", (event) => {
+      if (!event.dataTransfer?.types.includes(VIEW_DRAG_TYPE)) return;
+      event.preventDefault();
+      event.stopPropagation?.();
+      wrapper.classList.add("view-group-drop-target");
+    });
+    wrapper.addEventListener("dragleave", () => wrapper.classList.remove("view-group-drop-target"));
+    wrapper.addEventListener("drop", splitDrop);
+
+    if (!panelStyle && views.length === 1) {
+      wrapper.classList.add("single-view-group");
+      wrapper.dataset.singleViewId = views[0].id;
+      wrapper.classList.toggle("collapsed", state.views[views[0].id].collapsed);
+      if (views[0].id === "outline") {
+        const size = state.views.outline.size ?? OUTLINE_DEFAULT_SIZE;
+        wrapper.style.setProperty("--outline-height", `${size}px`);
+        const resizer = document.createElement("div");
+        outlineResizer = resizer;
+        resizer.className = "outline-view-resizer";
+        resizer.dataset.resizesView = "outline";
+        resizer.setAttribute("role", "separator");
+        resizer.setAttribute("aria-orientation", "horizontal");
+        resizer.setAttribute("aria-label", t("workbench.resizeOutline"));
+        resizer.setAttribute("aria-valuemin", "64");
+        resizer.setAttribute("aria-valuemax", String(outlineMax()));
+        resizer.setAttribute("aria-valuenow", String(size));
+        resizer.classList.toggle("hidden", !state.views.outline.visible || state.views.outline.collapsed);
+        resizer.addEventListener("pointerdown", (event) => onOutlinePointerDown(resizer, event));
+        wrapper.appendChild(resizer);
+      }
+      wrapper.appendChild(renderView(views[0], visible));
+      return wrapper;
+    }
+
+    const tabs = document.createElement("div");
+    tabs.className = panelStyle ? "panel-tabs" : "view-group-tabs";
+    tabs.dataset.groupId = groupId;
+    const tabsByViewId = new Map<WorkbenchViewId, HTMLElement>();
+    for (const view of visibleViews) {
+      const item = document.createElement("div");
+      item.className = panelStyle ? "panel-tab-item" : "view-group-tab-item";
+      item.dataset.viewId = view.id;
+      const tab = createButton(panelStyle ? "panel-tab" : "view-group-tab", t(view.titleKey), t(view.titleKey));
+      tab.dataset.viewId = view.id;
+      bindViewDrag(tab, view.id);
+      tab.classList.toggle("active", view.id === activeViewId);
+      tab.addEventListener("click", () => commit(activateLayoutViewGroup(state, containerId, groupId, view.id)));
+      tab.addEventListener("contextmenu", (event) => {
+        event.preventDefault();
+        openViewMenu(view.id, tab, event);
+      });
+      const close = createButton(panelStyle ? "panel-tab-close" : "view-group-tab-close", `${t("view.close")} ${t(view.titleKey)}`, "×");
+      close.addEventListener("click", () => workbench.closeView(view.id));
+      const more = createButton(panelStyle ? "panel-tab-more" : "view-group-tab-more", `${t("workbench.moveView")} ${t(view.titleKey)}`, "...");
+      more.addEventListener("click", (event) => openViewMenu(view.id, more, event));
+      item.appendChild(tab);
+      item.appendChild(close);
+      item.appendChild(more);
+      tabsByViewId.set(view.id, item);
+      tabs.appendChild(item);
+    }
+    bindDropTarget(
+      tabs,
+      containerId,
+      "x",
+      () => visibleViews,
+      (view) => tabsByViewId.get(view.id),
+      (viewId, order) => workbench.moveViewToGroup(viewId, containerId, groupId, order),
+    );
+    const body = document.createElement("div");
+    body.className = panelStyle ? "panel-body" : "view-group-body";
+    if (activeViewId) {
+      const active = visibleViews.find((view) => view.id === activeViewId);
+      if (active) body.appendChild(renderView(active, visible, true));
+    }
+    wrapper.appendChild(tabs);
+    wrapper.appendChild(body);
+    return wrapper;
+  };
+
+  const renderViewGroupTree = (
+    containerId: WorkbenchContainerId,
+    node: ViewGroupLayoutNode,
+    visible: boolean,
+    panelStyle: boolean,
+  ): HTMLElement => {
+    if (node.type === "group") return renderViewGroup(containerId, node.groupId, visible, panelStyle);
+    const split = document.createElement("div");
+    split.className = "view-group-split";
+    split.dataset.direction = node.direction;
+    node.children.forEach((child, index) => {
+      const element = renderViewGroupTree(containerId, child, visible, panelStyle);
+      element.style.setProperty("--view-group-ratio", String(node.ratios[index] ?? 1));
+      split.appendChild(element);
+    });
+    return split;
+  };
+
   const renderActivityBar = (): void => {
     const primaryContainers = options.registry.containers()
       .filter((container) => state.containers[container.id].part === "primarySidebar")
@@ -385,7 +535,7 @@ export function mountWorkbench(options: {
     const part = state.parts.primarySidebar;
     const fit = horizontalFit();
     const maxSize = fit.primaryMax;
-    let renderedOutlineResizer: HTMLElement | null = null;
+    outlineResizer = null;
     options.primarySidebar.classList.toggle("hidden", !part.visible);
     options.primaryResizer.classList.toggle("hidden", !part.visible);
     options.primarySidebar.setAttribute("aria-hidden", String(!part.visible));
@@ -419,36 +569,13 @@ export function mountWorkbench(options: {
     }
     const body = document.createElement("div");
     body.className = "view-container-body";
-    const children: HTMLElement[] = [];
-    for (const view of views) {
-      if (view.id === "outline") {
-        const size = state.views.outline.size ?? OUTLINE_DEFAULT_SIZE;
-        const resizer = document.createElement("div");
-        renderedOutlineResizer = resizer;
-        resizer.className = "outline-view-resizer";
-        resizer.dataset.resizesView = "outline";
-        resizer.setAttribute("role", "separator");
-        resizer.setAttribute("aria-orientation", "horizontal");
-        resizer.setAttribute("aria-label", t("workbench.resizeOutline"));
-        resizer.setAttribute("aria-valuemin", "64");
-        resizer.setAttribute("aria-valuemax", String(outlineMax()));
-        resizer.setAttribute("aria-valuenow", String(size));
-        resizer.classList.toggle("hidden", !state.views.outline.visible || state.views.outline.collapsed);
-        resizer.addEventListener("pointerdown", (event) => onOutlinePointerDown(resizer, event));
-        children.push(resizer);
-      }
-      children.push(renderView(view));
-    }
-    body.replaceChildren(...children);
+    body.replaceChildren(renderViewGroupTree(contribution.id, state.viewGroups[contribution.id].root, true, false));
     bindDropTarget(body, contribution.id, "y", () => views.filter((view) => state.views[view.id].visible));
     container.appendChild(titlebar);
     container.appendChild(body);
     options.primarySidebar.replaceChildren(container);
     primaryContainerTitlebar = titlebar;
-    outlineResizer = renderedOutlineResizer;
   };
-
-  let panelActiveViewId: WorkbenchViewId | null = null;
 
   const renderPart = (
     partId: WorkbenchPartId,
@@ -479,45 +606,7 @@ export function mountWorkbench(options: {
     container.dataset.partId = partId;
     container.dataset.containerId = contribution.id;
     if (partId === "panel") {
-      const visibleViews = views.filter((view) => state.views[view.id].visible);
-      if (!visibleViews.some((view) => view.id === panelActiveViewId)) panelActiveViewId = visibleViews[0]?.id ?? null;
-      const tabs = document.createElement("div");
-      tabs.className = "panel-tabs";
-      tabs.dataset.partId = partId;
-      tabs.dataset.containerId = contribution.id;
-      const tabsByViewId = new Map<WorkbenchViewId, HTMLElement>();
-      for (const view of visibleViews) {
-        const item = document.createElement("div");
-        item.className = "panel-tab-item";
-        item.dataset.viewId = view.id;
-        const tab = createButton("panel-tab", t(view.titleKey), t(view.titleKey));
-        tab.dataset.viewId = view.id;
-        bindViewDrag(tab, view.id);
-        tabsByViewId.set(view.id, item);
-        tab.classList.toggle("active", view.id === panelActiveViewId);
-        tab.addEventListener("click", () => {
-          panelActiveViewId = view.id;
-          render();
-        });
-        tab.addEventListener("contextmenu", (event) => {
-          event.preventDefault();
-          openViewMenu(view.id, tab, event);
-        });
-        const more = createButton("panel-tab-more", `${t("workbench.moveView")} ${t(view.titleKey)}`, "...");
-        more.addEventListener("click", (event) => openViewMenu(view.id, more, event));
-        item.appendChild(tab);
-        item.appendChild(more);
-        tabs.appendChild(item);
-      }
-      const body = document.createElement("div");
-      body.className = "panel-body";
-      if (panelActiveViewId) {
-        const view = visibleViews.find((candidate) => candidate.id === panelActiveViewId);
-        if (view) body.appendChild(renderView(view, visible, true));
-      }
-      bindDropTarget(tabs, contribution.id, "x", () => visibleViews, (view) => tabsByViewId.get(view.id));
-      container.appendChild(tabs);
-      container.appendChild(body);
+      container.appendChild(renderViewGroupTree(contribution.id, state.viewGroups[contribution.id].root, visible, true));
       host.replaceChildren(container);
       return;
     }
@@ -535,7 +624,7 @@ export function mountWorkbench(options: {
     }
     const body = document.createElement("div");
     body.className = "view-container-body";
-    body.replaceChildren(...views.map((view) => renderView(view, visible)));
+    body.replaceChildren(renderViewGroupTree(contribution.id, state.viewGroups[contribution.id].root, visible, false));
     bindDropTarget(body, contribution.id, "y", () => views.filter((view) => state.views[view.id].visible));
     container.appendChild(titlebar);
     container.appendChild(body);
@@ -612,6 +701,12 @@ export function mountWorkbench(options: {
       commit(next);
     },
     moveView: (viewId, containerId, order) => commit(moveLayoutView(state, viewId, containerId, order)),
+    moveViewToGroup: (viewId, containerId, groupId, order) => commit(moveLayoutViewToGroup(state, viewId, containerId, groupId, order)),
+    splitViewGroup: (viewId, containerId, targetGroupId, direction, side) => {
+      let newGroupId = `${containerId}:${viewId}:group-${++groupIdSequence}`;
+      while (state.viewGroups[containerId].groups[newGroupId]) newGroupId = `${containerId}:${viewId}:group-${++groupIdSequence}`;
+      commit(splitLayoutViewGroup(state, viewId, containerId, targetGroupId, newGroupId, direction, side));
+    },
     togglePart: (partId) => {
       const next = normalizeWorkbenchLayout(state);
       next.parts[partId].visible = !next.parts[partId].visible;
@@ -826,6 +921,7 @@ export function mountWorkbench(options: {
     state = boundState(next);
     const size = state.views.outline.size ?? OUTLINE_DEFAULT_SIZE;
     viewShells.get("outline")?.section.style.setProperty("--outline-height", `${size}px`);
+    viewShells.get("outline")?.section.parentElement?.style.setProperty("--outline-height", `${size}px`);
     outlineResizeHandle?.setAttribute("aria-valuenow", String(size));
   };
   const onOutlinePointerDown = (handle: HTMLElement, event: PointerEvent): void => {

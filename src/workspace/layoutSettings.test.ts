@@ -7,7 +7,7 @@ import {
   parseLayoutSettingsJson,
   serializeLayoutSettings,
 } from "./layoutSettings";
-import { DEFAULT_WORKBENCH_LAYOUT } from "../workbench/workbenchLayout";
+import { DEFAULT_WORKBENCH_LAYOUT, moveView } from "../workbench/workbenchLayout";
 
 describe("layout settings", () => {
   it("fills missing values with defaults", () => {
@@ -18,16 +18,17 @@ describe("layout settings", () => {
   });
 
   it("roundtrips version 2 layout and workbench state", () => {
+    const moved = moveView(DEFAULT_WORKBENCH_LAYOUT, "outline", "auxiliary", 2);
     const workbench = {
-      ...DEFAULT_WORKBENCH_LAYOUT,
+      ...moved,
       parts: {
-        ...DEFAULT_WORKBENCH_LAYOUT.parts,
-        primarySidebar: { ...DEFAULT_WORKBENCH_LAYOUT.parts.primarySidebar, size: 360 },
-        secondarySidebar: { ...DEFAULT_WORKBENCH_LAYOUT.parts.secondarySidebar, visible: true },
+        ...moved.parts,
+        primarySidebar: { ...moved.parts.primarySidebar, size: 360 },
+        secondarySidebar: { ...moved.parts.secondarySidebar, visible: true },
       },
       views: {
-        ...DEFAULT_WORKBENCH_LAYOUT.views,
-        outline: { ...DEFAULT_WORKBENCH_LAYOUT.views.outline, containerId: "auxiliary" as const, order: 2, visible: false, size: 180 },
+        ...moved.views,
+        outline: { ...moved.views.outline, visible: false, size: 180 },
       },
       positions: { primarySidebar: "right" as const, panel: "left" as const },
     };

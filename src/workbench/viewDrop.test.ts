@@ -3,13 +3,13 @@ import { decodeViewDrag, encodeViewDrag, insertionIndex } from "./viewDrop";
 
 describe("view drop payloads", () => {
   it("accepts only draggable view ids", () => {
-    expect(decodeViewDrag(encodeViewDrag("workspace"))).toBe("workspace");
-    expect(decodeViewDrag(encodeViewDrag("outline"))).toBe("outline");
-    expect(decodeViewDrag(encodeViewDrag("search"))).toBe("search");
+    for (const viewId of ["workspace", "outline", "tags", "project", "search", "backlinks", "properties", "references"] as const) {
+      expect(decodeViewDrag(encodeViewDrag(viewId))).toBe(viewId);
+    }
   });
 
   it("rejects non-view payloads", () => {
-    for (const value of ["", '{"id":"workspace"}', "notes/today.md", "properties", "anything-else"]) {
+    for (const value of ["", '{"id":"workspace"}', "notes/today.md", "anything-else"]) {
       expect(decodeViewDrag(value)).toBeNull();
     }
   });
