@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { once } from "node:events";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -23,7 +24,9 @@ export const config = {
   beforeSession() {
     driver = spawn(join(homedir(), ".cargo", "bin", "tauri-driver"), [], { stdio: "inherit" });
   },
-  afterSession() {
-    driver?.kill();
+  async afterSession() {
+    if (!driver || driver.exitCode !== null) return;
+    driver.kill();
+    await once(driver, "exit");
   },
 };
