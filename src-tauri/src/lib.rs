@@ -8,6 +8,10 @@ mod workspace_index;
 use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicBool, Ordering};
+#[cfg(any(
+    target_os = "macos",
+    all(desktop, not(feature = "webdriver"))
+))]
 use tauri::{Emitter, Manager};
 
 pub struct WatcherState(pub Mutex<Option<notify::RecommendedWatcher>>);
@@ -31,6 +35,11 @@ fn file_from_args(args: &[String]) -> Option<String> {
         .cloned()
 }
 
+#[cfg(any(
+    test,
+    target_os = "macos",
+    all(desktop, not(feature = "webdriver"))
+))]
 fn queue_open_file_until_ready(
     ready: &AtomicBool,
     launch: &Mutex<Vec<String>>,
@@ -67,7 +76,7 @@ pub fn run() {
     // single-instance MUST be the first plugin registered. When a second launch
     // happens (e.g. user double-clicks another .md), route the file to the running
     // window instead of opening a new process.
-    #[cfg(desktop)]
+    #[cfg(all(desktop, not(feature = "webdriver")))]
     {
         builder = builder.plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
             if let Some(path) = file_from_args(&argv) {
