@@ -1,8 +1,9 @@
 import type { FileNode } from "../ipc/bindings";
 import type { BacklinksPanelState } from "../workspace/backlinksPanel";
 import type { ReferencesPanelState } from "../workspace/referencesPanel";
-import type { WorkbenchContainerId, WorkbenchLayoutSnapshot } from "./workbenchLayout";
+import type { WorkbenchContainerId, WorkbenchLayoutSnapshot, WorkbenchViewId } from "./workbenchLayout";
 import type { ViewWindowPresentation, ViewWindowTransfer } from "./viewWindowTransfer";
+import { recoverWindowBounds, type AvailableMonitor, type PersistedViewWindow, type ViewWindowLayoutSnapshot, type WindowBounds, type WindowMonitorSnapshot } from "./viewWindowLayout";
 
 export interface ViewWindowContext {
   currentFolder: string | null;
@@ -20,6 +21,8 @@ export interface ViewWindowHandle {
   close(): Promise<void>;
   focus(): Promise<void>;
   onClosed(listener: () => void): () => void;
+  capture?(): Promise<{ bounds: WindowBounds; monitor: WindowMonitorSnapshot }>;
+  onGeometryChanged?(listener: () => void): Promise<() => void>;
 }
 
 export interface ViewWindowAdapter {
@@ -30,9 +33,11 @@ export interface ViewWindowAdapter {
     height: number;
     minWidth: number;
     minHeight: number;
+    bounds?: WindowBounds;
   }): Promise<ViewWindowHandle>;
   emitTo(target: string, event: string, payload: unknown): Promise<void>;
   listen(event: string, listener: (payload: unknown) => void): Promise<() => void>;
+  screen?(): Promise<{ monitors: AvailableMonitor[]; primaryName: string | null }>;
 }
 
 interface ViewWindowHostOptions {
@@ -43,6 +48,7 @@ interface ViewWindowHostOptions {
   presentation(): ViewWindowPresentation;
   context(): ViewWindowContext;
   onAction(payload: unknown): Promise<unknown>;
+  onLayoutChange?(snapshot: ViewWindowLayoutSnapshot): void;
 }
 
 interface DetachedWindow {
@@ -50,6 +56,8 @@ interface DetachedWindow {
   groupId: string;
   handle: ViewWindowHandle;
   transfer: ViewWindowTransfer;
+  persisted: PersistedViewWindow | null;
+  stopGeometry?: () => void;
 }
 
 function windowLabel(payload: unknown): string | null {
@@ -70,12 +78,36 @@ export function createViewWindowHost(options: ViewWindowHostOptions) {
   const ready = new Set<string>();
   const unlisten: Array<() => void> = [];
   let nextWindow = 0;
+  let sessionState: ViewWindowLayoutSnapshot["sessionState"] = "running";
+  let shuttingDown = false;
+
+  const layoutSnapshot = (): ViewWindowLayoutSnapshot => ({
+    version: 1,
+    sessionState,
+    windows: [...windows.values()].flatMap((window) => window.persisted ? [window.persisted] : []),
+  });
+  const changed = (): void => options.onLayoutChange?.(layoutSnapshot());
+  const capture = async (label: string): Promise<void> => {
+    const detached = windows.get(label);
+    if (!detached?.handle.capture) return;
+    const placement = await detached.handle.capture();
+    if (windows.get(label) !== detached) return;
+    detached.persisted = {
+      containerId: detached.containerId,
+      groupId: detached.groupId,
+      activeViewId: detached.transfer.group.activeViewId!,
+      ...placement,
+    };
+    changed();
+  };
 
   const restore = (label: string): DetachedWindow | null => {
     const detached = windows.get(label);
     if (!detached) return null;
     windows.delete(label);
+    detached.stopGeometry?.();
     options.setViewGroupDetached(detached.containerId, detached.groupId, false);
+    if (!shuttingDown) changed();
     return detached;
   };
 
@@ -106,6 +138,15 @@ export function createViewWindowHost(options: ViewWindowHostOptions) {
         await options.adapter.listen("rune:view-window-action", (payload) => {
           const label = windowLabel(payload);
           if (!label || !windows.has(label)) return;
+          const action = payload as Record<string, unknown>;
+          const detached = windows.get(label)!;
+          if (action.type === "active-view" && typeof action.viewId === "string"
+            && detached.transfer.group.viewIds.includes(action.viewId as WorkbenchViewId)) {
+            detached.transfer.group.activeViewId = action.viewId as WorkbenchViewId;
+            if (detached.persisted) detached.persisted.activeViewId = action.viewId as WorkbenchViewId;
+            changed();
+            return;
+          }
           void options.onAction(payload).then(
             (value) => {
               const id = requestId(payload);
@@ -132,6 +173,8 @@ export function createViewWindowHost(options: ViewWindowHostOptions) {
       return [...windows.keys()];
     },
 
+    layoutSnapshot,
+
     async broadcastContext(): Promise<void> {
       const context = options.context();
       await Promise.all([...windows.keys()].map((label) =>
@@ -146,7 +189,16 @@ export function createViewWindowHost(options: ViewWindowHostOptions) {
 
     redockAll,
 
-    async tearOff(containerId: WorkbenchContainerId, groupId: string): Promise<string> {
+    reconcileLayout(): void {
+      const snapshot = options.snapshot();
+      for (const [label, detached] of windows) {
+        const group = snapshot.viewGroups[detached.containerId].groups[detached.groupId];
+        if (!group || group.viewIds.length !== detached.transfer.group.viewIds.length
+          || group.viewIds.some((viewId, index) => viewId !== detached.transfer.group.viewIds[index])) void redock(label);
+      }
+    },
+
+    async tearOff(containerId: WorkbenchContainerId, groupId: string, restored?: PersistedViewWindow, recoveredBounds?: WindowBounds): Promise<string> {
       const group = options.snapshot().viewGroups[containerId].groups[groupId];
       if (!group || group.viewIds.length === 0 || !group.activeViewId) throw new Error("View group is not detachable");
       const label = `view-${++nextWindow}`;
@@ -156,7 +208,7 @@ export function createViewWindowHost(options: ViewWindowHostOptions) {
         sourceWindowLabel: options.sourceWindowLabel,
         targetWindowLabel: label,
         sourceContainerId: containerId,
-        group: { ...group, viewIds: [...group.viewIds] },
+        group: { ...group, viewIds: [...group.viewIds], activeViewId: restored?.activeViewId ?? group.activeViewId },
         presentation: options.presentation(),
       };
       opening.add(label);
@@ -169,19 +221,50 @@ export function createViewWindowHost(options: ViewWindowHostOptions) {
           height: 640,
           minWidth: 280,
           minHeight: 240,
+          bounds: recoveredBounds,
         });
       } catch (error) {
         opening.delete(label);
         ready.delete(label);
         throw error;
       }
-      windows.set(label, { containerId, groupId, handle, transfer });
+      const detached: DetachedWindow = { containerId, groupId, handle, transfer, persisted: restored ?? null };
+      windows.set(label, detached);
       opening.delete(label);
       handle.onClosed(() => { restore(label); });
+      if (handle.onGeometryChanged) {
+        try { detached.stopGeometry = await handle.onGeometryChanged(() => { void capture(label); }); }
+        catch (error) { console.warn(error); }
+      }
       options.setViewGroupDetached(containerId, groupId, true);
       if (ready.delete(label)) void sendInit(label, windows.get(label)!);
       void handle.focus().catch((error) => console.warn(error));
+      await capture(label).catch((error) => console.warn(error));
+      changed();
       return label;
+    },
+
+    async restoreLayout(layout: ViewWindowLayoutSnapshot): Promise<void> {
+      sessionState = "running";
+      const screen = await options.adapter.screen?.();
+      for (const saved of layout.windows) {
+        const recovered = screen ? recoverWindowBounds(saved, screen.monitors, screen.primaryName) : saved.bounds;
+        await this.tearOff(saved.containerId, saved.groupId, saved, recovered).catch((error) => console.warn(error));
+      }
+      changed();
+    },
+
+    async prepareForShutdown(): Promise<void> {
+      shuttingDown = true;
+      sessionState = "clean";
+      await Promise.all([...windows.keys()].map(capture));
+      changed();
+    },
+
+    cancelShutdown(): void {
+      shuttingDown = false;
+      sessionState = "running";
+      changed();
     },
 
     async destroy(): Promise<void> {

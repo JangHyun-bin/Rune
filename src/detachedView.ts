@@ -154,6 +154,7 @@ function render(): void {
 
   const activate = (viewId: WorkbenchViewId): void => {
     transfer!.group.activeViewId = viewId;
+    void action("active-view", { viewId });
     for (const [id, panel] of panels) panel.element.hidden = id !== viewId;
     for (const button of tabs.querySelectorAll<HTMLButtonElement>("button[data-view-id]")) {
       const active = button.dataset.viewId === viewId;

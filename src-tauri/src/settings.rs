@@ -64,6 +64,7 @@ pub struct Settings {
     pub editor_font_scale: Option<f32>,
     pub layout: Option<LayoutSettings>,
     pub workbench_layout: Option<serde_json::Value>,
+    pub view_window_layout: Option<serde_json::Value>,
     pub named_layouts: Option<serde_json::Value>,
     pub active_named_layout: Option<String>,
     pub focus_mode: Option<bool>,
@@ -84,7 +85,7 @@ pub fn save(path: &PathBuf, s: &Settings) -> Result<(), String> {
         std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
     }
     let json = serde_json::to_string_pretty(s).map_err(|e| e.to_string())?;
-    std::fs::write(path, json).map_err(|e| e.to_string())
+    crate::fs_ops::write_text_file_atomic(path, &json)
 }
 
 #[cfg(test)]
@@ -127,6 +128,11 @@ mod tests {
             workbench_layout: Some(serde_json::json!({
                 "version": 7,
                 "custom": { "future": ["shape", 42] }
+            })),
+            view_window_layout: Some(serde_json::json!({
+                "version": 1,
+                "sessionState": "running",
+                "windows": []
             })),
             named_layouts: None,
             active_named_layout: None,
@@ -195,6 +201,7 @@ mod tests {
                 "custom": { "future": ["shape", 42] }
             }))
         );
+        assert_eq!(got.view_window_layout.as_ref().unwrap()["version"], 1);
         let layout = got.layout.unwrap();
         assert_eq!(layout.sidebar_width, Some(330));
         assert_eq!(layout.outline_height, Some(180));

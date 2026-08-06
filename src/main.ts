@@ -52,6 +52,7 @@ import { mountWorkbench } from "./workbench/workbench";
 import { createViewWindowHost } from "./workbench/viewWindowHost";
 import { tauriViewWindowAdapter } from "./workbench/tauriViewWindowAdapter";
 import { viewGroupIdForView } from "./workbench/viewGroupLayout";
+import { normalizeViewWindowLayout } from "./workbench/viewWindowLayout";
 import {
   DEFAULT_WORKBENCH_LAYOUT,
   type WorkbenchContainerId,
@@ -361,8 +362,7 @@ const workbench = mountWorkbench({
   },
 });
 workbench.onDidChange(() => {
-  // ponytail: H5-3 keeps one layout owner; H5-4 can persist independent multi-window layout edits.
-  if (viewWindowHost?.detachedWindows().length) void viewWindowHost.redockAll();
+  viewWindowHost?.reconcileLayout();
   activeNamedLayout = null;
   scheduleSaveSettings();
 });
@@ -376,6 +376,7 @@ if (isTauri()) {
     presentation: () => ({ theme: currentTheme(), uiScale: currentUiScale(), locale: getLocale() }),
     context: viewWindowContext,
     onAction: handleViewWindowAction,
+    onLayoutChange: scheduleSaveSettings,
   });
   void viewWindowHost.start().catch((error) => console.warn(error));
 }
@@ -444,7 +445,7 @@ function settingsSnapshot() {
   };
   const paneLayout = typeof paneWorkspace === "undefined" ? null : paneWorkspace.snapshot();
   const openTabs = paneLayout?.panes.flatMap((pane) => pane.openTabs) ?? [];
-  return { theme, lastFolder: currentFolder, openTabs, locale: getLocale(), editorWidth: currentEditorWidth(), editorMode, sidebarWidth: layout.sidebarWidth, layout, workbenchLayout, namedLayouts, activeNamedLayout, focusMode, typewriterMode, paneLayout, uiScale: currentUiScale(), editorFontScale: currentEditorFontScale() };
+  return { theme, lastFolder: currentFolder, openTabs, locale: getLocale(), editorWidth: currentEditorWidth(), editorMode, sidebarWidth: layout.sidebarWidth, layout, workbenchLayout, viewWindowLayout: viewWindowHost?.layoutSnapshot() ?? null, namedLayouts, activeNamedLayout, focusMode, typewriterMode, paneLayout, uiScale: currentUiScale(), editorFontScale: currentEditorFontScale() };
 }
 function applyTheme(theme: "light" | "dark"): void {
   document.documentElement.setAttribute("data-theme", theme);
@@ -1369,7 +1370,7 @@ findReplacePanel = mountFindReplacePanel({
 });
 async function restore(): Promise<void> {
   const res = await commands.loadSettings();
-  const s = res.status === "ok" ? res.data : { theme: null, lastFolder: null, openTabs: [], locale: null, editorWidth: null, editorMode: null, sidebarWidth: null, layout: null, workbenchLayout: null, namedLayouts: null, activeNamedLayout: null, focusMode: null, typewriterMode: null, paneLayout: null, uiScale: null, editorFontScale: null };
+  const s = res.status === "ok" ? res.data : { theme: null, lastFolder: null, openTabs: [], locale: null, editorWidth: null, editorMode: null, sidebarWidth: null, layout: null, workbenchLayout: null, viewWindowLayout: null, namedLayouts: null, activeNamedLayout: null, focusMode: null, typewriterMode: null, paneLayout: null, uiScale: null, editorFontScale: null };
   document.documentElement.setAttribute("data-theme", s.theme === "light" || s.theme === "dark" ? s.theme : (prefersDark() ? "dark" : "light"));
   document.documentElement.setAttribute("data-editor-width", s.editorWidth === "wide" ? "wide" : "readable");
   editorMode = normalizeEditorMode(s.editorMode);
@@ -1416,6 +1417,7 @@ async function restore(): Promise<void> {
   }
   if (!activePane().activeTabId()) newDoc();
   syncActiveUI();
+  if (viewWindowHost) await viewWindowHost.restoreLayout(normalizeViewWindowLayout(s.viewWindowLayout, workbench.snapshot()));
 
   // Persist startup-only migrations after folder fallback has stabilized lastFolder.
   if (firstRun || !s.workbenchLayout || !s.paneLayout || loadedRestoredFolder) saveSettingsNow();
@@ -1632,6 +1634,30 @@ void restore().then(
     throw error;
   },
 );
+
+let mainClosePending = false;
+if (isTauri()) void getCurrentWebviewWindow().onCloseRequested(async (event) => {
+  if (mainClosePending) return;
+  event.preventDefault();
+  mainClosePending = true;
+  try {
+    await paneWorkspace.flushSaves();
+    if (paneWorkspace.hasDirtyTabs()
+      && !(await confirmDialog(tr("confirm.closeDirty"), { title: "Rune", kind: "warning" }))) {
+      mainClosePending = false;
+      viewWindowHost?.cancelShutdown();
+      return;
+    }
+    await viewWindowHost?.prepareForShutdown();
+    const saved = await commands.saveSettings(settingsSnapshot());
+    if (saved.status === "error") throw new Error(saved.error);
+    await getCurrentWebviewWindow().destroy();
+  } catch (error) {
+    mainClosePending = false;
+    viewWindowHost?.cancelShutdown();
+    errorBanner.show(error instanceof Error ? error.message : String(error));
+  }
+});
 
 window.addEventListener("blur", () => { void paneWorkspace.flushSaves(); });
 window.addEventListener("resize", () => applySplitRatio(currentSplitRatio(), false));

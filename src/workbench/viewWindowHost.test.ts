@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { DEFAULT_WORKBENCH_LAYOUT } from "./workbenchLayout";
 import { createViewWindowHost, type ViewWindowAdapter, type ViewWindowHandle } from "./viewWindowHost";
+import type { ViewWindowLayoutSnapshot } from "./viewWindowLayout";
 
 describe("native view window host", () => {
   it("hides a group only after window creation and restores it on re-dock", async () => {
@@ -111,5 +112,58 @@ describe("native view window host", () => {
     await opening;
 
     expect(adapter.emitTo).toHaveBeenCalledWith("view-1", "rune:view-window-init", expect.any(Object));
+  });
+
+  it("restores recovered bounds and keeps the window snapshot on clean shutdown", async () => {
+    const create = vi.fn(async (label: string): Promise<ViewWindowHandle> => ({
+      label,
+      close: async () => {},
+      focus: async () => {},
+      onClosed: () => () => {},
+      capture: async () => ({
+        bounds: { x: 20, y: 30, width: 500, height: 600 },
+        monitor: { name: "Primary", scaleFactor: 1, x: 0, y: 0, width: 1920, height: 1040 },
+      }),
+      onGeometryChanged: async () => () => {},
+    }));
+    const layout: ViewWindowLayoutSnapshot = {
+      version: 1,
+      sessionState: "running",
+      windows: [{
+        containerId: "explorer",
+        groupId: "explorer:outline",
+        activeViewId: "outline",
+        bounds: { x: 2200, y: 120, width: 900, height: 700 },
+        monitor: { name: "Missing", scaleFactor: 1.5, x: 1920, y: 0, width: 2560, height: 1440 },
+      }],
+    };
+    const onLayoutChange = vi.fn();
+    const host = createViewWindowHost({
+      adapter: {
+        create,
+        emitTo: async () => {},
+        listen: async () => () => {},
+        screen: async () => ({
+          primaryName: "Primary",
+          monitors: [{ name: "Primary", scaleFactor: 1, workArea: { x: 0, y: 0, width: 1920, height: 1040 } }],
+        }),
+      },
+      sourceWindowLabel: "main",
+      snapshot: () => DEFAULT_WORKBENCH_LAYOUT,
+      setViewGroupDetached: () => {},
+      presentation: () => ({ theme: "dark", uiScale: 1, locale: "en" }),
+      context: () => ({ currentFolder: null, activePath: null, activeMarkdown: null, activeLine: 1, workspaceTree: [], workspaceFiles: [], backlinks: "noDocument", references: "noProject" }),
+      onAction: async () => undefined,
+      onLayoutChange,
+    });
+
+    await host.restoreLayout(layout);
+    expect(create).toHaveBeenCalledWith("view-1", expect.objectContaining({
+      bounds: { x: 187, y: 80, width: 600, height: 467 },
+    }));
+    expect(host.layoutSnapshot().windows[0].bounds).toEqual({ x: 20, y: 30, width: 500, height: 600 });
+    await host.prepareForShutdown();
+    expect(host.layoutSnapshot()).toMatchObject({ sessionState: "clean", windows: [{ groupId: "explorer:outline" }] });
+    expect(onLayoutChange).toHaveBeenCalled();
   });
 });

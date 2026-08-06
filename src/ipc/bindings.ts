@@ -11,7 +11,7 @@ export type PaneLayoutNode =
   | { type: "split"; direction: "row" | "column"; children: PaneLayoutNode[]; ratios: number[] };
 export interface PaneSnapshot { id: string; openTabs: string[]; activePath: string | null; }
 export interface PaneWorkspaceSnapshot { version: 1; root: PaneLayoutNode; activePaneId: string; panes: PaneSnapshot[]; }
-export interface Settings { theme: string | null; lastFolder: string | null; openTabs: string[]; locale: string | null; editorWidth: string | null; editorMode: string | null; sidebarWidth: number | null; layout: LayoutSettings | null; workbenchLayout: unknown | null; namedLayouts: unknown | null; activeNamedLayout: string | null; focusMode: boolean | null; typewriterMode: boolean | null; paneLayout: PaneWorkspaceSnapshot | null; uiScale: number | null; editorFontScale: number | null; }
+export interface Settings { theme: string | null; lastFolder: string | null; openTabs: string[]; locale: string | null; editorWidth: string | null; editorMode: string | null; sidebarWidth: number | null; layout: LayoutSettings | null; workbenchLayout: unknown | null; viewWindowLayout: unknown | null; namedLayouts: unknown | null; activeNamedLayout: string | null; focusMode: boolean | null; typewriterMode: boolean | null; paneLayout: PaneWorkspaceSnapshot | null; uiScale: number | null; editorFontScale: number | null; }
 export interface SearchHit { path: string; line: number; snippet: string; }
 export interface SearchResults { hits: SearchHit[]; truncated: boolean; }
 export interface WorkspaceIndexStats { documents: number; bytes: number; }
