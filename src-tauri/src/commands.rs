@@ -59,6 +59,34 @@ pub fn publish_project_html(
 }
 
 #[tauri::command]
+pub async fn pandoc_available() -> Result<bool, String> {
+    tauri::async_runtime::spawn_blocking(crate::publishing::pandoc_available)
+        .await
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn publish_project_external(
+    workspace_root: String,
+    path: String,
+    contents: String,
+    assets: Vec<fs_ops::PublishAsset>,
+    protected_paths: Vec<String>,
+) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::publishing::publish_with_pandoc(
+            &PathBuf::from(workspace_root),
+            &PathBuf::from(path),
+            &contents,
+            &assets,
+            &protected_paths,
+        )
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
+#[tauri::command]
 pub fn save_asset(doc_path: String, bytes: Vec<u8>, ext: String) -> Result<String, String> {
     let dir = Path::new(&doc_path).parent().ok_or("문서 경로에 폴더가 없음")?;
     fs_ops::save_asset(dir, &bytes, &ext)

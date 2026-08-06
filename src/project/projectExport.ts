@@ -2,7 +2,7 @@ import { buildHtmlDocument, type HtmlDocumentOptions } from "../export/exportDoc
 import { renderBody } from "../export/render";
 import { markdownHeadingSlug } from "../editor/markdownLinks";
 import { parseHeadings } from "../editor/outline";
-import type { RuneProject } from "./project";
+import type { ProjectOutputFormat, RuneProject } from "./project";
 
 export interface ProjectDocument {
   path: string;
@@ -25,6 +25,20 @@ export interface ProjectExportOptions extends HtmlDocumentOptions {
   tableOfContents?: boolean;
   tableOfContentsDepth?: number;
   workspaceRoot?: string;
+}
+
+export function projectOutputPath(
+  root: string,
+  outputDirectory: string,
+  title: string,
+  format: ProjectOutputFormat,
+): string {
+  const separator = root.includes("\\") ? "\\" : "/";
+  const directory = outputDirectory === "."
+    ? root.replace(/[\\/]$/, "")
+    : `${root.replace(/[\\/]$/, "")}${separator}${outputDirectory.replace(/[\\/]/g, separator)}`;
+  const name = title.replace(/[<>:"/\\|?*\u0000-\u001f]/g, "_").replace(/[. ]+$/g, "").trim() || "publication";
+  return `${directory}${separator}${name}.${format}`;
 }
 
 interface DocumentContext {

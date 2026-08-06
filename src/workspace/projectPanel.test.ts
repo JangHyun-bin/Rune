@@ -144,12 +144,13 @@ describe("Project View data", () => {
     expect(writeFileIfUnchanged).toHaveBeenCalled();
   });
 
-  it("edits and persists the active publishing profile in the version 2 manifest", async () => {
+  it("offers and persists DOCX in the active version 2 publishing profile", async () => {
     const panel = mountProjectPanel(host as unknown as HTMLElement, vi.fn(), vi.fn(), vi.fn());
     await panel.refresh("C:\\book", [{ path: "C:\\book\\a.md" }]);
     includeFirstFile();
     const format = labeledControl("Format", "select");
-    format.value = "pdf";
+    expect(format.descendants().map((node) => node.textContent)).toContain("DOCX");
+    format.value = "docx";
     format.dispatch("change");
 
     button("Save project").dispatch("click");
@@ -158,7 +159,7 @@ describe("Project View data", () => {
     const contents = writeFileIfUnchanged.mock.calls.at(-1)?.[2] as string;
     const saved = JSON.parse(contents);
     expect(saved.version).toBe(2);
-    expect(saved.publishing.profiles[0].format).toBe("pdf");
+    expect(saved.publishing.profiles[0].format).toBe("docx");
   });
 
   it("publishes again with the last successful profile and records success safely", async () => {

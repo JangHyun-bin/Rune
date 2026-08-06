@@ -32,6 +32,15 @@ describe("i18n", () => {
       expect(t("view.project")).toBe(label);
     }
   });
+
+  it("explains the Pandoc requirement in every locale", () => {
+    for (const locale of ["en", "ko", "ja", "zh-Hans"] as const) {
+      setLocale(locale);
+      const message = t("project.pandocUnavailable");
+      expect(message).toContain("Pandoc");
+      expect(message).not.toBe("project.pandocUnavailable");
+    }
+  });
 });
 
 describe("detectLocale", () => {

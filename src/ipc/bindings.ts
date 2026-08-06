@@ -46,6 +46,9 @@ export const commands = {
     call<boolean>("write_file_if_unchanged", { path, expectedContents, contents }),
   publishProjectHtml: (workspaceRoot: string, path: string, contents: string, assets: PublishAsset[], protectedPaths: string[]) =>
     call<null>("publish_project_html", { workspaceRoot, path, contents, assets, protectedPaths }),
+  pandocAvailable: () => call<boolean>("pandoc_available", {}),
+  publishProjectExternal: (workspaceRoot: string, path: string, contents: string, assets: PublishAsset[], protectedPaths: string[]) =>
+    call<null>("publish_project_external", { workspaceRoot, path, contents, assets, protectedPaths }),
   saveAsset: (docPath: string, bytes: number[], ext: string) =>
     call<string>("save_asset", { docPath, bytes, ext }),
   listDir: (path: string) => call<FileNode[]>("list_dir", { path }),

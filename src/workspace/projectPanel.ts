@@ -293,6 +293,7 @@ export function mountProjectPanel(
     fields.append(
       labeled(t("project.profile.format"), select(profile.format, [
         { value: "html", label: "HTML" }, { value: "pdf", label: "PDF" },
+        { value: "docx", label: "DOCX" }, { value: "epub", label: "EPUB" },
       ], (value) => updateProfile((item) => ({ ...item, format: value as PublishingProfile["format"] })))),
       labeled(t("project.profile.outputDirectory"), textInput(profile.outputDirectory, (value) => updateProfile((item) => ({ ...item, outputDirectory: value })))),
       labeled(t("project.profile.theme"), select(profile.theme, [

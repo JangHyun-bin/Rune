@@ -20,9 +20,17 @@ import {
   buildProjectPublication,
   materializeProjectHtml,
   materializeProjectHtmlForOutput,
+  projectOutputPath,
 } from "./projectExport";
 
 describe("project HTML assembly", () => {
+  it("builds safe external publication paths on Windows and POSIX", () => {
+    expect(projectOutputPath("C:\\book", "exports", "My: Book", "docx"))
+      .toBe("C:\\book\\exports\\My_ Book.docx");
+    expect(projectOutputPath("/book", ".", "My Book", "epub"))
+      .toBe("/book/My Book.epub");
+  });
+
   it("renders selected documents in manifest order without front matter", async () => {
     const project = createProject("Research & Notes", ["intro.md", "chapters/two.md"]);
     const html = await buildProjectHtml(project, [

@@ -68,6 +68,7 @@ import {
   buildProjectPublication,
   materializeProjectHtml,
   materializeProjectHtmlForOutput,
+  projectOutputPath,
   type ProjectDocument,
   type ProjectPublication,
 } from "./project/projectExport";
@@ -685,18 +686,6 @@ function previewPublicationHtml(publication: ProjectPublication): string {
     : encodeURI(`file:///${asset.sourcePath.replace(/\\/g, "/")}`));
 }
 
-function safePublicationName(title: string): string {
-  return title.replace(/[<>:"/\\|?*\u0000-\u001f]/g, "_").replace(/[. ]+$/g, "").trim() || "publication";
-}
-
-function projectOutputPath(root: string, profile: PublishingProfile, title: string): string {
-  const separator = root.includes("\\") ? "\\" : "/";
-  const directory = profile.outputDirectory === "."
-    ? root.replace(/[\\/]$/, "")
-    : `${root.replace(/[\\/]$/, "")}${separator}${profile.outputDirectory.replace(/[\\/]/g, separator)}`;
-  return `${directory}${separator}${safePublicationName(title)}.html`;
-}
-
 async function previewProject(project: RuneProject, profile: PublishingProfile): Promise<void> {
   try {
     const { publication } = await projectPublication(project, profile);
@@ -717,14 +706,18 @@ async function publishProject(project: RuneProject, profile: PublishingProfile):
       await printHtmlDocument(previewPublicationHtml(publication), project.title);
       return true;
     }
-    const outputPath = projectOutputPath(root, profile, project.title);
-    const result = await commands.publishProjectHtml(
-      root,
-      outputPath,
-      materializeProjectHtmlForOutput(publication, outputPath),
-      publication.assets.map(({ sourcePath, relativePath }) => ({ sourcePath, relativePath })),
-      documents.map((document) => document.absolutePath!),
-    );
+    const outputPath = projectOutputPath(root, profile.outputDirectory, project.title, profile.format);
+    const contents = materializeProjectHtmlForOutput(publication, outputPath);
+    const assets = publication.assets.map(({ sourcePath, relativePath }) => ({ sourcePath, relativePath }));
+    const protectedPaths = documents.map((document) => document.absolutePath!);
+    const result = profile.format === "html"
+      ? await commands.publishProjectHtml(root, outputPath, contents, assets, protectedPaths)
+      : await (async () => {
+          const available = await commands.pandocAvailable();
+          if (available.status === "error") throw new Error(available.error);
+          if (!available.data) throw new Error(tr("project.pandocUnavailable"));
+          return commands.publishProjectExternal(root, outputPath, contents, assets, protectedPaths);
+        })();
     if (result.status === "error") throw new Error(result.error);
     return true;
   } catch (error) {

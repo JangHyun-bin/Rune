@@ -1,4 +1,4 @@
-export type ProjectOutputFormat = "html" | "pdf";
+export type ProjectOutputFormat = "html" | "pdf" | "docx" | "epub";
 export type ProjectTheme = "default" | "serif";
 export type ProjectPageSize = "A4" | "Letter";
 
@@ -118,7 +118,9 @@ function parseProfile(value: unknown): PublishingProfile {
   const theme = record.theme;
   const pageSize = record.pageSize;
   const depth = record.tableOfContentsDepth;
-  if (format !== "html" && format !== "pdf") throw new Error("Invalid publishing format");
+  if (format !== "html" && format !== "pdf" && format !== "docx" && format !== "epub") {
+    throw new Error("Invalid publishing format");
+  }
   if (theme !== "default" && theme !== "serif") throw new Error("Invalid publishing theme");
   if (pageSize !== "A4" && pageSize !== "Letter") throw new Error("Invalid publishing page size");
   if (typeof record.tableOfContents !== "boolean" || !Number.isInteger(depth) || (depth as number) < 1 || (depth as number) > 6

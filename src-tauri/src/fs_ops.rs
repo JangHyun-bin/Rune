@@ -67,7 +67,7 @@ pub struct PublishAsset {
 
 const PUBLICATION_MARKER: &str = ".rune-publication";
 
-fn safe_relative_asset_path(path: &str) -> Result<PathBuf, String> {
+pub(crate) fn safe_relative_asset_path(path: &str) -> Result<PathBuf, String> {
     let value = Path::new(path);
     if value.is_absolute()
         || value.components().any(|component| !matches!(component, std::path::Component::Normal(_)))
@@ -77,17 +77,21 @@ fn safe_relative_asset_path(path: &str) -> Result<PathBuf, String> {
     Ok(value.to_path_buf())
 }
 
-/// HTML과 복사된 asset 디렉터리를 한 publication 단위로 교체한다.
-/// asset 준비가 실패하면 기존 HTML과 asset은 그대로 남는다.
-pub fn publish_html(
+pub(crate) fn validate_publish_output(
     root: &Path,
     path: &Path,
-    contents: &str,
-    assets: &[PublishAsset],
+    extensions: &[&str],
     protected_paths: &[String],
-) -> Result<(), String> {
-    if !path.extension().and_then(|value| value.to_str()).is_some_and(|value| value.eq_ignore_ascii_case("html")) {
-        return Err("publish output must be an .html file".into());
+) -> Result<PathBuf, String> {
+    if !path
+        .extension()
+        .and_then(|value| value.to_str())
+        .is_some_and(|value| extensions.iter().any(|extension| value.eq_ignore_ascii_case(extension)))
+    {
+        return Err(format!(
+            "publish output must use one of these extensions: {}",
+            extensions.iter().map(|value| format!(".{value}")).collect::<Vec<_>>().join(", ")
+        ));
     }
     let parent = path.parent().ok_or_else(|| format!("invalid publish path: {}", path.display()))?;
     let canonical_root = fs::canonicalize(root)
@@ -122,6 +126,20 @@ pub fn publish_html(
     if !canonical_parent.starts_with(&canonical_root) {
         return Err(format!("publish path is outside workspace: {}", path.display()));
     }
+    Ok(canonical_root)
+}
+
+/// HTML과 복사된 asset 디렉터리를 한 publication 단위로 교체한다.
+/// asset 준비가 실패하면 기존 HTML과 asset은 그대로 남는다.
+pub fn publish_html(
+    root: &Path,
+    path: &Path,
+    contents: &str,
+    assets: &[PublishAsset],
+    protected_paths: &[String],
+) -> Result<(), String> {
+    let canonical_root = validate_publish_output(root, path, &["html"], protected_paths)?;
+    let parent = path.parent().ok_or_else(|| format!("invalid publish path: {}", path.display()))?;
     let stem = path.file_stem().and_then(|value| value.to_str()).filter(|value| !value.is_empty())
         .ok_or_else(|| format!("invalid publish filename: {}", path.display()))?;
     let target_assets = parent.join(format!("{stem}.assets"));

@@ -53,6 +53,13 @@ describe("Rune project model", () => {
     expect(saved.publishing.profiles[0].metadata.futureMetadata).toBe(true);
   });
 
+  it.each(["docx", "epub"] as const)("roundtrips the %s publishing format", (format) => {
+    const manifest = JSON.parse(serializeProject(createProject("Book", ["one.md"])));
+    manifest.publishing.profiles[0].format = format;
+
+    expect(activePublishingProfile(parseProject(JSON.stringify(manifest))).format).toBe(format);
+  });
+
   it("rejects unsafe document and publishing paths", () => {
     for (const path of ["../secret.md", "/absolute.md", "C:\\absolute.md", "image.png"]) {
       expect(() => parseProject(JSON.stringify({ version: 1, title: "Book", files: [path] }))).toThrow();

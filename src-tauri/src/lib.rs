@@ -1,5 +1,6 @@
 mod fs_ops;
 mod commands;
+mod publishing;
 mod settings;
 mod search;
 mod workspace_index;
@@ -121,6 +122,8 @@ pub fn run() {
             commands::write_file,
             commands::write_file_if_unchanged,
             commands::publish_project_html,
+            commands::pandoc_available,
+            commands::publish_project_external,
             commands::save_asset,
             commands::list_dir,
             commands::load_settings,
