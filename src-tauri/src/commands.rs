@@ -93,6 +93,10 @@ pub fn save_asset(doc_path: String, bytes: Vec<u8>, ext: String) -> Result<Strin
 }
 
 fn settings_path(app: &AppHandle) -> Result<std::path::PathBuf, String> {
+    #[cfg(feature = "webdriver")]
+    if let Some(path) = std::env::var_os("RUNE_WDIO_SETTINGS_PATH") {
+        return Ok(path.into());
+    }
     let dir = app.path().app_config_dir().map_err(|e| e.to_string())?;
     Ok(dir.join("settings.json"))
 }

@@ -751,9 +751,11 @@ if (import.meta.env.VITE_WDIO === "1") {
         if (result?.status === "ok") document.documentElement.dataset.wdioShutdownSaved = "true";
       });
   });
-  window.addEventListener("rune:wdio-exit", () => {
-    void viewWindowHost?.redockAll().then(() => getCurrentWebviewWindow().destroy());
-  });
+  if (navigator.userAgent.includes("Linux")) {
+    window.addEventListener("rune:wdio-exit", () => {
+      void viewWindowHost?.redockAll().then(() => getCurrentWebviewWindow().destroy());
+    });
+  }
 }
 
 function baseName(p: string): string { const i = Math.max(p.lastIndexOf("/"), p.lastIndexOf("\\")); return i >= 0 ? p.slice(i + 1) : p; }
