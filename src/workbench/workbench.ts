@@ -43,6 +43,7 @@ export interface Workbench {
     direction: ViewGroupSplitDirection,
     side: "before" | "after",
   ): void;
+  setViewGroupDetached(containerId: WorkbenchContainerId, groupId: string, detached: boolean): void;
   togglePart(partId: WorkbenchPartId): void;
   setPrimarySidebarPosition(position: SidebarPosition): void;
   setPanelPosition(position: PanelPosition): void;
@@ -87,6 +88,7 @@ export function mountWorkbench(options: {
   let draggingHeader: HTMLElement | null = null;
   let draggingViewId: WorkbenchViewId | null = null;
   let groupIdSequence = 0;
+  const detachedGroups = new Set<string>();
   const dropIndicators = new Set<HTMLElement>();
   const OUTLINE_DEFAULT_SIZE = 220;
   const MIN_EDITOR_WIDTH = 220;
@@ -207,6 +209,7 @@ export function mountWorkbench(options: {
   };
 
   const contributions = (): ViewContribution[] => options.registry.allViews();
+  const groupKey = (containerId: WorkbenchContainerId, groupId: string): string => `${containerId}\0${groupId}`;
 
   const viewsIn = (containerId: WorkbenchContainerId): ViewContribution[] =>
     contributions()
@@ -390,6 +393,10 @@ export function mountWorkbench(options: {
     wrapper.className = "view-group";
     wrapper.dataset.groupId = groupId;
     wrapper.dataset.containerId = containerId;
+    if (detachedGroups.has(groupKey(containerId, groupId))) {
+      wrapper.classList.add("hidden");
+      return wrapper;
+    }
 
     const splitDrop = (event: DragEvent): void => {
       const viewId = viewIdFromEvent(event);
@@ -706,6 +713,12 @@ export function mountWorkbench(options: {
       let newGroupId = `${containerId}:${viewId}:group-${++groupIdSequence}`;
       while (state.viewGroups[containerId].groups[newGroupId]) newGroupId = `${containerId}:${viewId}:group-${++groupIdSequence}`;
       commit(splitLayoutViewGroup(state, viewId, containerId, targetGroupId, newGroupId, direction, side));
+    },
+    setViewGroupDetached: (containerId, groupId, detached) => {
+      const key = groupKey(containerId, groupId);
+      if (detached) detachedGroups.add(key);
+      else detachedGroups.delete(key);
+      render();
     },
     togglePart: (partId) => {
       const next = normalizeWorkbenchLayout(state);

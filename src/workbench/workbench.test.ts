@@ -440,6 +440,19 @@ describe("workbench", () => {
     expect(Object.values(workbench.snapshot().viewGroups.explorer.groups).some((group) => group.viewIds[0] === "outline")).toBe(true);
   });
 
+  it("temporarily detaches and reattaches a group without changing its persisted layout", () => {
+    const { primarySidebar, workbench } = setup();
+    const before = workbench.snapshot();
+
+    workbench.setViewGroupDetached("explorer", "explorer:outline", true);
+    expect(byClass(primarySidebar as unknown as TestElement, "workbench-view").some((view) => view.dataset.viewId === "outline")).toBe(false);
+    expect(workbench.snapshot()).toEqual(before);
+
+    workbench.setViewGroupDetached("explorer", "explorer:outline", false);
+    expect(viewById(primarySidebar as unknown as TestElement, "outline")).toBeDefined();
+    expect(workbench.snapshot()).toEqual(before);
+  });
+
   it("accepts a protected dragover from its MIME type and reads the payload only on drop", () => {
     const { primarySidebar, secondarySidebar, workbench } = setup();
     const header = byClass(viewById(primarySidebar as unknown as TestElement, "outline"), "workbench-view-header")[0];

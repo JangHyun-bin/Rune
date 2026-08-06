@@ -1,6 +1,6 @@
 import "./styles.css";
 import { type EditorMode } from "./editor/editor";
-import { commands, type LinkTarget, type PathChangePlan } from "./ipc/bindings";
+import { commands, type FileNode, type LinkTarget, type PathChangePlan } from "./ipc/bindings";
 import { confirm as confirmDialog, open, save } from "@tauri-apps/plugin-dialog";
 import { revealItemInDir, openUrl } from "@tauri-apps/plugin-opener";
 import { check } from "@tauri-apps/plugin-updater";
@@ -13,6 +13,7 @@ import { mountFileTree, type FileTree } from "./workspace/fileTree";
 import { parentDir } from "./workspace/paths";
 import { listen, type Event } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
+import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { mountConflictBanner } from "./workspace/conflictBanner";
 import { mountErrorBanner } from "./workspace/errorBanner";
 import {
@@ -48,6 +49,9 @@ import { createNativeFileOpenQueue, handleNativeFileDrop, type ResolvedDropTarge
 import { createViewRegistry } from "./workbench/viewRegistry";
 import { createCommandRegistry } from "./workbench/commandRegistry";
 import { mountWorkbench } from "./workbench/workbench";
+import { createViewWindowHost } from "./workbench/viewWindowHost";
+import { tauriViewWindowAdapter } from "./workbench/tauriViewWindowAdapter";
+import { viewGroupIdForView } from "./workbench/viewGroupLayout";
 import {
   DEFAULT_WORKBENCH_LAYOUT,
   type WorkbenchContainerId,
@@ -67,7 +71,7 @@ import {
 import { writingModesExtension } from "./editor/writingModes";
 import { markdownLinkExtensions, refreshMarkdownLinkDiagnostics } from "./editor/markdownLinks";
 import { citationCompletionSource, citationLintExtension } from "./editor/citations";
-import { mountBacklinksPanel, type BacklinksPanel } from "./workspace/backlinksPanel";
+import { mountBacklinksPanel, type BacklinksPanel, type BacklinksPanelState } from "./workspace/backlinksPanel";
 import { mountPropertiesPanel, type PropertiesPanel } from "./workspace/propertiesPanel";
 import { mountTagsPanel, type TagsPanel } from "./workspace/tagsPanel";
 import { mountProjectPanel, projectManifestPath, projectRelativePath, type ProjectPanel } from "./workspace/projectPanel";
@@ -75,6 +79,7 @@ import {
   buildReferenceItems,
   mountReferencesPanel,
   type ReferencesPanel,
+  type ReferencesPanelState,
 } from "./workspace/referencesPanel";
 import {
   buildProjectPublication,
@@ -116,6 +121,7 @@ document.body.appendChild(dropOverlay);
 
 let paneWorkspace: PaneWorkspace;
 let currentFolder: string | null = null;
+let workspaceTree: FileNode[] = [];
 let workspaceFiles: { name: string; path: string }[] = [];
 let workspaceHeadings: WorkspaceHeading[] = [];
 let workspaceHeadingLoad = 0;
@@ -133,16 +139,19 @@ let focusLayout = false;
 let tree: FileTree;
 let outlinePanel: OutlinePanel;
 let backlinksPanel: BacklinksPanel | null = null;
+let backlinksState: BacklinksPanelState = "noDocument";
 let backlinksLoad = 0;
 let propertiesPanel: PropertiesPanel | null = null;
 let tagsPanel: TagsPanel | null = null;
 let projectPanel: ProjectPanel | null = null;
 let referencesPanel: ReferencesPanel | null = null;
+let referencesState: ReferencesPanelState = "noProject";
 let referencesLoad = 0;
 let referencesTimer: number | undefined;
 let citationProject: RuneProject | null = null;
 let citationLibrary: CitationLibrary = { entries: [], duplicates: [] };
 let citationLoad = 0;
+let viewWindowHost: ReturnType<typeof createViewWindowHost> | null = null;
 
 const viewRegistry = createViewRegistry();
 viewRegistry.registerContainer({ id: "explorer", titleKey: "view.explorer", icon: "▤", order: 0 });
@@ -328,13 +337,22 @@ const workbench = mountWorkbench({
   initialState: DEFAULT_WORKBENCH_LAYOUT,
   focusEditor: () => { if (typeof paneWorkspace !== "undefined") activeView().focus(); },
   onViewMenu: (id, x, y) => {
-    const current = workbench.snapshot().views[id].containerId;
+    const snapshot = workbench.snapshot();
+    const current = snapshot.views[id].containerId;
+    const groupId = viewGroupIdForView(snapshot.viewGroups[current], id);
     const destinations = [
       ["explorer", "workbench.moveToPrimarySidebar"],
       ["auxiliary", "workbench.moveToSecondarySidebar"],
       ["panel", "workbench.moveToPanel"],
     ] as const;
     showContextMenu(x, y, [
+      ...(viewWindowHost && groupId ? [{
+        label: tr("workbench.moveToNewWindow"),
+        run: () => { void viewWindowHost!.tearOff(current, groupId).catch((error) => {
+          console.error(error);
+          errorBanner.show(error instanceof Error ? error.message : String(error));
+        }); },
+      }] : []),
       ...destinations
         .filter(([containerId]) => containerId !== current)
         .map(([containerId, label]) => ({ label: tr(label), run: () => commandRegistry.execute(moveViewCommandId(id, containerId)) })),
@@ -342,7 +360,25 @@ const workbench = mountWorkbench({
     ]);
   },
 });
-workbench.onDidChange(() => { activeNamedLayout = null; scheduleSaveSettings(); });
+workbench.onDidChange(() => {
+  // ponytail: H5-3 keeps one layout owner; H5-4 can persist independent multi-window layout edits.
+  if (viewWindowHost?.detachedWindows().length) void viewWindowHost.redockAll();
+  activeNamedLayout = null;
+  scheduleSaveSettings();
+});
+
+if (isTauri()) {
+  viewWindowHost = createViewWindowHost({
+    adapter: tauriViewWindowAdapter,
+    sourceWindowLabel: "main",
+    snapshot: () => workbench.snapshot(),
+    setViewGroupDetached: (containerId, groupId, detached) => workbench.setViewGroupDetached(containerId, groupId, detached),
+    presentation: () => ({ theme: currentTheme(), uiScale: currentUiScale(), locale: getLocale() }),
+    context: viewWindowContext,
+    onAction: handleViewWindowAction,
+  });
+  void viewWindowHost.start().catch((error) => console.warn(error));
+}
 
 const viewDestinations = [
   ["explorer", "workbench.moveToPrimarySidebar"],
@@ -412,6 +448,7 @@ function settingsSnapshot() {
 }
 function applyTheme(theme: "light" | "dark"): void {
   document.documentElement.setAttribute("data-theme", theme);
+  broadcastViewWindowPresentation();
   scheduleSaveSettings();
 }
 function currentTheme(): "light" | "dark" {
@@ -578,12 +615,73 @@ function currentEditorFontScale(): number {
 function applyUiScale(scale: number, persist = true): void {
   document.documentElement.style.setProperty("--ui-scale", String(clampUiScale(scale)));
   workbench.reflow({ emitChange: persist });
+  broadcastViewWindowPresentation();
   if (persist) scheduleSaveSettings();
 }
 function currentUiScale(): number {
   const raw = getComputedStyle(document.documentElement).getPropertyValue("--ui-scale");
   const parsed = Number.parseFloat(raw);
   return Number.isFinite(parsed) ? clampUiScale(parsed) : UI_SCALE_DEFAULT;
+}
+function viewWindowContext() {
+  const ready = typeof paneWorkspace !== "undefined";
+  const view = ready ? activeView() : null;
+  return {
+    currentFolder,
+    activePath: ready ? activePane().activePath() : null,
+    activeMarkdown: view ? view.state.doc.toString() : null,
+    activeLine: view ? view.state.doc.lineAt(view.state.selection.main.head).number : 1,
+    workspaceTree,
+    workspaceFiles,
+    backlinks: backlinksState,
+    references: referencesState,
+  };
+}
+function broadcastViewWindowContext(): void {
+  void viewWindowHost?.broadcastContext().catch((error) => console.warn(error));
+}
+function broadcastViewWindowPresentation(): void {
+  void viewWindowHost?.broadcastPresentation().catch((error) => console.warn(error));
+}
+function actionRecord(value: unknown): Record<string, unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Invalid detached View action");
+  return value as Record<string, unknown>;
+}
+async function handleViewWindowAction(payload: unknown): Promise<unknown> {
+  const action = actionRecord(payload);
+  if (typeof action.type !== "string") throw new Error("Invalid detached View action type");
+  await getCurrentWebviewWindow().setFocus();
+  if (action.type === "open-folder") return openFolder();
+  if (action.type === "new-file") return currentFolder ? newFileIn(currentFolder) : undefined;
+  if (action.type === "new-folder") return currentFolder ? newFolderIn(currentFolder) : undefined;
+  if (action.type === "jump-line") {
+    if (typeof action.line !== "number" || !Number.isInteger(action.line) || action.line < 1) throw new Error("Invalid line");
+    jumpToLine(action.line);
+    return;
+  }
+  if (action.type === "open-path") {
+    if (typeof action.path !== "string" || !action.path) throw new Error("Invalid path");
+    if (await openPath(action.path) && typeof action.line === "number" && Number.isInteger(action.line) && action.line > 0) jumpToLine(action.line);
+    return;
+  }
+  if (action.type === "replace-markdown") {
+    if (typeof action.path !== "string" || typeof action.baseMarkdown !== "string" || typeof action.markdown !== "string"
+      || !samePath(activePane().activePath() ?? "", action.path)
+      || activeView().state.doc.toString() !== action.baseMarkdown) throw new Error("Document changed before Properties update");
+    activeView().dispatch({ changes: { from: 0, to: activeView().state.doc.length, insert: action.markdown } });
+    syncActiveUI();
+    return;
+  }
+  if (action.type === "project-preflight" || action.type === "project-preview" || action.type === "project-publish") {
+    if (typeof action.projectSource !== "string") throw new Error("Invalid project");
+    const project = parseProject(action.projectSource);
+    if (action.type === "project-preflight") return preflightCurrentProject(project);
+    if (typeof action.profileId !== "string") throw new Error("Invalid publishing profile");
+    const profile = project.publishing.profiles.find((candidate) => candidate.id === action.profileId);
+    if (!profile) throw new Error("Publishing profile not found");
+    return action.type === "project-preview" ? previewProject(project, profile) : publishProject(project, profile);
+  }
+  throw new Error(`Unsupported detached View action: ${action.type}`);
 }
 function zoomEditorFont(dir: 1 | -1): void {
   applyEditorFontScale(stepEditorFontScale(currentEditorFontScale(), dir));
@@ -624,6 +722,7 @@ function applyLocale(l: Locale): void {
   layoutModeControl?.relabel();
   syncActiveUI();
   settingsPanel.refresh();
+  broadcastViewWindowPresentation();
   scheduleSaveSettings();
 }
 const settingsSaveScheduler = createSettingsSaveScheduler(
@@ -734,6 +833,7 @@ function syncActiveUI(): void {
   void refreshBacklinks();
   refreshProperties();
   void refreshReferences();
+  broadcastViewWindowContext();
 }
 
 function refreshProperties(): void {
@@ -755,30 +855,38 @@ function scheduleReferencesRefresh(): void {
 }
 
 async function refreshReferences(): Promise<void> {
-  const panel = referencesPanel;
   const project = citationProject;
   const root = currentFolder;
   const request = ++referencesLoad;
-  if (!panel || !root || !project) {
-    panel?.render("noProject");
+  if (!root || !project) {
+    referencesState = "noProject";
+    referencesPanel?.render(referencesState);
+    broadcastViewWindowContext();
     return;
   }
-  panel.render("loading");
+  referencesState = "loading";
+  referencesPanel?.render(referencesState);
   try {
     const documents = await projectDocuments(project);
-    if (request !== referencesLoad || panel !== referencesPanel || !currentFolder || !samePath(currentFolder, root)) return;
+    if (request !== referencesLoad || !currentFolder || !samePath(currentFolder, root)) return;
     const activePath = activePane().activePath();
     let activeRelative: string | null = null;
     if (activePath) {
       try { activeRelative = projectRelativePath(root, activePath); } catch { /* loose file */ }
     }
     const currentMarkdown = activeRelative ? activeView().state.doc.toString() : null;
-    panel.render(buildReferenceItems(citationLibrary, documents.map((document) => ({
+    referencesState = buildReferenceItems(citationLibrary, documents.map((document) => ({
       path: document.path,
       markdown: document.path === activeRelative && currentMarkdown !== null ? currentMarkdown : document.markdown,
-    })), activeRelative));
+    })), activeRelative);
+    referencesPanel?.render(referencesState);
+    broadcastViewWindowContext();
   } catch {
-    if (request === referencesLoad && panel === referencesPanel) panel.render("error");
+    if (request === referencesLoad) {
+      referencesState = "error";
+      referencesPanel?.render(referencesState);
+      broadcastViewWindowContext();
+    }
   }
 }
 
@@ -907,19 +1015,23 @@ async function publishProject(project: RuneProject, profile: PublishingProfile):
 }
 
 async function refreshBacklinks(): Promise<void> {
-  if (!backlinksPanel) return;
   const folder = currentFolder;
   const path = typeof paneWorkspace === "undefined" ? null : activePane().activePath();
   const load = ++backlinksLoad;
   if (!folder || !path) {
-    backlinksPanel.render("noDocument");
+    backlinksState = "noDocument";
+    backlinksPanel?.render(backlinksState);
+    broadcastViewWindowContext();
     return;
   }
-  backlinksPanel.render("loading");
+  backlinksState = "loading";
+  backlinksPanel?.render(backlinksState);
   const result = await commands.workspaceIndexBacklinks(folder, path);
   if (load !== backlinksLoad || !currentFolder || !samePath(currentFolder, folder)
     || !samePath(activePane().activePath() ?? "", path)) return;
-  backlinksPanel.render(result.status === "ok" ? result.data : "error");
+  backlinksState = result.status === "ok" ? result.data : "error";
+  backlinksPanel?.render(backlinksState);
+  broadcastViewWindowContext();
 }
 async function openPath(path: string): Promise<boolean> {
   const opened = await paneWorkspace.openPathInActivePane(path);
@@ -1009,9 +1121,11 @@ async function refreshWorkspaceHeadings(
 async function refreshFolderContents(dir: string): Promise<void> {
   const res = await commands.listDir(dir);
   if (res.status === "error") { console.error(res.error); errorBanner.show(tr("error.openFolder", { msg: res.error })); tree.showError(); throw new Error(res.error); }
-  tree.render(res.data, dir);
-  workspaceFiles = flattenFiles(res.data);
+  workspaceTree = res.data;
+  tree.render(workspaceTree, dir);
+  workspaceFiles = flattenFiles(workspaceTree);
   void projectPanel?.refresh(dir, workspaceFiles);
+  broadcastViewWindowContext();
 }
 async function loadFolder(dir: string): Promise<void> {
   await refreshFolderContents(dir);

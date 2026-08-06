@@ -29,4 +29,5 @@ export default defineConfig(async () => ({
     },
   },
   test: { environment: "node", include: ["src/**/*.test.ts"] },
+  build: { rollupOptions: { input: ["index.html", "view.html"] } },
 }));

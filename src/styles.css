@@ -472,3 +472,53 @@ html[data-focus-mode="true"] .editor-pane-root.active .cm-line.cm-focus-paragrap
 .update-banner .btn { font-size: 0.71875rem; padding: 0.1875rem 0.625rem; }
 .settings-status { font-size: 0.6875rem; color: var(--muted); }
 .cm-md-image-missing { display: inline-block; padding: 0.125rem 0.5rem; border: 1px dashed var(--border); border-radius: var(--radius-sm); color: var(--muted); font-size: 0.9em; }
+body.detached-view-window {
+  margin: 0;
+  overflow: hidden;
+  background: var(--bg);
+  color: var(--text);
+}
+
+.detached-view-shell {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  width: 100vw;
+  height: 100vh;
+  font-size: calc(13px * var(--ui-scale, 1));
+}
+
+.detached-view-header,
+.detached-view-tabs {
+  display: flex;
+  min-width: 0;
+}
+
+.detached-view-header {
+  border-bottom: 1px solid var(--border);
+}
+
+.detached-view-tabs {
+  flex: 1;
+  overflow-x: auto;
+}
+
+.detached-view-tabs button,
+.detached-view-redock {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: inherit;
+  padding: 8px 10px;
+}
+
+.detached-view-tabs button.active {
+  box-shadow: inset 0 -2px var(--accent);
+}
+
+.detached-view-content,
+.detached-view-panel {
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  overflow: auto;
+}

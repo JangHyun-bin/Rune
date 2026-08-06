@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "detached-view",
+  "description": "Minimal capability for detached Workbench View windows",
+  "windows": ["view-*"],
+  "permissions": ["core:default"]
+}
