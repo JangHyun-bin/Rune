@@ -67,5 +67,6 @@ describe("native Workbench release smoke", () => {
     await $('html[data-wdio-saved-window-count="1"]').waitForExist();
     await browser.execute(() => window.dispatchEvent(new Event("rune:wdio-save-shutdown-layout")));
     await $('html[data-wdio-shutdown-saved="true"]').waitForExist();
+    await browser.execute(() => window.dispatchEvent(new Event("rune:wdio-exit")));
   });
 });
