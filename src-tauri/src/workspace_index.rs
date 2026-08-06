@@ -224,7 +224,10 @@ impl WorkspaceIndex {
             .flat_map(|document| {
                 let target = target.clone();
                 document.outbound_links.iter().filter_map(move |link| {
-                    (resolve_link_path(&document.path, &link.href)? == target).then(|| Backlink {
+                    if resolve_link_path(&document.path, &link.href)? != target {
+                        return None;
+                    }
+                    Some(Backlink {
                         path: document.path.to_string_lossy().into_owned(),
                         name: document.name.clone(),
                         line: link.line,

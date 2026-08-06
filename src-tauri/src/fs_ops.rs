@@ -303,8 +303,8 @@ pub fn scan_dir(root: &Path, depth: usize) -> Vec<FileNode> {
             files.push(FileNode { name, path: p, is_dir: false, children: vec![] });
         }
     }
-    dirs.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
-    files.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+    dirs.sort_by_key(|entry| entry.name.to_lowercase());
+    files.sort_by_key(|entry| entry.name.to_lowercase());
     dirs.into_iter().chain(files).collect()
 }
 

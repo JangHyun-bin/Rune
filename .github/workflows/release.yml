@@ -94,6 +94,12 @@ jobs:
       - name: Test frontend
         run: npm test -- --run
 
+      - name: Audit production frontend dependencies
+        run: npm audit --omit=dev --audit-level=high
+
+      - name: Lint Rust
+        run: cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
+
       - name: Test Rust
         run: cargo test --manifest-path src-tauri/Cargo.toml
 

@@ -53,8 +53,10 @@ jobs:
           workspaces: "./src-tauri -> target"
 
       - run: npm ci
+      - run: npm audit --omit=dev --audit-level=high
       - run: npm test -- --run
       - run: npm run build
+      - run: cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
       - run: cargo test --manifest-path src-tauri/Cargo.toml
       - name: Test installed Pandoc integration
         run: cargo test --manifest-path src-tauri/Cargo.toml installed_pandoc_converts_rich_fixture_to_docx_and_epub -- --ignored

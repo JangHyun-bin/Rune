@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 #[derive(Serialize, Deserialize, Debug, Default)]
 #[serde(rename_all = "camelCase", default)]
@@ -80,7 +80,7 @@ pub fn load(path: &PathBuf) -> Settings {
         .unwrap_or_default()
 }
 
-pub fn save(path: &PathBuf, s: &Settings) -> Result<(), String> {
+pub fn save(path: &Path, s: &Settings) -> Result<(), String> {
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
     }

@@ -18,6 +18,7 @@ import { mountTagsPanel } from "./workspace/tagsPanel";
 import type { WorkbenchViewId } from "./workbench/workbenchLayout";
 import type { ViewWindowContext } from "./workbench/viewWindowHost";
 import { normalizeViewWindowTransfer, type ViewWindowPresentation, type ViewWindowTransfer } from "./workbench/viewWindowTransfer";
+import { nextDetachedTabIndex } from "./workbench/viewWindowTabs";
 
 const currentWindow = getCurrentWebviewWindow();
 const mainWindow = "main";
@@ -80,7 +81,7 @@ function render(): void {
   redock.type = "button";
   redock.className = "detached-view-redock";
   redock.textContent = "↙";
-  redock.title = "Move View Group Back to Main Window";
+  redock.title = t("workbench.moveBackToMainWindow");
   redock.setAttribute("aria-label", redock.title);
   redock.addEventListener("click", () => { void emitTo(mainWindow, "rune:view-window-redock", { windowLabel: currentWindow.label }); });
   header.append(tabs, redock);
@@ -92,6 +93,9 @@ function render(): void {
   for (const viewId of transfer.group.viewIds) {
     const element = document.createElement("div");
     element.className = "detached-view-panel";
+    element.id = `detached-panel-${viewId}`;
+    element.setAttribute("role", "tabpanel");
+    element.setAttribute("aria-labelledby", `detached-tab-${viewId}`);
     element.hidden = true;
     content.appendChild(element);
     elements.set(viewId, element);
@@ -152,7 +156,7 @@ function render(): void {
     }
   }
 
-  const activate = (viewId: WorkbenchViewId): void => {
+  const activate = (viewId: WorkbenchViewId, focusPanel = true): void => {
     transfer!.group.activeViewId = viewId;
     void action("active-view", { viewId });
     for (const [id, panel] of panels) panel.element.hidden = id !== viewId;
@@ -160,8 +164,9 @@ function render(): void {
       const active = button.dataset.viewId === viewId;
       button.classList.toggle("active", active);
       button.setAttribute("aria-selected", String(active));
+      button.tabIndex = active ? 0 : -1;
     }
-    panels.get(viewId)?.focus?.();
+    if (focusPanel) panels.get(viewId)?.focus?.();
   };
   cycleTab = (direction) => {
     const current = transfer!.group.viewIds.indexOf(transfer!.group.activeViewId!);
@@ -171,10 +176,20 @@ function render(): void {
   for (const viewId of transfer.group.viewIds) {
     const tab = document.createElement("button");
     tab.type = "button";
+    tab.id = `detached-tab-${viewId}`;
     tab.dataset.viewId = viewId;
     tab.setAttribute("role", "tab");
+    tab.setAttribute("aria-controls", `detached-panel-${viewId}`);
     tab.textContent = t(`view.${viewId}`);
     tab.addEventListener("click", () => activate(viewId));
+    tab.addEventListener("keydown", (event) => {
+      const next = nextDetachedTabIndex(transfer!.group.viewIds.indexOf(viewId), transfer!.group.viewIds.length, event.key);
+      if (next === null) return;
+      event.preventDefault();
+      const nextView = transfer!.group.viewIds[next];
+      activate(nextView, false);
+      tabs.querySelector<HTMLButtonElement>(`[data-view-id="${nextView}"]`)?.focus();
+    });
     tabs.appendChild(tab);
   }
   refreshPanels = () => { for (const panel of panels.values()) panel.refresh(); };

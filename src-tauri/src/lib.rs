@@ -57,27 +57,6 @@ pub(crate) fn take_queued_launch_files(
     std::mem::take(&mut *pending)
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn drains_initial_and_second_instance_files_in_arrival_order() {
-        let ready = AtomicBool::new(false);
-        let launch = Mutex::new(vec!["C:/vault/initial.md".to_owned()]);
-
-        assert!(queue_open_file_until_ready(
-            &ready,
-            &launch,
-            "C:/vault/second.md".into()
-        ));
-        assert_eq!(
-            take_queued_launch_files(&ready, &launch),
-            vec!["C:/vault/initial.md", "C:/vault/second.md"]
-        );
-    }
-}
-
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let initial = file_from_args(&std::env::args().collect::<Vec<_>>());
@@ -167,4 +146,25 @@ pub fn run() {
             }
             let _ = (&app, &event);
         });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn drains_initial_and_second_instance_files_in_arrival_order() {
+        let ready = AtomicBool::new(false);
+        let launch = Mutex::new(vec!["C:/vault/initial.md".to_owned()]);
+
+        assert!(queue_open_file_until_ready(
+            &ready,
+            &launch,
+            "C:/vault/second.md".into()
+        ));
+        assert_eq!(
+            take_queued_launch_files(&ready, &launch),
+            vec!["C:/vault/initial.md", "C:/vault/second.md"]
+        );
+    }
 }
