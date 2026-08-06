@@ -1,25 +1,23 @@
 const waitForWindowCount = async (count) => {
-  await browser.waitUntil(async () => (await browser.getWindowHandles()).length === count, {
+  await browser.waitUntil(async () => (await browser.tauri.listWindows()).length === count, {
     timeout: 15_000,
     timeoutMsg: `Expected ${count} native Rune window(s)`,
   });
-  return browser.getWindowHandles();
+  return browser.tauri.listWindows();
 };
 
 const mainHandle = async () => {
-  for (const handle of await browser.getWindowHandles()) {
-    await browser.switchToWindow(handle);
-    if (await $("#editor").isExisting()) return handle;
-  }
-  throw new Error("Rune main window was not found");
+  await browser.tauri.switchWindow("main");
+  return browser.getWindowHandle();
 };
 
 const resetDetachedViews = async () => {
   await browser.pause(1_500);
   while ((await browser.getWindowHandles()).length > 1) {
-    const initialCount = (await browser.getWindowHandles()).length;
+    const handles = await browser.getWindowHandles();
+    const initialCount = handles.length;
     let redocked = false;
-    for (const handle of await browser.getWindowHandles()) {
+    for (const handle of handles) {
       await browser.switchToWindow(handle);
       const button = await $(".detached-view-redock");
       if (await button.isExisting()) {
@@ -45,9 +43,9 @@ const tearOffOutline = async () => {
 
 describe("native Workbench release smoke", () => {
   it("preserves a dirty editor while tearing off and persists the detached layout", async () => {
+    const main = await mainHandle();
     await $('html[data-wdio-ready="true"]').waitForExist();
     await resetDetachedViews();
-    const main = await mainHandle();
     await browser.switchToWindow(main);
     const editor = await $('.cm-content[contenteditable="true"]');
     await editor.waitForDisplayed();
@@ -56,11 +54,11 @@ describe("native Workbench release smoke", () => {
 
     await browser.execute(() => delete document.documentElement.dataset.wdioSavedWindowCount);
     const handles = await tearOffOutline();
-    const detachedHandle = handles.find((handle) => handle !== main);
-    expect(detachedHandle).toBeTruthy();
-    await browser.switchToWindow(detachedHandle);
+    const detachedLabel = handles.find((label) => label !== "main");
+    expect(detachedLabel).toBeTruthy();
+    await browser.tauri.switchWindow(detachedLabel);
     await $(".detached-view-redock").waitForDisplayed();
-    await browser.switchToWindow(main);
+    await browser.tauri.switchWindow("main");
     expect(await $('.cm-content[contenteditable="true"]').getText()).toContain("RC dirty buffer sentinel");
     await $('html[data-wdio-saved-window-count="1"]').waitForExist();
   });
