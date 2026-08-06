@@ -204,7 +204,7 @@ jobs:
             os: windows
             target: x86_64-pc-windows-msvc
             args: ""
-            config_args: ""
+            config_args: "--config runner-tauri-windows.conf.json"
 
     runs-on: ${{ matrix.platform }}
     steps:
@@ -272,6 +272,34 @@ jobs:
               timeout=180,
           )
           PY
+
+      - name: Prepare Windows installer version
+        if: matrix.os == 'windows'
+        shell: pwsh
+        run: |
+          $version = (Get-Content package.json | ConvertFrom-Json).version
+          $segments = $version -split '-', 2
+          [int[]] $core = $segments[0] -split '\.'
+          $build = 0
+          if ($segments.Count -eq 2) {
+            if ($segments[1] -notmatch '(\d+)$') {
+              throw "Cannot derive MSI build number from $version."
+            }
+            $build = [int] $Matches[1]
+          }
+          if ($core.Count -ne 3 -or $core[0] -gt 255 -or $core[1] -gt 255 `
+              -or $core[2] -gt 65535 -or $build -gt 65535) {
+            throw "MSI version components are out of range for $version."
+          }
+          $wixVersion = "$($core[0]).$($core[1]).$($core[2]).$build"
+          $config = @{ bundle = @{ windows = @{ wix = @{ version = $wixVersion } } } }
+          $json = $config | ConvertTo-Json -Depth 5 -Compress
+          [IO.File]::WriteAllText(
+            (Join-Path $PWD 'runner-tauri-windows.conf.json'),
+            $json,
+            [Text.UTF8Encoding]::new($false)
+          )
+          Write-Host "MSI ProductVersion $wixVersion for Rune $version"
 
       - name: Build and upload
         uses: tauri-apps/tauri-action@v0
