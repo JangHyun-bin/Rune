@@ -153,6 +153,10 @@ jobs:
         with:
           workspaces: "./src-tauri -> target"
 
+      - name: Install tauri-driver
+        if: matrix.os == 'linux'
+        run: cargo install tauri-driver --locked
+
       - name: Install frontend dependencies
         run: npm ci
 
@@ -167,7 +171,7 @@ jobs:
 
       - name: Verify native Workbench windows on Linux
         if: matrix.os == 'linux'
-        run: xvfb-run -a npm run test:e2e:workbench
+        run: xvfb-run -a npm run test:e2e:workbench:linux
 
   build:
     needs: [preflight, verify-source, native-workbench-smoke]
