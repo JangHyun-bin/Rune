@@ -728,7 +728,13 @@ function applyLocale(l: Locale): void {
   scheduleSaveSettings();
 }
 const settingsSaveScheduler = createSettingsSaveScheduler(
-  () => { void commands.saveSettings(settingsSnapshot()); },
+  () => {
+    void commands.saveSettings(settingsSnapshot()).then((result) => {
+      if (import.meta.env.VITE_WDIO === "1" && result.status === "ok") {
+        document.documentElement.dataset.wdioSavedWindowCount = String(viewWindowHost?.layoutSnapshot().windows.length ?? 0);
+      }
+    });
+  },
   500,
 );
 function scheduleSaveSettings() {

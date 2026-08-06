@@ -54,6 +54,7 @@ describe("native Workbench release smoke", () => {
     await editor.setValue("RC dirty buffer sentinel");
     expect(await editor.getText()).toContain("RC dirty buffer sentinel");
 
+    await browser.execute(() => delete document.documentElement.dataset.wdioSavedWindowCount);
     const handles = await tearOffOutline();
     const detachedHandle = handles.find((handle) => handle !== main);
     expect(detachedHandle).toBeTruthy();
@@ -61,6 +62,6 @@ describe("native Workbench release smoke", () => {
     await $(".detached-view-redock").waitForDisplayed();
     await browser.switchToWindow(main);
     expect(await $('.cm-content[contenteditable="true"]').getText()).toContain("RC dirty buffer sentinel");
-    await browser.pause(1_500);
+    await $('html[data-wdio-saved-window-count="1"]').waitForExist();
   });
 });
