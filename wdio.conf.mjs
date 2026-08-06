@@ -3,6 +3,7 @@ import { dirname, join } from "node:path";
 
 const root = dirname(fileURLToPath(import.meta.url));
 const binary = join(root, "src-tauri", "target", "debug", process.platform === "win32" ? "rune.exe" : "rune");
+const linux = process.platform === "linux";
 
 export const config = {
   runner: "local",
@@ -10,7 +11,8 @@ export const config = {
   maxInstances: 1,
   services: [["@wdio/tauri-service", {
     appBinaryPath: binary,
-    driverProvider: "embedded",
+    driverProvider: linux ? "external" : "embedded",
+    autoInstallTauriDriver: linux,
     embeddedPort: 4445,
   }]],
   capabilities: [{

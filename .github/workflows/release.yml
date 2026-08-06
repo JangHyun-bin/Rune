@@ -134,6 +134,7 @@ jobs:
             libwebkit2gtk-4.1-dev \
             libappindicator3-dev \
             librsvg2-dev \
+            webkit2gtk-driver \
             patchelf \
             build-essential \
             xvfb
