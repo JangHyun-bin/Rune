@@ -14,6 +14,12 @@ use std::sync::atomic::{AtomicBool, Ordering};
 ))]
 use tauri::{Emitter, Manager};
 
+#[cfg(all(feature = "webdriver", target_os = "linux"))]
+#[link(name = "X11")]
+extern "C" {
+    fn XInitThreads() -> std::ffi::c_int;
+}
+
 pub struct WatcherState(pub Mutex<Option<notify::RecommendedWatcher>>);
 pub struct SearchState(pub Arc<Mutex<HashSet<u64>>>);
 pub struct WorkspaceIndexState(pub Mutex<Option<Arc<workspace_index::WorkspaceIndex>>>);
@@ -68,6 +74,9 @@ pub(crate) fn take_queued_launch_files(
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    #[cfg(all(feature = "webdriver", target_os = "linux"))]
+    assert_ne!(unsafe { XInitThreads() }, 0, "failed to initialize Xlib threads");
+
     let initial = file_from_args(&std::env::args().collect::<Vec<_>>());
 
     #[allow(unused_mut)]
