@@ -14,7 +14,7 @@ import { mountFileTree, type FileTree } from "./workspace/fileTree";
 import { parentDir } from "./workspace/paths";
 import { listen, type Event } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
-import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
+import { getAllWebviewWindows, getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { mountConflictBanner } from "./workspace/conflictBanner";
 import { mountErrorBanner } from "./workspace/errorBanner";
 import {
@@ -753,7 +753,12 @@ if (import.meta.env.VITE_WDIO === "1") {
   });
   if (navigator.userAgent.includes("Linux")) {
     window.addEventListener("rune:wdio-exit", () => {
-      void viewWindowHost?.redockAll().then(() => getCurrentWebviewWindow().destroy());
+      void (async () => {
+        const current = getCurrentWebviewWindow();
+        const others = (await getAllWebviewWindows()).filter((candidate) => candidate.label !== current.label);
+        await Promise.all(others.map((candidate) => candidate.destroy()));
+        await current.destroy();
+      })();
     });
   }
 }
