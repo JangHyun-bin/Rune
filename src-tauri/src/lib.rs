@@ -96,9 +96,11 @@ pub fn run() {
 
     #[cfg(feature = "webdriver")]
     {
-        builder = builder
-            .plugin(tauri_plugin_wdio::init())
-            .plugin(tauri_plugin_wdio_webdriver::init());
+        builder = builder.plugin(tauri_plugin_wdio::init());
+    }
+    #[cfg(all(feature = "webdriver", not(target_os = "linux")))]
+    {
+        builder = builder.plugin(tauri_plugin_wdio_webdriver::init());
     }
 
     builder
