@@ -1396,7 +1396,7 @@ async function restore(): Promise<void> {
   const saved = s.locale && validCodes.includes(s.locale) ? (s.locale as Locale) : null;
   const firstRun = saved === null;
   setLocale(saved ?? detectLocale());
-  if (firstRun) {
+  if (firstRun && import.meta.env.VITE_WDIO !== "1") {
     setLocale(await showLanguagePicker(getLocale()));
   }
   chrome.relabel();
@@ -1629,7 +1629,10 @@ paneWorkspace = createPaneWorkspace({
 });
 bindNativeFileDrop();
 void restore().then(
-  () => settingsSaveScheduler.enable(),
+  () => {
+    settingsSaveScheduler.enable();
+    if (import.meta.env.VITE_WDIO === "1") document.documentElement.dataset.wdioReady = "true";
+  },
   (error) => {
     settingsSaveScheduler.enable(false);
     throw error;

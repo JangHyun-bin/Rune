@@ -14,14 +14,6 @@ const mainHandle = async () => {
   throw new Error("Rune main window was not found");
 };
 
-const acceptFirstRunLanguage = async () => {
-  const option = await $(".lang-picker-opt");
-  if (await option.isExisting()) {
-    await option.click();
-    await $(".lang-picker-backdrop").waitForDisplayed({ reverse: true });
-  }
-};
-
 const resetDetachedViews = async () => {
   await browser.pause(1_500);
   while ((await browser.getWindowHandles()).length > 1) {
@@ -53,7 +45,7 @@ const tearOffOutline = async () => {
 
 describe("native Workbench release smoke", () => {
   it("preserves a dirty editor while tearing off and persists the detached layout", async () => {
-    await acceptFirstRunLanguage();
+    await $('html[data-wdio-ready="true"]').waitForExist();
     await resetDetachedViews();
     const main = await mainHandle();
     await browser.switchToWindow(main);
