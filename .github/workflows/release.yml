@@ -171,6 +171,10 @@ jobs:
 
       - name: Verify native Workbench windows on Linux
         if: matrix.os == 'linux'
+        env:
+          LIBGL_ALWAYS_SOFTWARE: "1"
+          WEBKIT_DISABLE_COMPOSITING_MODE: "1"
+          WEBKIT_DISABLE_DMABUF_RENDERER: "1"
         run: xvfb-run -a npm run test:e2e:workbench:linux
 
   build:
