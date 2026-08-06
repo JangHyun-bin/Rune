@@ -743,6 +743,15 @@ function scheduleSaveSettings() {
 function saveSettingsNow(): void {
   settingsSaveScheduler.saveNow();
 }
+if (import.meta.env.VITE_WDIO === "1") {
+  window.addEventListener("rune:wdio-save-shutdown-layout", () => {
+    void viewWindowHost?.prepareForShutdown()
+      .then(() => commands.saveSettings(settingsSnapshot()))
+      .then((result) => {
+        if (result?.status === "ok") document.documentElement.dataset.wdioShutdownSaved = "true";
+      });
+  });
+}
 
 function baseName(p: string): string { const i = Math.max(p.lastIndexOf("/"), p.lastIndexOf("\\")); return i >= 0 ? p.slice(i + 1) : p; }
 function exportTitle(): string {

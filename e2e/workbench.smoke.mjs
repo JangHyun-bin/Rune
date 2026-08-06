@@ -65,5 +65,7 @@ describe("native Workbench release smoke", () => {
     await browser.switchToWindow(main);
     expect(await $('.cm-content[contenteditable="true"]').getText()).toContain("RC dirty buffer sentinel");
     await $('html[data-wdio-saved-window-count="1"]').waitForExist();
+    await browser.execute(() => window.dispatchEvent(new Event("rune:wdio-save-shutdown-layout")));
+    await $('html[data-wdio-shutdown-saved="true"]').waitForExist();
   });
 });
