@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { createProject } from "./project";
+import { activePublishingProfile, createProject } from "./project";
 
 const readFile = vi.hoisted(() => vi.fn());
 const pathExists = vi.hoisted(() => vi.fn());
@@ -175,5 +175,49 @@ describe("project preflight", () => {
       { severity: "warning", kind: "unresolvedImage", path: "a.md", line: 1, value: "../secret.png" },
     ]);
     expect(pathExists).not.toHaveBeenCalled();
+  });
+
+  it("treats missing bibliography and CSL resources as fatal", async () => {
+    const project = createProject("Book", ["a.md"]);
+    project.bibliography = ["references/missing.bib"];
+    activePublishingProfile(project).csl = "styles/missing.csl";
+    readFile.mockResolvedValue({ status: "ok", data: "Text [@gone]." });
+    pathExists.mockImplementation(async (path: string) => ({
+      status: "ok",
+      data: path.endsWith("a.md"),
+    }));
+
+    const diagnostics = await preflightProject(project, "C:\\book", files);
+
+    expect(diagnostics).toEqual([
+      { severity: "warning", kind: "missingCitation", path: "a.md", line: 1, value: "gone" },
+      { severity: "error", kind: "missingBibliography", path: "references/missing.bib", line: null, value: "references/missing.bib" },
+      { severity: "error", kind: "missingCsl", path: "styles/missing.csl", line: null, value: "styles/missing.csl" },
+    ]);
+    expect(hasFatalProjectDiagnostics(diagnostics)).toBe(true);
+  });
+
+  it("reports unreadable resources, duplicate keys, and document citations absent from the library", async () => {
+    const project = createProject("Book", ["a.md", "b.md"]);
+    project.bibliography = ["one.bib", "two.bib", "locked.bib"];
+    activePublishingProfile(project).csl = "style.csl";
+    readFile.mockImplementation(async (path: string) => {
+      if (path.endsWith("a.md")) return { status: "ok", data: "Known [@same]. Missing [@gone]." };
+      if (path.endsWith("b.md")) return { status: "ok", data: "Again [@same]." };
+      if (path.endsWith("one.bib")) return { status: "ok", data: "@book{same, title={First}, year={2024}}" };
+      if (path.endsWith("two.bib")) return { status: "ok", data: "@article{Same, title={Second}}" };
+      if (path.endsWith("locked.bib")) return { status: "error", error: "denied" };
+      if (path.endsWith("style.csl")) return { status: "error", error: "denied" };
+      return { status: "error", error: "unexpected" };
+    });
+
+    const diagnostics = await preflightProject(project, "C:\\book", files);
+
+    expect(diagnostics).toEqual([
+      { severity: "warning", kind: "missingCitation", path: "a.md", line: 1, value: "gone" },
+      { severity: "error", kind: "unreadableBibliography", path: "locked.bib", line: null, value: "locked.bib" },
+      { severity: "error", kind: "unreadableCsl", path: "style.csl", line: null, value: "style.csl" },
+      { severity: "error", kind: "duplicateCitationKey", path: "two.bib", line: null, value: "Same" },
+    ]);
   });
 });

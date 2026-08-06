@@ -3,6 +3,13 @@ import { renderBody } from "../export/render";
 import { markdownHeadingSlug } from "../editor/markdownLinks";
 import { parseHeadings } from "../editor/outline";
 import type { ProjectOutputFormat, RuneProject } from "./project";
+import {
+  citationReferenceId,
+  referenceText,
+  renderCitationMarkdown,
+  type CitationEntry,
+  type CitationLibrary,
+} from "./citations";
 
 export interface ProjectDocument {
   path: string;
@@ -25,6 +32,7 @@ export interface ProjectExportOptions extends HtmlDocumentOptions {
   tableOfContents?: boolean;
   tableOfContentsDepth?: number;
   workspaceRoot?: string;
+  citationLibrary?: CitationLibrary;
 }
 
 export function projectOutputPath(
@@ -172,6 +180,13 @@ function buildTableOfContents(contexts: DocumentContext[], depth: number): strin
   return `<nav class="project-toc" aria-label="Table of contents"><ol>${items.join("\n")}</ol></nav>`;
 }
 
+function buildReferences(entries: CitationEntry[]): string {
+  if (!entries.length) return "";
+  const items = entries.map((entry) =>
+    `<li id="${escapeAttribute(citationReferenceId(entry.key))}">${escapeHtml(referenceText(entry))}</li>`).join("\n");
+  return `<section class="project-references" role="doc-bibliography"><h2>References</h2><ol>${items}</ol></section>`;
+}
+
 export async function buildProjectPublication(
   project: RuneProject,
   documents: ProjectDocument[],
@@ -192,11 +207,14 @@ export async function buildProjectPublication(
   const windowsContexts = new Map(contexts.map((context) => [pathKey(context.document.path, true), context]));
   const assets: ProjectAsset[] = [];
   const assetBySource = new Map<string, ProjectAsset>();
+  const cited: CitationEntry[] = [];
+  const citedKeys = new Set<string>();
 
   const sections: string[] = [];
   for (const context of contexts) {
     const windows = /^[A-Za-z]:[\\/]/.test(context.document.absolutePath ?? "");
     const rewriteHref = (href: string, kind: "link" | "image"): string => {
+      if (kind === "link" && href.startsWith("#rune-reference-")) return href;
       const parts = hrefParts(href);
       if (!parts) return href;
       if (kind === "link" && isMarkdownPath(parts.path)) {
@@ -224,7 +242,17 @@ export async function buildProjectPublication(
       }
       return `${asset.token}${assetSuffixToken}${parts.suffix}`;
     };
-    const body = await renderBody(context.document.markdown, { idPrefix: context.idPrefix, rewriteHref });
+    const citations = options.citationLibrary
+      ? renderCitationMarkdown(context.document.markdown, options.citationLibrary.entries)
+      : { markdown: context.document.markdown, cited: [] };
+    for (const entry of citations.cited) {
+      const key = entry.key.toLocaleLowerCase();
+      if (!citedKeys.has(key)) {
+        citedKeys.add(key);
+        cited.push(entry);
+      }
+    }
+    const body = await renderBody(citations.markdown, { idPrefix: context.idPrefix, rewriteHref });
     sections.push(`<section id="${context.sectionId}" class="project-document" data-project-file="${escapeAttribute(context.document.path)}">${body}</section>`);
   }
 
@@ -232,7 +260,7 @@ export async function buildProjectPublication(
   const toc = options.tableOfContents ? buildTableOfContents(contexts, tocDepth) : "";
   const title = `<header class="project-title"><h1>${escapeHtml(project.title)}</h1></header>`;
   return {
-    html: buildHtmlDocument(project.title, `${title}${toc}${sections.join("\n")}`, options),
+    html: buildHtmlDocument(project.title, `${title}${toc}${sections.join("\n")}${buildReferences(cited)}`, options),
     assets,
   };
 }

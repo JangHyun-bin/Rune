@@ -1,6 +1,6 @@
 import type { LinkTarget } from "../ipc/bindings";
 import { markdownLanguage } from "@codemirror/lang-markdown";
-import { autocompletion, type CompletionContext } from "@codemirror/autocomplete";
+import { autocompletion, type CompletionContext, type CompletionSource } from "@codemirror/autocomplete";
 import { forceLinting, linter, type Diagnostic } from "@codemirror/lint";
 import type { Extension } from "@codemirror/state";
 import { EditorView, keymap } from "@codemirror/view";
@@ -33,6 +33,7 @@ export interface MarkdownLinkExtensionOptions {
   getCurrentPath: () => string | null;
   diagnosticMessage: (kind: MarkdownLinkDiagnostic["kind"], href: string) => string;
   openLink: (path: string, line: number | null) => void;
+  completionSources?: CompletionSource[];
 }
 
 export function markdownHeadingSlug(text: string): string {
@@ -223,7 +224,7 @@ export function markdownLinkExtensions(options: MarkdownLinkExtensionOptions): E
     };
   };
   return [
-    autocompletion({ override: [complete] }),
+    autocompletion({ override: [complete, ...(options.completionSources ?? [])] }),
     keymap.of([{ key: "Mod-Enter", run: (view) => openAt(view, view.state.selection.main.head) }]),
     EditorView.domEventHandlers({
       click(event, view) {

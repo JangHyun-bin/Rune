@@ -60,10 +60,16 @@ import {
 } from "./workspace/namedLayouts";
 import { writingModesExtension } from "./editor/writingModes";
 import { markdownLinkExtensions, refreshMarkdownLinkDiagnostics } from "./editor/markdownLinks";
+import { citationCompletionSource, citationLintExtension } from "./editor/citations";
 import { mountBacklinksPanel, type BacklinksPanel } from "./workspace/backlinksPanel";
 import { mountPropertiesPanel, type PropertiesPanel } from "./workspace/propertiesPanel";
 import { mountTagsPanel, type TagsPanel } from "./workspace/tagsPanel";
-import { mountProjectPanel, projectRelativePath, type ProjectPanel } from "./workspace/projectPanel";
+import { mountProjectPanel, projectManifestPath, projectRelativePath, type ProjectPanel } from "./workspace/projectPanel";
+import {
+  buildReferenceItems,
+  mountReferencesPanel,
+  type ReferencesPanel,
+} from "./workspace/referencesPanel";
 import {
   buildProjectPublication,
   materializeProjectHtml,
@@ -72,8 +78,15 @@ import {
   type ProjectDocument,
   type ProjectPublication,
 } from "./project/projectExport";
-import type { PublishingProfile, RuneProject } from "./project/project";
+import { parseProject, type PublishingProfile, type RuneProject } from "./project/project";
 import { preflightProject, type ProjectDiagnostic } from "./project/projectPreflight";
+import { loadProjectManifest } from "./project/projectManifest";
+import {
+  mergeCitationLibraries,
+  parseBibTeX,
+  projectResourceAbsolutePath,
+  type CitationLibrary,
+} from "./project/citations";
 
 const chrome = mountChrome(document.getElementById("titlebar")!, document.getElementById("statusbar")!, {
   onTogglePrimarySidebar: () => workbench.togglePrimarySidebar(),
@@ -110,6 +123,12 @@ let backlinksLoad = 0;
 let propertiesPanel: PropertiesPanel | null = null;
 let tagsPanel: TagsPanel | null = null;
 let projectPanel: ProjectPanel | null = null;
+let referencesPanel: ReferencesPanel | null = null;
+let referencesLoad = 0;
+let referencesTimer: number | undefined;
+let citationProject: RuneProject | null = null;
+let citationLibrary: CitationLibrary = { entries: [], duplicates: [] };
+let citationLoad = 0;
 
 const viewRegistry = createViewRegistry();
 viewRegistry.registerContainer({ id: "explorer", titleKey: "view.explorer", icon: "▤", order: 0 });
@@ -253,6 +272,30 @@ viewRegistry.registerView({
       dispose: () => {
         propertiesPanel?.dispose();
         propertiesPanel = null;
+      },
+    };
+  },
+});
+viewRegistry.registerView({
+  id: "references",
+  titleKey: "view.references",
+  defaultContainerId: "auxiliary",
+  order: 2,
+  create() {
+    const element = document.createElement("div");
+    referencesPanel = mountReferencesPanel(element, (path, line) => {
+      const root = currentFolder;
+      if (root) void (async () => { if (await openPath(projectResourceAbsolutePath(root, path))) jumpToLine(line); })();
+    });
+    void refreshReferences();
+    return {
+      element,
+      focus: () => referencesPanel?.focus(),
+      relabel: () => referencesPanel?.relabel(),
+      dispose: () => {
+        referencesLoad++;
+        referencesPanel?.dispose();
+        referencesPanel = null;
       },
     };
   },
@@ -577,7 +620,10 @@ function extraExts(getDocPath: () => string | null) {
         refreshStatus();
         refreshOutline();
         findReplacePanel?.refresh();
-        if (u.docChanged) refreshProperties();
+        if (u.docChanged) {
+          refreshProperties();
+          scheduleReferencesRefresh();
+        }
       }
     }),
     findHighlightExtension(),
@@ -594,7 +640,9 @@ function extraExts(getDocPath: () => string | null) {
           }
         })();
       },
+      completionSources: [citationCompletionSource(() => citationLibrary.entries)],
     }),
+    citationLintExtension(() => citationLibrary.entries, (key) => tr("citation.diagnostic.missing", { key })),
     Prec.highest(keymap.of([{ key: "Mod-k", run: () => { palette.toggle(); return true; }, preventDefault: true }])),
   ];
 }
@@ -624,6 +672,7 @@ function syncActiveUI(): void {
   void refreshLinkTargets(path);
   void refreshBacklinks();
   refreshProperties();
+  void refreshReferences();
 }
 
 function refreshProperties(): void {
@@ -633,6 +682,71 @@ function refreshProperties(): void {
 
 function refreshTags(): void {
   void tagsPanel?.refresh(currentFolder);
+}
+
+function scheduleReferencesRefresh(): void {
+  if (!referencesPanel) return;
+  if (referencesTimer !== undefined) window.clearTimeout(referencesTimer);
+  referencesTimer = window.setTimeout(() => {
+    referencesTimer = undefined;
+    void refreshReferences();
+  }, 200);
+}
+
+async function refreshReferences(): Promise<void> {
+  const panel = referencesPanel;
+  const project = citationProject;
+  const root = currentFolder;
+  const request = ++referencesLoad;
+  if (!panel || !root || !project) {
+    panel?.render("noProject");
+    return;
+  }
+  panel.render("loading");
+  try {
+    const documents = await projectDocuments(project);
+    if (request !== referencesLoad || panel !== referencesPanel || !currentFolder || !samePath(currentFolder, root)) return;
+    const activePath = activePane().activePath();
+    let activeRelative: string | null = null;
+    if (activePath) {
+      try { activeRelative = projectRelativePath(root, activePath); } catch { /* loose file */ }
+    }
+    const currentMarkdown = activeRelative ? activeView().state.doc.toString() : null;
+    panel.render(buildReferenceItems(citationLibrary, documents.map((document) => ({
+      path: document.path,
+      markdown: document.path === activeRelative && currentMarkdown !== null ? currentMarkdown : document.markdown,
+    })), activeRelative));
+  } catch {
+    if (request === referencesLoad && panel === referencesPanel) panel.render("error");
+  }
+}
+
+async function readCitationLibrary(project: RuneProject, root: string): Promise<CitationLibrary> {
+  const libraries = await Promise.all(project.bibliography.map(async (path) => {
+    const result = await commands.readFile(projectResourceAbsolutePath(root, path));
+    return result.status === "ok" ? parseBibTeX(result.data, path) : { entries: [], duplicates: [] };
+  }));
+  return mergeCitationLibraries(libraries);
+}
+
+async function refreshCitationState(root: string): Promise<void> {
+  const request = ++citationLoad;
+  const manifest = await loadProjectManifest(projectManifestPath(root));
+  let project: RuneProject | null = null;
+  let library: CitationLibrary = { entries: [], duplicates: [] };
+  if (manifest.status === "ok" && manifest.source !== null) {
+    try {
+      project = parseProject(manifest.source);
+      library = await readCitationLibrary(project, root);
+    } catch {
+      project = null;
+    }
+  }
+  if (request !== citationLoad || !currentFolder || !samePath(currentFolder, root)) return;
+  citationProject = project;
+  citationLibrary = library;
+  if (typeof paneWorkspace !== "undefined") refreshMarkdownLinkDiagnostics(activeView());
+  void refreshReferences();
 }
 
 async function projectDocuments(project: RuneProject): Promise<ProjectDocument[]> {
@@ -659,7 +773,7 @@ async function preflightCurrentProject(project: RuneProject): Promise<ProjectDia
   return diagnostics;
 }
 
-function projectExportOptions(profile: PublishingProfile) {
+function projectExportOptions(profile: PublishingProfile, library: CitationLibrary) {
   return {
     workspaceRoot: currentFolder ?? undefined,
     theme: profile.theme,
@@ -669,6 +783,7 @@ function projectExportOptions(profile: PublishingProfile) {
     tableOfContents: profile.tableOfContents,
     tableOfContentsDepth: profile.tableOfContentsDepth,
     metadata: profile.metadata,
+    citationLibrary: library,
   };
 }
 
@@ -677,7 +792,10 @@ async function projectPublication(project: RuneProject, profile: PublishingProfi
   documents: ProjectDocument[];
 }> {
   const documents = await projectDocuments(project);
-  return { publication: await buildProjectPublication(project, documents, projectExportOptions(profile)), documents };
+  const root = currentFolder;
+  if (!root) throw new Error("No workspace folder");
+  const library = await readCitationLibrary(project, root);
+  return { publication: await buildProjectPublication(project, documents, projectExportOptions(profile, library)), documents };
 }
 
 function previewPublicationHtml(publication: ProjectPublication): string {
@@ -837,6 +955,7 @@ async function refreshFolderContents(dir: string): Promise<void> {
 async function loadFolder(dir: string): Promise<void> {
   await refreshFolderContents(dir);
   currentFolder = dir;
+  await refreshCitationState(dir);
   workspaceHeadings = [];
   await refreshWorkspaceHeadings(dir, workspaceFiles);
   void commands.watchFolder(dir);
@@ -1216,6 +1335,7 @@ function onFsChange(paths: string[]): void {
     const folder = currentFolder;
     if (folder) {
       await refreshFolderContents(folder).catch(() => {});
+      void refreshCitationState(folder);
       if (currentFolder && samePath(currentFolder, folder)) {
         void refreshWorkspaceHeadings(folder, workspaceFiles, changedPaths);
       }

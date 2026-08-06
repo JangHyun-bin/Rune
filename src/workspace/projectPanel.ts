@@ -305,6 +305,8 @@ export function mountProjectPanel(
       labeled(t("project.profile.toc"), checkbox(profile.tableOfContents, (checked) => updateProfile((item) => ({ ...item, tableOfContents: checked })))),
       labeled(t("project.profile.tocDepth"), textInput(String(profile.tableOfContentsDepth), (value) => updateProfile((item) => ({ ...item, tableOfContentsDepth: Number(value) })), "number")),
       labeled(t("project.profile.pageBreak"), checkbox(profile.pageBreakDocuments, (checked) => updateProfile((item) => ({ ...item, pageBreakDocuments: checked })))),
+      labeled(t("project.profile.csl"), textInput(profile.csl, (value) => updateProfile((item) => ({ ...item, csl: value })))),
+      labeled(t("project.profile.citationLocale"), textInput(profile.citationLocale, (value) => updateProfile((item) => ({ ...item, citationLocale: value })))),
       labeled(t("project.profile.author"), textInput(profile.metadata.author, (value) => updateProfile((item) => ({ ...item, metadata: { ...item.metadata, author: value } })))),
       labeled(t("project.profile.subject"), textInput(profile.metadata.subject, (value) => updateProfile((item) => ({ ...item, metadata: { ...item.metadata, subject: value } })))),
     );
@@ -405,7 +407,13 @@ export function mountProjectPanel(
     status.textContent = message;
     status.setAttribute("aria-live", "polite");
     statusElement = status;
-    host.append(title, drawProfile(), actions, list, diagnosticList, status);
+    const bibliography = textInput(project.bibliography.join(", "), (value) => {
+      project = { ...project!, bibliography: value.split(",").map((path) => path.trim()).filter(Boolean) };
+      clearFeedback();
+      draw();
+    });
+    bibliography.placeholder = "references.bib";
+    host.append(title, labeled(t("project.bibliography"), bibliography), drawProfile(), actions, list, diagnosticList, status);
   };
 
   const panel: ProjectPanel = {

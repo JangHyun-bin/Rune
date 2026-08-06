@@ -26,6 +26,8 @@ export interface PublishingProfile {
   tableOfContents: boolean;
   tableOfContentsDepth: number;
   pageBreakDocuments: boolean;
+  csl: string;
+  citationLocale: string;
   metadata: ProjectMetadata;
   extras: Record<string, unknown>;
 }
@@ -41,6 +43,7 @@ export interface RuneProject {
   version: 2;
   title: string;
   files: string[];
+  bibliography: string[];
   publishing: ProjectPublishing;
   extras: Record<string, unknown>;
 }
@@ -70,6 +73,17 @@ export function normalizeOutputDirectory(path: string): string {
   if (!normalized || normalized.startsWith("/") || /^[A-Za-z]:\//.test(normalized)
     || segments.some((segment) => !segment || segment === "." || segment === "..")) {
     throw new Error(`Invalid publishing output directory: ${path}`);
+  }
+  return normalized;
+}
+
+export function normalizeProjectResourcePath(path: string, extension: ".bib" | ".csl"): string {
+  const normalized = path.trim().replace(/\\/g, "/");
+  const segments = normalized.split("/");
+  if (!normalized || normalized.startsWith("/") || /^[A-Za-z]:\//.test(normalized)
+    || segments.some((segment) => !segment || segment === "." || segment === "..")
+    || !normalized.toLowerCase().endsWith(extension)) {
+    throw new Error(`Invalid project resource path: ${path}`);
   }
   return normalized;
 }
@@ -105,6 +119,8 @@ function defaultProfile(name = "Default", id = "default"): PublishingProfile {
     tableOfContents: true,
     tableOfContentsDepth: 3,
     pageBreakDocuments: true,
+    csl: "",
+    citationLocale: "",
     metadata: { author: "", subject: "", extras: {} },
     extras: {},
   };
@@ -118,6 +134,8 @@ function parseProfile(value: unknown): PublishingProfile {
   const theme = record.theme;
   const pageSize = record.pageSize;
   const depth = record.tableOfContentsDepth;
+  const cslValue = stringValue(record.csl ?? "", "citation style", true);
+  const citationLocale = stringValue(record.citationLocale ?? "", "citation locale", true);
   if (format !== "html" && format !== "pdf" && format !== "docx" && format !== "epub") {
     throw new Error("Invalid publishing format");
   }
@@ -125,6 +143,9 @@ function parseProfile(value: unknown): PublishingProfile {
   if (pageSize !== "A4" && pageSize !== "Letter") throw new Error("Invalid publishing page size");
   if (typeof record.tableOfContents !== "boolean" || !Number.isInteger(depth) || (depth as number) < 1 || (depth as number) > 6
     || typeof record.pageBreakDocuments !== "boolean") throw new Error("Invalid publishing profile options");
+  if (citationLocale && !/^[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$/.test(citationLocale)) {
+    throw new Error("Invalid citation locale");
+  }
   return {
     id: stringValue(record.id, "publishing profile id"),
     name: stringValue(record.name, "publishing profile name"),
@@ -141,6 +162,8 @@ function parseProfile(value: unknown): PublishingProfile {
     tableOfContents: record.tableOfContents,
     tableOfContentsDepth: depth as number,
     pageBreakDocuments: record.pageBreakDocuments,
+    csl: cslValue ? normalizeProjectResourcePath(cslValue, ".csl") : "",
+    citationLocale,
     metadata: {
       author: stringValue(metadata.author ?? "", "author", true),
       subject: stringValue(metadata.subject ?? "", "subject", true),
@@ -148,7 +171,7 @@ function parseProfile(value: unknown): PublishingProfile {
     },
     extras: extras(record, [
       "id", "name", "format", "outputDirectory", "theme", "pageSize", "margins",
-      "tableOfContents", "tableOfContentsDepth", "pageBreakDocuments", "metadata",
+      "tableOfContents", "tableOfContentsDepth", "pageBreakDocuments", "csl", "citationLocale", "metadata",
     ]),
   };
 }
@@ -187,6 +210,8 @@ function serializeProfile(profile: PublishingProfile): Record<string, unknown> {
     tableOfContents: profile.tableOfContents,
     tableOfContentsDepth: profile.tableOfContentsDepth,
     pageBreakDocuments: profile.pageBreakDocuments,
+    csl: profile.csl,
+    citationLocale: profile.citationLocale,
     metadata: { ...profile.metadata.extras, author: profile.metadata.author, subject: profile.metadata.subject },
   };
 }
@@ -199,6 +224,7 @@ export function createProject(title: string, files: string[] = []): RuneProject 
     version: 2,
     title: normalizedTitle,
     files: files.map(normalizeProjectPath),
+    bibliography: [],
     publishing: { profiles: [profile], activeProfileId: profile.id, lastSuccessfulProfileId: null, extras: {} },
     extras: {},
   };
@@ -213,10 +239,15 @@ export function parseProject(source: string): RuneProject {
     return { ...base, extras: extras(record, ["version", "title", "files"]) };
   }
   if (record.version !== 2) throw new Error("Unsupported project manifest version");
+  const bibliography = record.bibliography ?? [];
+  if (!Array.isArray(bibliography) || bibliography.some((path) => typeof path !== "string")) {
+    throw new Error("Invalid project bibliography");
+  }
   return {
     ...base,
+    bibliography: (bibliography as string[]).map((path) => normalizeProjectResourcePath(path, ".bib")),
     publishing: parsePublishing(record.publishing),
-    extras: extras(record, ["version", "title", "files", "publishing"]),
+    extras: extras(record, ["version", "title", "files", "bibliography", "publishing"]),
   };
 }
 
@@ -226,6 +257,7 @@ export function serializeProject(project: RuneProject): string {
     version: 2,
     title: project.title,
     files: project.files,
+    bibliography: project.bibliography,
     publishing: {
       ...project.publishing.extras,
       profiles: project.publishing.profiles.map(serializeProfile),
@@ -238,6 +270,7 @@ export function serializeProject(project: RuneProject): string {
     version: validated.version,
     title: validated.title,
     files: validated.files,
+    bibliography: validated.bibliography,
     publishing: {
       ...validated.publishing.extras,
       profiles: validated.publishing.profiles.map(serializeProfile),

@@ -68,6 +68,7 @@ describe("workbench layout", () => {
     expect(migrated.parts.primarySidebar.size).toBe(333);
     expect(migrated.views.backlinks).toMatchObject({ containerId: "auxiliary", visible: true });
     expect(migrated.views.properties).toMatchObject({ containerId: "auxiliary", visible: true });
+    expect(migrated.views.references).toMatchObject({ containerId: "auxiliary", visible: true });
     expect(migrated.views.tags).toMatchObject({ containerId: "explorer", visible: true });
     expect(migrated.views.project).toMatchObject({ containerId: "explorer", visible: true });
   });
@@ -95,6 +96,13 @@ describe("workbench layout", () => {
     expect(reopened.parts.primarySidebar.activeContainerId).toBe("explorer");
   });
 
+  it("moves the References View through the existing dock layout", () => {
+    const moved = moveView(DEFAULT_WORKBENCH_LAYOUT, "references", "panel");
+    expect(moved.views.references).toMatchObject({ containerId: "panel", visible: true });
+    expect(moved.parts.panel.visible).toBe(true);
+    expect(openView(closeView(moved, "references"), "references").views.references.visible).toBe(true);
+  });
+
   it("moves Outline to the auxiliary container and opens Secondary Sidebar", () => {
     const state = moveView(DEFAULT_WORKBENCH_LAYOUT, "outline", "auxiliary");
     expect(state.views.outline.containerId).toBe("auxiliary");
@@ -103,7 +111,7 @@ describe("workbench layout", () => {
   });
 
   it("hides empty destination parts when their final view closes", () => {
-    const emptyAuxiliary = closeView(closeView(DEFAULT_WORKBENCH_LAYOUT, "backlinks"), "properties");
+    const emptyAuxiliary = closeView(closeView(closeView(DEFAULT_WORKBENCH_LAYOUT, "backlinks"), "properties"), "references");
     const secondary = moveView(emptyAuxiliary, "outline", "auxiliary");
     expect(closeView(secondary, "outline").parts.secondarySidebar.visible).toBe(false);
     const panel = moveView(DEFAULT_WORKBENCH_LAYOUT, "outline", "panel");

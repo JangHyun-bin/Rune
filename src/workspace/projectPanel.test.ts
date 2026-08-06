@@ -162,6 +162,28 @@ describe("Project View data", () => {
     expect(saved.publishing.profiles[0].format).toBe("docx");
   });
 
+  it("persists bibliography, CSL, and citation locale settings", async () => {
+    const panel = mountProjectPanel(host as unknown as HTMLElement, vi.fn(), vi.fn(), vi.fn());
+    await panel.refresh("C:\\book", [{ path: "C:\\book\\a.md" }]);
+    includeFirstFile();
+    const bibliography = labeledControl("Bibliography (.bib)", "input");
+    bibliography.value = "refs\\main.bib, sources.bib";
+    bibliography.dispatch("change");
+    const csl = labeledControl("CSL style (.csl)", "input");
+    csl.value = "styles\\apa.csl";
+    csl.dispatch("change");
+    const locale = labeledControl("Citation locale", "input");
+    locale.value = "ko-KR";
+    locale.dispatch("change");
+
+    button("Save project").dispatch("click");
+
+    await vi.waitFor(() => expect(writeFileIfUnchanged).toHaveBeenCalled());
+    const saved = JSON.parse(writeFileIfUnchanged.mock.calls.at(-1)?.[2] as string);
+    expect(saved.bibliography).toEqual(["refs/main.bib", "sources.bib"]);
+    expect(saved.publishing.profiles[0]).toMatchObject({ csl: "styles/apa.csl", citationLocale: "ko-KR" });
+  });
+
   it("publishes again with the last successful profile and records success safely", async () => {
     const original = createProject("Book", ["a.md"]);
     original.publishing.lastSuccessfulProfileId = "default";

@@ -53,6 +53,36 @@ describe("Rune project model", () => {
     expect(saved.publishing.profiles[0].metadata.futureMetadata).toBe(true);
   });
 
+  it("roundtrips bibliography sources and citation profile settings", () => {
+    const manifest = JSON.parse(serializeProject(createProject("Book", ["one.md"])));
+    manifest.bibliography = ["references\\main.bib", "sources.bib"];
+    manifest.publishing.profiles[0].csl = "styles\\apa.csl";
+    manifest.publishing.profiles[0].citationLocale = "ko-KR";
+
+    const project = parseProject(JSON.stringify(manifest));
+
+    expect(project.bibliography).toEqual(["references/main.bib", "sources.bib"]);
+    expect(activePublishingProfile(project)).toMatchObject({ csl: "styles/apa.csl", citationLocale: "ko-KR" });
+    expect(JSON.parse(serializeProject(project))).toMatchObject({
+      bibliography: ["references/main.bib", "sources.bib"],
+      publishing: { profiles: [{ csl: "styles/apa.csl", citationLocale: "ko-KR" }] },
+    });
+  });
+
+  it("adds citation defaults while migrating old manifests", () => {
+    const versionOne = parseProject(JSON.stringify({ version: 1, title: "Book", files: [] }));
+    const versionTwo = JSON.parse(serializeProject(createProject("Book")));
+    delete versionTwo.bibliography;
+    delete versionTwo.publishing.profiles[0].csl;
+    delete versionTwo.publishing.profiles[0].citationLocale;
+
+    expect(versionOne.bibliography).toEqual([]);
+    expect(activePublishingProfile(versionOne)).toMatchObject({ csl: "", citationLocale: "" });
+    expect(parseProject(JSON.stringify(versionTwo)).bibliography).toEqual([]);
+    expect(activePublishingProfile(parseProject(JSON.stringify(versionTwo))))
+      .toMatchObject({ csl: "", citationLocale: "" });
+  });
+
   it.each(["docx", "epub"] as const)("roundtrips the %s publishing format", (format) => {
     const manifest = JSON.parse(serializeProject(createProject("Book", ["one.md"])));
     manifest.publishing.profiles[0].format = format;
@@ -68,6 +98,16 @@ describe("Rune project model", () => {
     for (const outputDirectory of ["../outside", "/absolute", "C:\\absolute", "a//b"]) {
       manifest.publishing.profiles[0].outputDirectory = outputDirectory;
       expect(() => parseProject(JSON.stringify(manifest))).toThrow();
+    }
+    for (const bibliography of ["../secret.bib", "/absolute.bib", "C:\\absolute.bib", "notes.md"]) {
+      const unsafe = JSON.parse(serializeProject(createProject("Book")));
+      unsafe.bibliography = [bibliography];
+      expect(() => parseProject(JSON.stringify(unsafe))).toThrow();
+    }
+    for (const csl of ["../style.csl", "/style.csl", "C:\\style.csl", "style.xml"]) {
+      const unsafe = JSON.parse(serializeProject(createProject("Book")));
+      unsafe.publishing.profiles[0].csl = csl;
+      expect(() => parseProject(JSON.stringify(unsafe))).toThrow();
     }
   });
 

@@ -56,6 +56,7 @@ img{max-width:100%}
 .project-title{margin-bottom:2rem}.project-title>h1{font-size:2rem}
 .project-toc{margin:0 0 3rem}.project-toc ol{list-style:none;padding:0}.toc-entry{margin:.25rem 0}.toc-entry a{color:inherit;text-decoration:none}.toc-level-2{padding-left:1rem}.toc-level-3{padding-left:2rem}.toc-level-4{padding-left:3rem}.toc-level-5{padding-left:4rem}.toc-level-6{padding-left:5rem}
 .project-document{min-width:0}
+.project-references{border-top:1px solid #d0d7de;margin-top:3rem;padding-top:1rem}.project-references ol{padding-left:1.5rem}.project-references li{margin:.5rem 0}.project-document a[href^="#rune-reference-"]{text-decoration:none}
 @page{size:${options.pageSize ?? "A4"};margin:${safeMargin(margins.top, 18)}mm ${safeMargin(margins.right, 18)}mm ${safeMargin(margins.bottom, 18)}mm ${safeMargin(margins.left, 18)}mm}
 @media print{
   body{max-width:none;margin:0;padding:0;color:#000;background:#fff}

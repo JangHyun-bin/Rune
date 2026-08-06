@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { createProject } from "./project";
+import type { CitationLibrary } from "./citations";
 
 const renderDelays = vi.hoisted(() => new Map<string, number>());
 
@@ -24,6 +25,37 @@ import {
 } from "./projectExport";
 
 describe("project HTML assembly", () => {
+  it("renders linked citations and one first-use ordered references list without changing source Markdown", async () => {
+    const library: CitationLibrary = {
+      duplicates: [],
+      entries: [
+        { key: "kim2025", type: "article", sourcePath: "refs.bib", fields: { author: "Kim, Mina", title: "Rune Study", year: "2025" } },
+        { key: "lee2024", type: "book", sourcePath: "refs.bib", fields: { author: "Lee, Joon", title: "Other Work", year: "2024" } },
+      ],
+    };
+    const documents = [
+      { path: "one.md", markdown: "First [@lee2024; @kim2025]. Missing [@gone]." },
+      { path: "two.md", markdown: "Repeated [@lee2024]." },
+    ];
+    const source = documents.map((document) => document.markdown);
+
+    const publication = await buildProjectPublication(
+      createProject("Book", ["one.md", "two.md"]),
+      documents,
+      { citationLibrary: library },
+    );
+
+    expect(publication.html).toContain('href="#rune-reference-lee2024"');
+    expect(publication.html).toContain('href="#rune-reference-kim2025"');
+    expect(publication.html).toContain('id="rune-reference-lee2024"');
+    expect(publication.html).toContain('id="rune-reference-kim2025"');
+    expect(publication.html.indexOf('id="rune-reference-lee2024"'))
+      .toBeLessThan(publication.html.indexOf('id="rune-reference-kim2025"'));
+    expect(publication.html.match(/id="rune-reference-lee2024"/g)).toHaveLength(1);
+    expect(publication.html).toContain("[@gone]");
+    expect(documents.map((document) => document.markdown)).toEqual(source);
+  });
+
   it("builds safe external publication paths on Windows and POSIX", () => {
     expect(projectOutputPath("C:\\book", "exports", "My: Book", "docx"))
       .toBe("C:\\book\\exports\\My_ Book.docx");

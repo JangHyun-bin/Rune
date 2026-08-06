@@ -1,6 +1,6 @@
 export type WorkbenchPartId = "primarySidebar" | "secondarySidebar" | "panel";
 export type WorkbenchContainerId = "explorer" | "search" | "auxiliary" | "panel";
-export type WorkbenchViewId = "workspace" | "outline" | "tags" | "project" | "search" | "backlinks" | "properties";
+export type WorkbenchViewId = "workspace" | "outline" | "tags" | "project" | "search" | "backlinks" | "properties" | "references";
 export type SidebarPosition = "left" | "right";
 export type PanelPosition = "bottom" | "left" | "right";
 
@@ -55,6 +55,7 @@ export const DEFAULT_WORKBENCH_LAYOUT: WorkbenchLayoutSnapshot = {
     search: { containerId: "search", order: 0, visible: true, collapsed: false, size: null },
     backlinks: { containerId: "auxiliary", order: 0, visible: true, collapsed: false, size: null },
     properties: { containerId: "auxiliary", order: 1, visible: true, collapsed: false, size: null },
+    references: { containerId: "auxiliary", order: 2, visible: true, collapsed: false, size: null },
   },
   positions: {
     primarySidebar: "left",
@@ -66,7 +67,7 @@ type LegacyLayout = { sidebarWidth?: unknown; outlineHeight?: unknown };
 
 const partIds: WorkbenchPartId[] = ["primarySidebar", "secondarySidebar", "panel"];
 const containerIds: WorkbenchContainerId[] = ["explorer", "search", "auxiliary", "panel"];
-const viewIds: WorkbenchViewId[] = ["workspace", "outline", "tags", "project", "search", "backlinks", "properties"];
+const viewIds: WorkbenchViewId[] = ["workspace", "outline", "tags", "project", "search", "backlinks", "properties", "references"];
 
 function cloneLayout(layout: WorkbenchLayoutSnapshot): WorkbenchLayoutSnapshot {
   return {
@@ -90,6 +91,7 @@ function cloneLayout(layout: WorkbenchLayoutSnapshot): WorkbenchLayoutSnapshot {
       search: { ...layout.views.search },
       backlinks: { ...layout.views.backlinks },
       properties: { ...layout.views.properties },
+      references: { ...layout.views.references },
     },
     positions: { ...layout.positions },
   };

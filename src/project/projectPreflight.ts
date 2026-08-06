@@ -3,7 +3,8 @@ import { markdownFootnoteId } from "../export/render";
 import { commands, type LinkTarget } from "../ipc/bindings";
 import { markdownHeadingSlug, resolveMarkdownHref } from "../editor/markdownLinks";
 import { parseHeadings } from "../editor/outline";
-import { validateProject, type RuneProject } from "./project";
+import { activePublishingProfile, validateProject, type RuneProject } from "./project";
+import { findCitationGroups, mergeCitationLibraries, parseBibTeX, projectResourceAbsolutePath } from "./citations";
 
 export type ProjectDiagnosticSeverity = "error" | "warning";
 export type ProjectDiagnosticKind =
@@ -15,7 +16,13 @@ export type ProjectDiagnosticKind =
   | "duplicateFootnoteId"
   | "brokenLink"
   | "unresolvedImage"
-  | "unresolvedResource";
+  | "unresolvedResource"
+  | "missingBibliography"
+  | "unreadableBibliography"
+  | "missingCsl"
+  | "unreadableCsl"
+  | "duplicateCitationKey"
+  | "missingCitation";
 
 export interface ProjectDiagnostic {
   severity: ProjectDiagnosticSeverity;
@@ -58,11 +65,17 @@ const kindOrder: Record<ProjectDiagnosticKind, number> = {
   missingFile: 1,
   unreadableFile: 2,
   indexUnavailable: 3,
-  duplicateHeadingId: 4,
-  unresolvedImage: 5,
-  unresolvedResource: 6,
-  brokenLink: 7,
-  duplicateFootnoteId: 8,
+  missingBibliography: 4,
+  unreadableBibliography: 5,
+  missingCsl: 6,
+  unreadableCsl: 7,
+  duplicateCitationKey: 8,
+  duplicateHeadingId: 9,
+  unresolvedImage: 10,
+  unresolvedResource: 11,
+  brokenLink: 12,
+  duplicateFootnoteId: 13,
+  missingCitation: 14,
 };
 
 export function hasFatalProjectDiagnostics(diagnostics: ProjectDiagnostic[]): boolean {
@@ -256,6 +269,57 @@ export async function preflightProject(
       headings: parseHeadings(contents.data),
       targets: indexed.status === "ok" ? indexed.data : null,
     });
+  }
+
+  const libraries = [];
+  for (const path of project.bibliography) {
+    const absolutePath = projectResourceAbsolutePath(root, path);
+    const exists = await commands.pathExists(absolutePath);
+    if (exists.status === "error") {
+      diagnostics.push({ severity: "error", kind: "unreadableBibliography", path, line: null, value: path });
+      continue;
+    }
+    if (!exists.data) {
+      diagnostics.push({ severity: "error", kind: "missingBibliography", path, line: null, value: path });
+      continue;
+    }
+    const contents = await commands.readFile(absolutePath);
+    if (contents.status === "error") {
+      diagnostics.push({ severity: "error", kind: "unreadableBibliography", path, line: null, value: path });
+      continue;
+    }
+    libraries.push(parseBibTeX(contents.data, path));
+  }
+  const library = mergeCitationLibraries(libraries);
+  diagnostics.push(...library.duplicates.map((duplicate): ProjectDiagnostic => ({
+    severity: "error",
+    kind: "duplicateCitationKey",
+    path: duplicate.sourcePath,
+    line: null,
+    value: duplicate.key,
+  })));
+  const csl = activePublishingProfile(project).csl;
+  if (csl) {
+    const absolutePath = projectResourceAbsolutePath(root, csl);
+    const exists = await commands.pathExists(absolutePath);
+    if (exists.status === "error" || exists.data) {
+      const contents = exists.status === "ok" && exists.data ? await commands.readFile(absolutePath) : null;
+      if (exists.status === "error" || contents?.status === "error") {
+        diagnostics.push({ severity: "error", kind: "unreadableCsl", path: csl, line: null, value: csl });
+      }
+    } else {
+      diagnostics.push({ severity: "error", kind: "missingCsl", path: csl, line: null, value: csl });
+    }
+  }
+  const citationKeys = new Set(library.entries.map((entry) => entry.key.toLocaleLowerCase()));
+  for (const source of sources) {
+    for (const group of findCitationGroups(source.markdown)) {
+      for (const item of group.items) {
+        if (!citationKeys.has(item.key.toLocaleLowerCase())) {
+          diagnostics.push({ severity: "warning", kind: "missingCitation", path: source.path, line: item.line, value: item.key });
+        }
+      }
+    }
   }
 
   const selectedHeadings = new Map(sources.map((source) => [pathKey(source.absolutePath), source.headings]));
