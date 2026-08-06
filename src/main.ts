@@ -14,7 +14,7 @@ import { mountFileTree, type FileTree } from "./workspace/fileTree";
 import { parentDir } from "./workspace/paths";
 import { listen, type Event } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
-import { getAllWebviewWindows, getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
+import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { mountConflictBanner } from "./workspace/conflictBanner";
 import { mountErrorBanner } from "./workspace/errorBanner";
 import {
@@ -751,16 +751,6 @@ if (import.meta.env.VITE_WDIO === "1") {
         if (result?.status === "ok") document.documentElement.dataset.wdioShutdownSaved = "true";
       });
   });
-  if (navigator.userAgent.includes("Linux")) {
-    window.addEventListener("rune:wdio-exit", () => {
-      void (async () => {
-        const current = getCurrentWebviewWindow();
-        const others = (await getAllWebviewWindows()).filter((candidate) => candidate.label !== current.label);
-        await Promise.all(others.map((candidate) => candidate.destroy()));
-        await current.destroy();
-      })();
-    });
-  }
 }
 
 function baseName(p: string): string { const i = Math.max(p.lastIndexOf("/"), p.lastIndexOf("\\")); return i >= 0 ? p.slice(i + 1) : p; }
