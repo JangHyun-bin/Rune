@@ -75,7 +75,8 @@ jobs:
             libappindicator3-dev \
             librsvg2-dev \
             patchelf \
-            build-essential
+            build-essential \
+            pandoc
 
       - name: Install frontend dependencies
         run: npm ci
@@ -95,6 +96,9 @@ jobs:
 
       - name: Test Rust
         run: cargo test --manifest-path src-tauri/Cargo.toml
+
+      - name: Test installed Pandoc integration
+        run: cargo test --manifest-path src-tauri/Cargo.toml installed_pandoc_converts_rich_fixture_to_docx_and_epub -- --ignored
 
       - name: Build frontend
         run: npm run build
@@ -215,6 +219,9 @@ jobs:
             Windows installers are not Authenticode-signed. A SmartScreen
             "Unknown publisher" warning is expected; the release workflow still
             verifies silent installation and application launch.
+
+            DOCX and EPUB publishing uses an optional Pandoc installation. Pandoc
+            is not bundled with Rune; HTML and PDF publishing work without it.
 
             다운로드: 아래 Assets에서 OS에 맞는 설치본을 받으세요.
 

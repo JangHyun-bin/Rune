@@ -6,6 +6,12 @@ use std::process::Command;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 static PUBLISH_SEQUENCE: AtomicU64 = AtomicU64::new(1);
+const DOCX_FILTER: &str = r##"function Link(link)
+  if link.target:sub(1, 1) == "#" then
+    return link.content
+  end
+end
+"##;
 
 pub fn pandoc_available() -> bool {
     Command::new("pandoc")
@@ -25,14 +31,22 @@ pub fn publish_with_pandoc(
 }
 
 fn run_pandoc(input: &Path, output: &Path, format: &str) -> Result<(), String> {
-    let result = Command::new("pandoc")
-        .current_dir(input.parent().ok_or("Pandoc input has no parent directory")?)
+    let parent = input
+        .parent()
+        .ok_or("Pandoc input has no parent directory")?;
+    let mut command = Command::new("pandoc");
+    command
+        .current_dir(parent)
         .arg(input)
         .arg("--from=html")
-        .arg(format!("--to={format}"))
-        .arg("--output")
-        .arg(output)
-        .output();
+        .arg(format!("--to={format}"));
+    if format == "docx" {
+        let filter = parent.join("rune-docx.lua");
+        fs::write(&filter, DOCX_FILTER)
+            .map_err(|error| format!("write Pandoc DOCX filter failed: {error}"))?;
+        command.arg("--lua-filter").arg(filter);
+    }
+    let result = command.arg("--output").arg(output).output();
     let result = match result {
         Ok(result) => result,
         Err(error) if error.kind() == ErrorKind::NotFound => {
@@ -144,6 +158,7 @@ mod tests {
     use super::*;
     use crate::fs_ops::PublishAsset;
     use std::fs;
+    use std::process::Command;
 
     fn transient_paths(directory: &std::path::Path) -> Vec<String> {
         fs::read_dir(directory)
@@ -243,5 +258,79 @@ mod tests {
 
         assert_eq!(fs::read(&output).unwrap(), b"epub");
         assert!(transient_paths(output.parent().unwrap()).is_empty());
+    }
+
+    #[test]
+    #[ignore = "requires installed Pandoc"]
+    fn installed_pandoc_converts_rich_fixture_to_docx_and_epub() {
+        assert!(
+            pandoc_available(),
+            "Pandoc must be installed for this integration test"
+        );
+        let workspace = tempfile::tempdir().unwrap();
+        let source = workspace.path().join("cover.png");
+        fs::copy(
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("icons/32x32.png"),
+            &source,
+        )
+        .unwrap();
+        let assets = [PublishAsset {
+            source_path: source.to_string_lossy().into_owned(),
+            relative_path: "doc-1/cover.png".into(),
+        }];
+        let html = r##"<!doctype html>
+<html lang="ko"><head><meta charset="utf-8"><title>Rune 통합 문서</title></head><body>
+<h1 id="chapter-one">제1장</h1>
+<p><a href="#chapter-two">다음 장으로 이동</a></p>
+<table><thead><tr><th>항목</th><th>값</th></tr></thead><tbody><tr><td>표</td><td>셀 값</td></tr></tbody></table>
+<pre><code class="language-rust">println!(&quot;Rune&quot;);</code></pre>
+<p><img src="Book.assets/doc-1/cover.png" alt="Rune cover"></p>
+<h1 id="chapter-two">제2장</h1><p>안녕하세요, Rune.</p>
+</body></html>"##;
+
+        for format in ["docx", "epub"] {
+            let output = workspace.path().join(format!("Book.{format}"));
+            publish_with_pandoc(workspace.path(), &output, html, &assets, &[]).unwrap();
+            assert!(fs::metadata(&output).unwrap().len() > 0);
+
+            let extracted = workspace.path().join(format!("{format}-media"));
+            let roundtrip = Command::new("pandoc")
+                .arg(&output)
+                .arg("--to=html")
+                .arg(format!("--extract-media={}", extracted.display()))
+                .output()
+                .unwrap();
+            assert!(
+                roundtrip.status.success(),
+                "{}",
+                String::from_utf8_lossy(&roundtrip.stderr)
+            );
+            let roundtrip = String::from_utf8(roundtrip.stdout).unwrap();
+            for expected in ["제1장", "제2장", "셀 값", "println!", "안녕하세요, Rune."]
+            {
+                assert!(
+                    roundtrip.contains(expected),
+                    "{format} roundtrip omitted {expected:?}"
+                );
+            }
+            if format == "epub" {
+                let target = roundtrip
+                    .split_once("href=\"#")
+                    .and_then(|(_, rest)| rest.split_once('\"'))
+                    .map(|(target, _)| target)
+                    .expect("EPUB roundtrip lost the chapter link");
+                assert!(
+                    roundtrip.contains(&format!("id=\"{target}\"")),
+                    "EPUB chapter link target is missing: {roundtrip}"
+                );
+            } else {
+                assert!(
+                    !roundtrip.contains("href=\"#chapter-two\""),
+                    "DOCX kept an unsupported internal link: {roundtrip}"
+                );
+                assert!(roundtrip.contains("다음 장으로 이동"));
+            }
+            assert!(fs::read_dir(&extracted).unwrap().next().is_some());
+        }
     }
 }

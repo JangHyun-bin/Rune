@@ -42,7 +42,7 @@ Rune is a cross-platform markdown writer that formats **as you type** — code, 
 - 🗂️ **Workspace** — open a folder, browse the file tree, debounced autosave
 - 🧩 **Multi-tab** — Chrome-like tabs; each keeps its own content, cursor, and undo history
 - ⌘ **Command palette** (Ctrl/Cmd-K) **· full-text search · external-change watch**
-- 📤 **Export** — self-contained HTML and PDF
+- 📤 **Export** — self-contained HTML/PDF, plus DOCX/EPUB with an installed [Pandoc](https://pandoc.org/)
 - 🌐 **Four languages** — English · 한국어 · 日本語 · 简体中文
 - 🌗 **Light & dark** — a calm, minimal theme
 - ⚡ **Fast & small** — Rust core, native webview
@@ -53,10 +53,10 @@ Get the latest installer for your OS from the [**Releases**](https://github.com/
 
 | OS | Download |
 |----|----------|
-| **macOS** · Apple Silicon | [`Rune_0.1.21_aarch64.dmg`](https://github.com/JangHyun-bin/Rune/releases/download/v0.1.21/Rune_0.1.21_aarch64.dmg) |
-| **macOS** · Intel | [`Rune_0.1.21_x64.dmg`](https://github.com/JangHyun-bin/Rune/releases/download/v0.1.21/Rune_0.1.21_x64.dmg) |
-| **Windows** | [`.msi`](https://github.com/JangHyun-bin/Rune/releases/download/v0.1.21/Rune_0.1.21_x64_en-US.msi) · [`.exe`](https://github.com/JangHyun-bin/Rune/releases/download/v0.1.21/Rune_0.1.21_x64-setup.exe) |
-| **Linux** | [`.deb`](https://github.com/JangHyun-bin/Rune/releases/download/v0.1.21/Rune_0.1.21_amd64.deb) · [`.rpm`](https://github.com/JangHyun-bin/Rune/releases/download/v0.1.21/Rune-0.1.21-1.x86_64.rpm) · [`.AppImage`](https://github.com/JangHyun-bin/Rune/releases/download/v0.1.21/Rune_0.1.21_amd64.AppImage) |
+| **macOS** · Apple Silicon | [`Rune_0.1.22_aarch64.dmg`](https://github.com/JangHyun-bin/Rune/releases/download/v0.1.22/Rune_0.1.22_aarch64.dmg) |
+| **macOS** · Intel | [`Rune_0.1.22_x64.dmg`](https://github.com/JangHyun-bin/Rune/releases/download/v0.1.22/Rune_0.1.22_x64.dmg) |
+| **Windows** | [`.msi`](https://github.com/JangHyun-bin/Rune/releases/download/v0.1.22/Rune_0.1.22_x64_en-US.msi) · [`.exe`](https://github.com/JangHyun-bin/Rune/releases/download/v0.1.22/Rune_0.1.22_x64-setup.exe) |
+| **Linux** | [`.deb`](https://github.com/JangHyun-bin/Rune/releases/download/v0.1.22/Rune_0.1.22_amd64.deb) · [`.rpm`](https://github.com/JangHyun-bin/Rune/releases/download/v0.1.22/Rune-0.1.22-1.x86_64.rpm) · [`.AppImage`](https://github.com/JangHyun-bin/Rune/releases/download/v0.1.22/Rune_0.1.22_amd64.AppImage) |
 
 > **macOS:** CI signs, notarizes, staples, and verifies both Apple Silicon and Intel DMGs.
 

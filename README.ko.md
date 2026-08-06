@@ -42,7 +42,7 @@ Rune은 **입력하는 즉시** 서식이 적용되는 크로스플랫폼 마크
 - 🗂️ **워크스페이스** — 폴더 열기 + 파일 트리 + 디바운스 자동저장
 - 🧩 **멀티탭** — 크롬 같은 탭; 탭별 내용·커서·undo 기록 보존
 - ⌘ **커맨드 팔레트** (Ctrl/Cmd-K) **· 전문 검색 · 외부 변경 감시**
-- 📤 **내보내기** — 자기완결 HTML · PDF
+- 📤 **내보내기** — 자기완결 HTML/PDF, 설치된 [Pandoc](https://pandoc.org/)을 이용한 DOCX/EPUB
 - 🌐 **4개 언어** — English · 한국어 · 日本語 · 简体中文
 - 🌗 **라이트 & 다크** — 차분한 미니멀 테마
 - ⚡ **빠르고 가벼움** — Rust 코어, 네이티브 웹뷰
@@ -53,10 +53,10 @@ Rune은 **입력하는 즉시** 서식이 적용되는 크로스플랫폼 마크
 
 | OS | 다운로드 |
 |----|----------|
-| **macOS** · Apple Silicon | [`Rune_0.1.21_aarch64.dmg`](https://github.com/JangHyun-bin/Rune/releases/download/v0.1.21/Rune_0.1.21_aarch64.dmg) |
-| **macOS** · Intel | [`Rune_0.1.21_x64.dmg`](https://github.com/JangHyun-bin/Rune/releases/download/v0.1.21/Rune_0.1.21_x64.dmg) |
-| **Windows** | [`.msi`](https://github.com/JangHyun-bin/Rune/releases/download/v0.1.21/Rune_0.1.21_x64_en-US.msi) · [`.exe`](https://github.com/JangHyun-bin/Rune/releases/download/v0.1.21/Rune_0.1.21_x64-setup.exe) |
-| **Linux** | [`.deb`](https://github.com/JangHyun-bin/Rune/releases/download/v0.1.21/Rune_0.1.21_amd64.deb) · [`.rpm`](https://github.com/JangHyun-bin/Rune/releases/download/v0.1.21/Rune-0.1.21-1.x86_64.rpm) · [`.AppImage`](https://github.com/JangHyun-bin/Rune/releases/download/v0.1.21/Rune_0.1.21_amd64.AppImage) |
+| **macOS** · Apple Silicon | [`Rune_0.1.22_aarch64.dmg`](https://github.com/JangHyun-bin/Rune/releases/download/v0.1.22/Rune_0.1.22_aarch64.dmg) |
+| **macOS** · Intel | [`Rune_0.1.22_x64.dmg`](https://github.com/JangHyun-bin/Rune/releases/download/v0.1.22/Rune_0.1.22_x64.dmg) |
+| **Windows** | [`.msi`](https://github.com/JangHyun-bin/Rune/releases/download/v0.1.22/Rune_0.1.22_x64_en-US.msi) · [`.exe`](https://github.com/JangHyun-bin/Rune/releases/download/v0.1.22/Rune_0.1.22_x64-setup.exe) |
+| **Linux** | [`.deb`](https://github.com/JangHyun-bin/Rune/releases/download/v0.1.22/Rune_0.1.22_amd64.deb) · [`.rpm`](https://github.com/JangHyun-bin/Rune/releases/download/v0.1.22/Rune-0.1.22-1.x86_64.rpm) · [`.AppImage`](https://github.com/JangHyun-bin/Rune/releases/download/v0.1.22/Rune_0.1.22_amd64.AppImage) |
 
 > **macOS:** CI에서 Apple Silicon·Intel DMG를 서명·공증·스테이플링하고 설치 검증까지 수행합니다.
 
