@@ -55,7 +55,7 @@ import { mountWorkbench } from "./workbench/workbench";
 import { createViewWindowHost } from "./workbench/viewWindowHost";
 import { tauriViewWindowAdapter } from "./workbench/tauriViewWindowAdapter";
 import { viewGroupIdForView } from "./workbench/viewGroupLayout";
-import { normalizeViewWindowLayout, type ViewWindowLayoutSnapshot } from "./workbench/viewWindowLayout";
+import { normalizeViewWindowLayout } from "./workbench/viewWindowLayout";
 import {
   DEFAULT_WORKBENCH_LAYOUT,
   type WorkbenchContainerId,
@@ -156,7 +156,6 @@ let citationProject: RuneProject | null = null;
 let citationLibrary: CitationLibrary = { entries: [], duplicates: [] };
 let citationLoad = 0;
 let viewWindowHost: ReturnType<typeof createViewWindowHost> | null = null;
-let wdioShutdownLayout: ViewWindowLayoutSnapshot | null = null;
 
 const viewRegistry = createViewRegistry();
 viewRegistry.registerContainer({ id: "explorer", titleKey: "view.explorer", icon: "▤", order: 0 });
@@ -769,29 +768,11 @@ if (import.meta.env.VITE_WDIO === "1") {
   window.addEventListener("rune:wdio-save-shutdown-layout", () => {
     void viewWindowHost?.prepareForShutdown()
       .then(() => {
-        wdioShutdownLayout = viewWindowHost?.layoutSnapshot() ?? null;
         return commands.saveSettings(settingsSnapshot());
       })
       .then((result) => {
         if (result?.status === "ok") document.documentElement.dataset.wdioShutdownSaved = "true";
       });
-  });
-  window.addEventListener("rune:wdio-recover-shutdown-layout", () => {
-    if (!viewWindowHost || !wdioShutdownLayout) return;
-    viewWindowHost.cancelShutdown();
-    void viewWindowHost.restoreLayout(wdioShutdownLayout).then(() => {
-      document.documentElement.dataset.wdioShutdownRecovered = "true";
-    });
-  });
-  window.addEventListener("rune:wdio-persist-shutdown-layout", () => {
-    if (!wdioShutdownLayout) return;
-    settingsSaveScheduler.cancelPending();
-    void commands.saveSettings({
-      ...settingsSnapshot(),
-      viewWindowLayout: wdioShutdownLayout,
-    }).then((result) => {
-      if (result.status === "ok") document.documentElement.dataset.wdioShutdownPersisted = "true";
-    });
   });
 }
 

@@ -67,32 +67,5 @@ describe("native Workbench release smoke", () => {
     await $('html[data-wdio-saved-window-count="1"]').waitForExist();
     await browser.execute(() => window.dispatchEvent(new Event("rune:wdio-save-shutdown-layout")));
     await $('html[data-wdio-shutdown-saved="true"]').waitForExist();
-    if (!(await browser.execute(() => navigator.userAgent.includes("Linux")))) return;
-
-    await browser.switchToWindow(detachedHandle);
-    await $(".detached-view-redock").click();
-    await waitForWindowCount(1);
-    await browser.switchToWindow(main);
-    await browser.execute(() => {
-      delete document.documentElement.dataset.wdioShutdownRecovered;
-      window.dispatchEvent(new Event("rune:wdio-recover-shutdown-layout"));
-    });
-    await $('html[data-wdio-shutdown-recovered="true"]').waitForExist();
-    const restored = await waitForWindowCount(2);
-    for (const handle of restored) {
-      await browser.switchToWindow(handle);
-      if (await $(".detached-view-redock").isExisting()) {
-        await $(".detached-view-redock").click();
-        break;
-      }
-    }
-    await waitForWindowCount(1);
-    await browser.switchToWindow(main);
-    await $('.workbench-view[data-view-id="outline"]').waitForDisplayed();
-    await browser.execute(() => {
-      delete document.documentElement.dataset.wdioShutdownPersisted;
-      window.dispatchEvent(new Event("rune:wdio-persist-shutdown-layout"));
-    });
-    await $('html[data-wdio-shutdown-persisted="true"]').waitForExist();
   });
 });

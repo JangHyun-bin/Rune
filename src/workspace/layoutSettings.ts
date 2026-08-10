@@ -88,11 +88,6 @@ export function createSettingsSaveScheduler(save: () => void, delay: number) {
   return {
     schedule,
     saveNow,
-    cancelPending(): void {
-      if (timer !== undefined) clearTimeout(timer);
-      timer = undefined;
-      pending = false;
-    },
     enable(flushPending = true): void {
       enabled = true;
       if (pending && flushPending) saveNow();
