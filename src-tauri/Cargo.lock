@@ -3237,6 +3237,8 @@ name = "rune"
 version = "1.0.0"
 dependencies = [
  "notify",
+ "objc2",
+ "objc2-app-kit",
  "serde",
  "serde_json",
  "sha2 0.11.0",

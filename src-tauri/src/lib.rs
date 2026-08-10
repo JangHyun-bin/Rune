@@ -1,5 +1,6 @@
 mod fs_ops;
 mod hot_exit;
+mod native_drag;
 mod commands;
 mod publishing;
 mod settings;
@@ -152,7 +153,8 @@ pub fn run() {
             commands::open_default_apps_settings,
             commands::delete_path,
             commands::create_file,
-            commands::create_dir
+            commands::create_dir,
+            native_drag::native_webview_origin
         ])
         .build(tauri::generate_context!())
         .expect("error while running tauri application")
