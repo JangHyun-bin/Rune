@@ -1,0 +1,60 @@
+import type { WorkbenchContainerId, WorkbenchLayoutSnapshot, WorkbenchViewId } from "./workbenchLayout";
+import type { ViewWindowLayoutSnapshot, WindowBounds } from "./viewWindowLayout";
+
+export interface DockLocation {
+  windowLabel: string;
+  containerId: WorkbenchContainerId;
+  groupId: string;
+}
+
+export type DockPayload =
+  | { kind: "view"; viewId: WorkbenchViewId; source: DockLocation }
+  | { kind: "group"; viewIds: WorkbenchViewId[]; activeViewId: WorkbenchViewId; source: DockLocation };
+
+export type DockTarget =
+  | { kind: "tabs"; windowLabel: string; containerId: WorkbenchContainerId; groupId: string; index: number }
+  | { kind: "combine"; windowLabel: string; containerId: WorkbenchContainerId; groupId: string }
+  | {
+    kind: "split";
+    windowLabel: string;
+    containerId: WorkbenchContainerId;
+    groupId: string;
+    direction: "row" | "column";
+    side: "before" | "after";
+  }
+  | { kind: "container"; windowLabel: string; containerId: WorkbenchContainerId; index: number }
+  | { kind: "new-window"; bounds: WindowBounds };
+
+export interface DockWorkspaceSnapshot {
+  revision: number;
+  workbench: WorkbenchLayoutSnapshot;
+  viewWindows: ViewWindowLayoutSnapshot;
+  /** Runtime-only native labels aligned with viewWindows.windows. V1 persistence intentionally omits them. */
+  windowLabels?: string[];
+}
+
+export type DockEffect =
+  | { kind: "close-window"; windowLabel: string }
+  | {
+    kind: "open-window";
+    windowLabel: string;
+    containerId: WorkbenchContainerId;
+    groupId: string;
+    activeViewId: WorkbenchViewId;
+    bounds: WindowBounds;
+  };
+
+export type DockFailureReason = "invalid-source" | "invalid-target" | "duplicate-view" | "no-op" | "stale-revision";
+export interface DockFailure { ok: false; reason: DockFailureReason }
+
+export interface DockPlan {
+  ok: true;
+  baseRevision: number;
+  next: DockWorkspaceSnapshot;
+  effects: DockEffect[];
+}
+
+export type DockPlanResult = DockPlan | DockFailure;
+export type ApplyDockPlanResult =
+  | { ok: true; snapshot: DockWorkspaceSnapshot; effects: DockEffect[] }
+  | DockFailure;
