@@ -4,6 +4,8 @@ import { getCurrentWebview } from "@tauri-apps/api/webview";
 export interface NativeDockWindowMetrics {
   windowLabel: string;
   windowInnerOrigin: { x: number; y: number };
+  windowOuterOrigin: { x: number; y: number };
+  frameInsets: { x: number; y: number };
   webviewOffset: { x: number; y: number };
   innerOrigin: { x: number; y: number };
   scaleFactor: number;
@@ -19,6 +21,9 @@ export interface NativeDockDragAdapter {
 export interface TauriDockDragFacade {
   windowLabel(): string;
   innerPosition(): Promise<{ x: number; y: number }>;
+  outerPosition(): Promise<{ x: number; y: number }>;
+  innerSize(): Promise<{ width: number; height: number }>;
+  outerSize(): Promise<{ width: number; height: number }>;
   webviewPosition(): Promise<{ x: number; y: number }>;
   scaleFactor(): Promise<number>;
   cursorPosition(): Promise<{ x: number; y: number }>;
@@ -42,6 +47,9 @@ function nativeFacade(): TauriDockDragFacade {
   return {
     windowLabel: () => window.label,
     innerPosition: () => window.innerPosition(),
+    outerPosition: () => window.outerPosition(),
+    innerSize: () => window.innerSize(),
+    outerSize: () => window.outerSize(),
     webviewPosition: () => webview.position(),
     scaleFactor: () => window.scaleFactor(),
     cursorPosition,
@@ -55,18 +63,28 @@ export function createTauriDockDragAdapter(
 ): NativeDockDragAdapter {
   return {
     async metrics() {
-      const [windowInnerOrigin, webviewOffset, scaleFactor] = await Promise.all([
+      const [windowInnerOrigin, windowOuterOrigin, innerSize, outerSize, webviewOffset, scaleFactor] = await Promise.all([
         facade.innerPosition(),
+        facade.outerPosition(),
+        facade.innerSize(),
+        facade.outerSize(),
         facade.webviewPosition(),
         facade.scaleFactor(),
       ]);
+      const sideInset = Math.max(0, Math.floor((outerSize.width - innerSize.width) / 2));
+      const frameInsets = {
+        x: sideInset,
+        y: Math.max(0, outerSize.height - innerSize.height - sideInset),
+      };
       return {
         windowLabel: facade.windowLabel(),
         windowInnerOrigin,
+        windowOuterOrigin,
+        frameInsets,
         webviewOffset,
         innerOrigin: {
-          x: windowInnerOrigin.x + webviewOffset.x,
-          y: windowInnerOrigin.y + webviewOffset.y,
+          x: windowOuterOrigin.x + frameInsets.x + webviewOffset.x,
+          y: windowOuterOrigin.y + frameInsets.y + webviewOffset.y,
         },
         scaleFactor,
       };

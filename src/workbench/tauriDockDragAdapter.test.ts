@@ -9,6 +9,9 @@ function facade(overrides: Partial<TauriDockDragFacade> = {}): TauriDockDragFaca
   return {
     windowLabel: () => "view-7",
     innerPosition: async () => ({ x: -1440, y: 180 }),
+    outerPosition: async () => ({ x: -1448, y: 149 }),
+    innerSize: async () => ({ width: 1000, height: 800 }),
+    outerSize: async () => ({ width: 1016, height: 839 }),
     webviewPosition: async () => ({ x: 0, y: 28 }),
     scaleFactor: async () => 1.5,
     cursorPosition: async () => ({ x: -720, y: 540 }),
@@ -19,12 +22,14 @@ function facade(overrides: Partial<TauriDockDragFacade> = {}): TauriDockDragFaca
 }
 
 describe("Tauri native dock drag adapter", () => {
-  it("combines the native window origin and WebView offset in physical pixels", async () => {
+  it("combines the native frame inset and WebView offset in physical pixels", async () => {
     const adapter = createTauriDockDragAdapter(facade());
 
     await expect(adapter.metrics()).resolves.toEqual({
       windowLabel: "view-7",
       windowInnerOrigin: { x: -1440, y: 180 },
+      windowOuterOrigin: { x: -1448, y: 149 },
+      frameInsets: { x: 8, y: 31 },
       webviewOffset: { x: 0, y: 28 },
       innerOrigin: { x: -1440, y: 208 },
       scaleFactor: 1.5,
@@ -65,6 +70,8 @@ describe("Tauri native dock drag adapter", () => {
     expect(logicalClientPointToPhysicalScreen({
       windowLabel: "view-7",
       windowInnerOrigin: { x: -1440, y: 180 },
+      windowOuterOrigin: { x: -1440, y: 180 },
+      frameInsets: { x: 0, y: 0 },
       webviewOffset: { x: 0, y: 0 },
       innerOrigin: { x: -1440, y: 180 },
       scaleFactor: 1.5,

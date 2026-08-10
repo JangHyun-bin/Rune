@@ -23,6 +23,8 @@ using System;
 using System.Runtime.InteropServices;
 public static class RuneNativePointer {
   [DllImport("user32.dll")] public static extern bool SetProcessDpiAwarenessContext(IntPtr value);
+  [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr value);
+  [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr value, int command);
   [DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y);
   [DllImport("user32.dll")] public static extern void mouse_event(uint flags, uint dx, uint dy, uint data, UIntPtr extra);
 }
@@ -31,7 +33,7 @@ public static class RuneNativePointer {
       const ratio = (index + 1) / 12;
       return `[RuneNativePointer]::SetCursorPos(${Math.round(start.x + delta.x * ratio)}, ${Math.round(start.y + delta.y * ratio)}) | Out-Null; Start-Sleep -Milliseconds 60`;
     }).join("\n");
-    const command = `$typeDefinition = @'\n${typeDefinition}\n'@\nAdd-Type -TypeDefinition $typeDefinition\n[RuneNativePointer]::SetProcessDpiAwarenessContext([IntPtr](-4)) | Out-Null\n[RuneNativePointer]::SetCursorPos(${Math.round(start.x)}, ${Math.round(start.y)}) | Out-Null\nStart-Sleep -Milliseconds 250\n[RuneNativePointer]::mouse_event(0x0002, 0, 0, 0, [UIntPtr]::Zero)\nStart-Sleep -Milliseconds 350\n${steps}\nStart-Sleep -Milliseconds 250\n[RuneNativePointer]::mouse_event(0x0004, 0, 0, 0, [UIntPtr]::Zero)`;
+    const command = `$typeDefinition = @'\n${typeDefinition}\n'@\nAdd-Type -TypeDefinition $typeDefinition\n[RuneNativePointer]::SetProcessDpiAwarenessContext([IntPtr](-4)) | Out-Null\n$process = Get-Process -Name rune | Where-Object { $_.MainWindowHandle -ne 0 } | Select-Object -First 1\nif ($process) { [RuneNativePointer]::ShowWindow($process.MainWindowHandle, 9) | Out-Null; [RuneNativePointer]::SetForegroundWindow($process.MainWindowHandle) | Out-Null }\nStart-Sleep -Milliseconds 250\n[RuneNativePointer]::SetCursorPos(${Math.round(start.x)}, ${Math.round(start.y)}) | Out-Null\nStart-Sleep -Milliseconds 250\n[RuneNativePointer]::mouse_event(0x0002, 0, 0, 0, [UIntPtr]::Zero)\nStart-Sleep -Milliseconds 350\n${steps}\nStart-Sleep -Milliseconds 250\n[RuneNativePointer]::mouse_event(0x0004, 0, 0, 0, [UIntPtr]::Zero)`;
     checkedSpawn("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", command]);
     return;
   }
@@ -144,16 +146,24 @@ describe("native docking drag boundary", () => {
 
     const handle = await $("#native-dock-drag-handle");
     await handle.waitForDisplayed();
+    await $("#editor-toolbar").click();
+    await browser.pause(200);
     const armed = await browser.execute(() => {
       const state = window.__RUNE_NATIVE_DOCK_DRAG__.state;
+      const rect = document.querySelector("#native-dock-drag-handle").getBoundingClientRect();
+      const clientPoint = { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
       return {
+        metrics: state.before,
+        clientPoint,
+        rect: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
         start: window.__RUNE_NATIVE_DOCK_DRAG__.logicalClientPointToPhysicalScreen(
           state.before,
-          { x: 168, y: 84 },
+          clientPoint,
         ),
         scaleFactor: state.before.scaleFactor,
       };
     });
+    console.log(`NATIVE_DOCK_ARMED ${JSON.stringify(armed)}`);
     nativePointerDrag(armed.start, { x: 180, y: 120 }, armed.scaleFactor);
     await browser.waitUntil(async () => browser.execute(() => (
       window.__RUNE_NATIVE_DOCK_DRAG__.state.startCalledAt !== null
