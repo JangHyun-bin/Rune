@@ -60,3 +60,52 @@ jobs:
       - run: cargo test --manifest-path src-tauri/Cargo.toml
       - name: Test installed Pandoc integration
         run: cargo test --manifest-path src-tauri/Cargo.toml installed_pandoc_converts_rich_fixture_to_docx_and_epub -- --ignored
+
+  native-workbench-smoke-linux:
+    if: startsWith(github.ref, 'refs/heads/release/')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            webkit2gtk-driver \
+            patchelf \
+            build-essential \
+            xvfb
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: "./src-tauri -> target"
+
+      - name: Install tauri-driver
+        run: cargo install tauri-driver --locked
+
+      - run: npm ci
+
+      - name: Build native Workbench smoke app
+        env:
+          VITE_WDIO: "1"
+        run: npm run tauri -- build --debug --no-bundle --features webdriver --config src-tauri/tauri.smoke.conf.json
+
+      - name: Verify native Workbench windows
+        env:
+          LIBGL_ALWAYS_SOFTWARE: "1"
+          RUNE_WDIO_SETTINGS_PATH: ${{ runner.temp }}/rune-wdio-settings.json
+          RUNE_WDIO_HOT_EXIT_PATH: ${{ runner.temp }}/rune-wdio-hot-exit.json
+          WEBKIT_DISABLE_COMPOSITING_MODE: "1"
+          WEBKIT_DISABLE_DMABUF_RENDERER: "1"
+        run: xvfb-run -a npm run test:e2e:workbench:linux
