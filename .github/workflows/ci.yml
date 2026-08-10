@@ -53,7 +53,7 @@ jobs:
           workspaces: "./src-tauri -> target"
 
       - run: npm ci
-      - run: npm audit --omit=dev --audit-level=high
+      - run: npm audit --omit=dev --audit-level=moderate
       - run: npm test -- --run
       - run: npm run build
       - run: cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
