@@ -149,4 +149,21 @@ describe("layout settings", () => {
       vi.useRealTimers();
     }
   });
+
+  it("cancels a pending debounced save before an explicit snapshot write", async () => {
+    vi.useFakeTimers();
+    try {
+      const save = vi.fn();
+      const scheduler = createSettingsSaveScheduler(save, 500);
+      scheduler.enable();
+
+      scheduler.schedule();
+      scheduler.cancelPending();
+      await vi.advanceTimersByTimeAsync(500);
+
+      expect(save).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

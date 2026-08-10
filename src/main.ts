@@ -783,6 +783,16 @@ if (import.meta.env.VITE_WDIO === "1") {
       document.documentElement.dataset.wdioShutdownRecovered = "true";
     });
   });
+  window.addEventListener("rune:wdio-persist-shutdown-layout", () => {
+    if (!wdioShutdownLayout) return;
+    settingsSaveScheduler.cancelPending();
+    void commands.saveSettings({
+      ...settingsSnapshot(),
+      viewWindowLayout: wdioShutdownLayout,
+    }).then((result) => {
+      if (result.status === "ok") document.documentElement.dataset.wdioShutdownPersisted = "true";
+    });
+  });
 }
 
 function baseName(p: string): string { const i = Math.max(p.lastIndexOf("/"), p.lastIndexOf("\\")); return i >= 0 ? p.slice(i + 1) : p; }

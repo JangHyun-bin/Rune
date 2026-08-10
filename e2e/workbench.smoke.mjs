@@ -89,5 +89,10 @@ describe("native Workbench release smoke", () => {
     await waitForWindowCount(1);
     await browser.switchToWindow(main);
     await $('.workbench-view[data-view-id="outline"]').waitForDisplayed();
+    await browser.execute(() => {
+      delete document.documentElement.dataset.wdioShutdownPersisted;
+      window.dispatchEvent(new Event("rune:wdio-persist-shutdown-layout"));
+    });
+    await $('html[data-wdio-shutdown-persisted="true"]').waitForExist();
   });
 });
