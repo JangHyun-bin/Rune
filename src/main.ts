@@ -1,5 +1,16 @@
 import "./styles.css";
 if (import.meta.env.VITE_WDIO === "1") void import("@wdio/tauri-plugin");
+if (import.meta.env.VITE_WDIO === "1") {
+  void import("./workbench/tauriDockDragAdapter").then((dockDrag) => {
+    Object.assign(window, {
+      __RUNE_NATIVE_DOCK_DRAG__: {
+        adapter: dockDrag.createTauriDockDragAdapter(),
+        logicalClientPointToPhysicalScreen: dockDrag.logicalClientPointToPhysicalScreen,
+      },
+    });
+    document.documentElement.dataset.wdioNativeDockDragReady = "true";
+  });
+}
 import { type EditorMode } from "./editor/editor";
 import { commands, type FileNode, type LinkTarget, type PathChangePlan } from "./ipc/bindings";
 import { confirm as confirmDialog, open, save } from "@tauri-apps/plugin-dialog";

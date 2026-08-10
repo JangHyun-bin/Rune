@@ -11,6 +11,8 @@
     "test": "vitest run",
     "test:e2e:workbench": "wdio run wdio.conf.mjs --spec e2e/workbench.smoke.mjs && wdio run wdio.conf.mjs --spec e2e/workbench.restore.smoke.mjs",
     "test:e2e:workbench:linux": "wdio run wdio.linux.conf.mjs --spec e2e/workbench.smoke.mjs && node tools/verify-workbench-recovery-fixture.mjs && wdio run wdio.linux.conf.mjs --spec e2e/workbench.restore.smoke.mjs",
+    "test:e2e:native-drag": "wdio run wdio.conf.mjs --spec e2e/native-dock-drag-boundary.smoke.mjs",
+    "test:e2e:native-drag:linux": "wdio run wdio.linux.conf.mjs --spec e2e/native-dock-drag-boundary.smoke.mjs",
     "gen:brand": "node tools/gen-brand-assets.mjs"
   },
   "dependencies": {

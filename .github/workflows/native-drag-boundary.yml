@@ -1,0 +1,93 @@
+name: native-drag-boundary
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "src/workbench/tauriDockDragAdapter.ts"
+      - "src/workbench/tauriDockDragAdapter.test.ts"
+      - "src/main.ts"
+      - "src-tauri/capabilities/default.json"
+      - "src-tauri/capabilities/detached-view.json"
+      - "src-tauri/tauri.smoke.conf.json"
+      - "e2e/native-dock-drag-boundary.smoke.mjs"
+      - ".github/workflows/native-drag-boundary.yml"
+  pull_request:
+    paths:
+      - "src/workbench/tauriDockDragAdapter.ts"
+      - "src/workbench/tauriDockDragAdapter.test.ts"
+      - "src/main.ts"
+      - "src-tauri/capabilities/default.json"
+      - "src-tauri/capabilities/detached-view.json"
+      - "src-tauri/tauri.smoke.conf.json"
+      - "e2e/native-dock-drag-boundary.smoke.mjs"
+      - ".github/workflows/native-drag-boundary.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  native-drag-boundary:
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos-15
+            os: macos
+          - platform: ubuntu-24.04
+            os: linux
+          - platform: windows-latest
+            os: windows
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Linux dependencies
+        if: matrix.os == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            webkit2gtk-driver \
+            xdotool \
+            patchelf \
+            build-essential \
+            xvfb
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: "./src-tauri -> target"
+
+      - name: Install tauri-driver
+        if: matrix.os == 'linux'
+        run: cargo install tauri-driver --locked
+
+      - run: npm ci
+      - run: npx vitest run src/workbench/tauriDockDragAdapter.test.ts
+
+      - name: Build native drag boundary probe
+        env:
+          VITE_WDIO: "1"
+        run: npm run tauri -- build --debug --no-bundle --features webdriver --config src-tauri/tauri.smoke.conf.json
+
+      - name: Probe native drag boundary
+        if: matrix.os != 'linux'
+        run: npm run test:e2e:native-drag
+
+      - name: Probe native drag boundary on Linux
+        if: matrix.os == 'linux'
+        env:
+          LIBGL_ALWAYS_SOFTWARE: "1"
+          WEBKIT_DISABLE_COMPOSITING_MODE: "1"
+          WEBKIT_DISABLE_DMABUF_RENDERER: "1"
+        run: xvfb-run -a npm run test:e2e:native-drag:linux

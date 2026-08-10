@@ -3,5 +3,8 @@
   "identifier": "detached-view",
   "description": "Minimal capability for detached Workbench View windows",
   "windows": ["view-*"],
-  "permissions": ["core:default"]
+  "permissions": [
+    "core:default",
+    "core:window:allow-start-dragging"
+  ]
 }
