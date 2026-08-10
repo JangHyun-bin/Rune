@@ -61,7 +61,7 @@
 - Produces: `NativeDockWindowMetrics`, `NativeDockDragAdapter`, `createTauriDockDragAdapter()`
 - Consumes: Tauri `cursorPosition()`, `getCurrentWindow().innerPosition()`, `scaleFactor()`, `startDragging()`, `onMoved()`
 
-- [ ] **Step 1: Write the adapter contract and failing unit test**
+- [x] **Step 1: Write the adapter contract and failing unit test**
 
 ```ts
 export interface NativeDockWindowMetrics {
@@ -80,17 +80,17 @@ export interface NativeDockDragAdapter {
 
 The test must inject a fake Tauri facade and assert that physical positions and scale factor are returned unchanged, listener disposal is preserved, and a rejected `startDragging()` reaches the caller.
 
-- [ ] **Step 2: Run the focused test and confirm RED**
+- [x] **Step 2: Run the focused test and confirm RED**
 
 Run: `npx vitest run src/workbench/tauriDockDragAdapter.test.ts`
 
 Expected: FAIL because `createTauriDockDragAdapter` does not exist.
 
-- [ ] **Step 3: Implement the minimal Tauri adapter**
+- [x] **Step 3: Implement the minimal Tauri adapter**
 
 Import only from `@tauri-apps/api/window`. Do not add a Rust dependency. Add `core:window:allow-start-dragging` to both capability files if `core:default` does not authorize the call in a production build.
 
-- [ ] **Step 4: Validate the unresolved native semantics on all three OSes**
+- [x] **Step 4: Validate the unresolved native semantics on all three OSes**
 
 Record these exact observations in `docs/qa/v1.0.1-native-docking.md`:
 
@@ -104,7 +104,7 @@ Record these exact observations in `docs/qa/v1.0.1-native-docking.md`:
 
 The gate passes only when drag completion and coordinates can be detected without a global input hook. If one OS fails, stop this plan and design one minimal Rust command/event interface before Task 2; do not install a global mouse-hook library that requires macOS Accessibility permission.
 
-- [ ] **Step 5: Run tests and commit**
+- [x] **Step 5: Run tests and commit**
 
 Run: `npx vitest run src/workbench/tauriDockDragAdapter.test.ts`
 
