@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { once } from "node:events";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
@@ -23,6 +23,12 @@ export const config = {
   jasmineOpts: { defaultTimeoutInterval: 90_000 },
   beforeSession() {
     driver = spawn(join(homedir(), ".cargo", "bin", "tauri-driver"), [], { stdio: "inherit" });
+  },
+  afterTest() {
+    const killed = spawnSync("pkill", ["-KILL", "-x", "rune"], { stdio: "ignore" });
+    if (killed.error || killed.status !== 0) {
+      throw killed.error ?? new Error(`Failed to force-stop Rune (pkill exit ${killed.status})`);
+    }
   },
   async afterSession() {
     if (!driver || driver.exitCode !== null) return;

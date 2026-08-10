@@ -8,7 +8,8 @@ const waitForWindowCount = async (count) => {
 
 describe("native Workbench layout recovery smoke", () => {
   it("restores the detached View group in a new app session and re-docks it", async () => {
-    await $('html[data-wdio-ready="true"][data-wdio-pending-window-count="1"]').waitForExist();
+    await $('html[data-wdio-ready="true"]').waitForExist();
+    await $('html[data-wdio-pending-window-count="1"]').waitForExist();
     await $('html[data-wdio-hot-exit-recovered="true"]').waitForExist();
     await browser.execute(() => window.dispatchEvent(new Event("rune:wdio-restore-view-windows")));
     const handles = await waitForWindowCount(2);
