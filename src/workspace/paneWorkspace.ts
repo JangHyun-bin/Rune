@@ -10,6 +10,7 @@ import {
   type SplitDirection,
 } from "./paneLayout";
 import type { PaneWorkspaceSnapshot } from "./panePersistence";
+import type { HotExitSnapshot } from "./hotExit";
 import type { PathChangePlan } from "../ipc/bindings";
 
 export interface PaneWorkspaceOptions {
@@ -50,6 +51,8 @@ export interface PaneWorkspace {
   flushSaves(): Promise<void>;
   hasDirtyTabs(): boolean;
   dirtyPaths(): string[];
+  hotExitSnapshot(workspaceRoot: string | null): HotExitSnapshot | null;
+  restoreHotExit(snapshot: HotExitSnapshot): Promise<void>;
   reconcilePathChange(change: Pick<PathChangePlan, "pathChanges" | "edits">): Promise<void>;
   setSplitRatio(ratio: number): void;
   splitRatio(): number;
@@ -375,6 +378,35 @@ export function createPaneWorkspace(options: PaneWorkspaceOptions): PaneWorkspac
     return [...panes.values()].flatMap((pane) => pane.dirtyPaths());
   }
 
+  function hotExitSnapshot(workspaceRoot: string | null): HotExitSnapshot | null {
+    const dirtyPanes = flattenPaneIds(root)
+      .map((paneId) => assertPane(panes, paneId).hotExitSnapshot())
+      .filter((pane): pane is NonNullable<typeof pane> => pane !== null);
+    if (dirtyPanes.length === 0) return null;
+    return {
+      version: 1,
+      workspaceRoot,
+      activePaneId,
+      panes: dirtyPanes,
+    };
+  }
+
+  async function restoreHotExit(snapshot: HotExitSnapshot): Promise<void> {
+    let recoveredActivePaneId = activePaneId;
+    restoring = true;
+    try {
+      for (const paneSnapshot of snapshot.panes) {
+        const pane = panes.get(paneSnapshot.id) ?? assertPane(panes, activePaneId);
+        await pane.restoreHotExit(paneSnapshot);
+        if (paneSnapshot.id === snapshot.activePaneId) recoveredActivePaneId = pane.id;
+      }
+    } finally {
+      restoring = false;
+    }
+    setActivePane(recoveredActivePaneId);
+    options.onActiveDocumentChange();
+  }
+
   async function reconcilePathChange(
     change: Pick<PathChangePlan, "pathChanges" | "edits">,
   ): Promise<void> {
@@ -470,6 +502,8 @@ export function createPaneWorkspace(options: PaneWorkspaceOptions): PaneWorkspac
     flushSaves,
     hasDirtyTabs,
     dirtyPaths,
+    hotExitSnapshot,
+    restoreHotExit,
     reconcilePathChange,
     setSplitRatio,
     splitRatio,

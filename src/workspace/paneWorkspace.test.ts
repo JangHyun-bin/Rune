@@ -158,6 +158,8 @@ interface MockPane {
   activeDirty: ReturnType<typeof vi.fn>;
   hasDirtyTabs: ReturnType<typeof vi.fn>;
   dirtyPaths: ReturnType<typeof vi.fn>;
+  hotExitSnapshot: ReturnType<typeof vi.fn>;
+  restoreHotExit: ReturnType<typeof vi.fn>;
   reconcilePathChange: ReturnType<typeof vi.fn>;
   tabsSnapshot: ReturnType<typeof vi.fn>;
   setEditorMode: ReturnType<typeof vi.fn>;
@@ -208,6 +210,8 @@ const editorPaneMock = vi.hoisted(() => {
       activeDirty: vi.fn(() => false),
       hasDirtyTabs: vi.fn(() => false),
       dirtyPaths: vi.fn(() => []),
+      hotExitSnapshot: vi.fn(() => null),
+      restoreHotExit: vi.fn(async () => {}),
       reconcilePathChange: vi.fn(async () => {}),
       tabsSnapshot: vi.fn(() => ({ openTabs: [...openTabs], activePath })),
       setEditorMode: vi.fn(),
@@ -556,6 +560,49 @@ describe("pane workspace", () => {
     expect(onActiveDocumentChange).toHaveBeenCalledTimes(1);
     expect(onRequestSaveSettings).not.toHaveBeenCalled();
     await expect(workspace.splitActivePaneAndOpen("/w/d.md", "row", "after")).resolves.toBe("pane-4");
+
+    workspace.destroy();
+  });
+
+  it("collects dirty tabs from every pane into one Hot Exit snapshot", async () => {
+    const { workspace } = makeWorkspace();
+    const pane2 = await workspace.splitActivePaneAndOpen("/w/b.md", "row", "after");
+    if (!pane2) throw new Error("Expected split pane");
+    editorPaneMock.panes.get("pane-1")?.hotExitSnapshot.mockReturnValue({
+      id: "pane-1",
+      tabs: [{ path: "/w/a.md", savedText: "old", currentText: "new", active: true }],
+    });
+    editorPaneMock.panes.get(pane2)?.hotExitSnapshot.mockReturnValue(null);
+
+    expect(workspace.hotExitSnapshot("C:/w")).toEqual({
+      version: 1,
+      workspaceRoot: "C:/w",
+      activePaneId: pane2,
+      panes: [{
+        id: "pane-1",
+        tabs: [{ path: "/w/a.md", savedText: "old", currentText: "new", active: true }],
+      }],
+    });
+
+    workspace.destroy();
+  });
+
+  it("routes recovered tabs back to their pane and falls back to the active pane", async () => {
+    const { workspace } = makeWorkspace();
+    await workspace.restoreHotExit({
+      version: 1,
+      workspaceRoot: "C:/w",
+      activePaneId: "missing-pane",
+      panes: [{
+        id: "missing-pane",
+        tabs: [{ path: null, savedText: "", currentText: "recovered", active: true }],
+      }],
+    });
+
+    expect(editorPaneMock.panes.get("pane-1")?.restoreHotExit).toHaveBeenCalledWith({
+      id: "missing-pane",
+      tabs: [{ path: null, savedText: "", currentText: "recovered", active: true }],
+    });
 
     workspace.destroy();
   });

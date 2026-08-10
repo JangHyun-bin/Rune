@@ -5,6 +5,7 @@ import { editorState, createEditorView, type EditorMode } from "../editor/editor
 import { mountSplitPreview, type SplitPreview } from "../editor/splitPreview";
 import { samePath } from "./paths";
 import { mountTabBar } from "./tabBar";
+import { resolveHotExitTab, type HotExitPaneSnapshot } from "./hotExit";
 import {
   activeTab,
   closeTab as closeTabModel,
@@ -68,6 +69,8 @@ export interface EditorPane {
   activeDirty(): boolean;
   hasDirtyTabs(): boolean;
   dirtyPaths(): string[];
+  hotExitSnapshot(): HotExitPaneSnapshot | null;
+  restoreHotExit(snapshot: HotExitPaneSnapshot): Promise<void>;
   reconcilePathChange(change: Pick<PathChangePlan, "pathChanges" | "edits">): Promise<void>;
   tabsSnapshot(): { openTabs: string[]; activePath: string | null };
   setEditorMode(mode: EditorMode): void;
@@ -496,6 +499,73 @@ export function createEditorPane(options: EditorPaneOptions): EditorPane {
     return { openTabs, activePath: activePath() };
   }
 
+  function hotExitSnapshot(): HotExitPaneSnapshot | null {
+    stashActiveState();
+    const dirtyTabs = tabs.tabs
+      .filter(tabDirty)
+      .map((tab) => ({
+        path: tab.path,
+        savedText: tab.savedText,
+        currentText: tab.currentText,
+        active: tab.id === tabs.activeId,
+      }));
+    return dirtyTabs.length > 0 ? { id, tabs: dirtyTabs } : null;
+  }
+
+  function restoreRecoveredUntitled(text: string): string | null {
+    if (!hasOnlyCleanUntitledTab()) newDoc();
+    replaceActiveText(text);
+    return tabs.activeId;
+  }
+
+  function restoreFileContents(path: string, savedText: string, currentText: string): string | null {
+    stashActiveState();
+    if (hasOnlyCleanUntitledTab()) {
+      states.delete(tabs.tabs[0].id);
+      tabs = emptyTabs();
+    }
+    tabs = openOrFocus(tabs, path, savedText);
+    const tabId = tabs.activeId;
+    if (!tabId) return null;
+    tabs = {
+      ...tabs,
+      tabs: tabs.tabs.map((tab) => tab.id === tabId
+        ? { ...tab, savedText, currentText }
+        : tab),
+    };
+    states.delete(tabId);
+    showActive();
+    options.onDirtyChange(id);
+    options.onRequestSaveSettings();
+    return tabId;
+  }
+
+  async function restoreHotExit(snapshot: HotExitPaneSnapshot): Promise<void> {
+    let recoveredActiveId: string | null = null;
+    for (const tab of snapshot.tabs) {
+      let diskText: string | null = null;
+      const resolved = await resolveHotExitTab(tab, async (path) => {
+        const result = await options.readFile(path);
+        diskText = result.status === "ok" ? result.data : null;
+        return diskText;
+      });
+
+      let recoveredId: string | null;
+      if (resolved.kind === "file") {
+        recoveredId = restoreFileContents(resolved.path, resolved.savedText, resolved.currentText);
+      } else if (resolved.kind === "alreadySaved") {
+        recoveredId = restoreFileContents(resolved.path, resolved.currentText, resolved.currentText);
+      } else {
+        if (resolved.recoveredFrom && diskText !== null) {
+          restoreFileContents(resolved.recoveredFrom, diskText, diskText);
+        }
+        recoveredId = restoreRecoveredUntitled(resolved.currentText);
+      }
+      if (resolved.active) recoveredActiveId = recoveredId;
+    }
+    if (recoveredActiveId) switchTo(recoveredActiveId);
+  }
+
   function setEditorMode(mode: EditorMode): void {
     if (editorMode === mode) return;
 
@@ -667,6 +737,8 @@ export function createEditorPane(options: EditorPaneOptions): EditorPane {
     activeDirty,
     hasDirtyTabs,
     dirtyPaths,
+    hotExitSnapshot,
+    restoreHotExit,
     reconcilePathChange,
     tabsSnapshot,
     setEditorMode,

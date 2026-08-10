@@ -806,6 +806,103 @@ describe("editor pane", () => {
     pane.destroy();
   });
 
+  it("snapshots only dirty file and untitled tabs for Hot Exit", async () => {
+    const host = document.createElement("div");
+    const pane = createEditorPane({
+      id: "pane-1",
+      host,
+      editorMode: "source",
+      readFile: vi.fn(async () => ({ status: "ok" as const, data: "# Saved" })),
+      writeFile: vi.fn(async () => ({ status: "ok" as const, data: null })),
+      onActiveChange: vi.fn(),
+      onDirtyChange: vi.fn(),
+      onRequestSaveSettings: vi.fn(),
+    });
+
+    await pane.openPath("/w/a.md");
+    editActiveText(pane, "# Recovered file");
+    pane.newDoc();
+    editActiveText(pane, "Recovered untitled");
+
+    expect(pane.hotExitSnapshot()).toEqual({
+      id: "pane-1",
+      tabs: [
+        { path: "/w/a.md", savedText: "# Saved", currentText: "# Recovered file", active: false },
+        { path: null, savedText: "", currentText: "Recovered untitled", active: true },
+      ],
+    });
+
+    pane.destroy();
+  });
+
+  it("restores an externally conflicted file as untitled without changing disk", async () => {
+    const host = document.createElement("div");
+    const writeFile = vi.fn(async () => ({ status: "ok" as const, data: null }));
+    const pane = createEditorPane({
+      id: "pane-1",
+      host,
+      editorMode: "source",
+      readFile: vi.fn(async () => ({ status: "ok" as const, data: "# External edit" })),
+      writeFile,
+      onActiveChange: vi.fn(),
+      onDirtyChange: vi.fn(),
+      onRequestSaveSettings: vi.fn(),
+    });
+
+    await pane.restoreHotExit({
+      id: "pane-1",
+      tabs: [{
+        path: "/w/a.md",
+        savedText: "# Saved",
+        currentText: "# Recovered file",
+        active: true,
+      }],
+    });
+
+    expect(pane.tabsSnapshot().openTabs).toEqual(["/w/a.md"]);
+    expect(host.querySelectorAll(".tab")).toHaveLength(2);
+    expect(pane.activePath()).toBeNull();
+    expect(pane.activeText()).toBe("# Recovered file");
+    expect(pane.activeDirty()).toBe(true);
+    expect(writeFile).not.toHaveBeenCalled();
+
+    pane.destroy();
+  });
+
+  it("restores an unchanged file in place from one disk-base read", async () => {
+    const host = document.createElement("div");
+    const readFile = vi.fn(async () => ({ status: "ok" as const, data: "# Saved" }));
+    const writeFile = vi.fn(async () => ({ status: "ok" as const, data: null }));
+    const pane = createEditorPane({
+      id: "pane-1",
+      host,
+      editorMode: "source",
+      readFile,
+      writeFile,
+      onActiveChange: vi.fn(),
+      onDirtyChange: vi.fn(),
+      onRequestSaveSettings: vi.fn(),
+    });
+
+    await pane.restoreHotExit({
+      id: "pane-1",
+      tabs: [{
+        path: "/w/a.md",
+        savedText: "# Saved",
+        currentText: "# Recovered file",
+        active: true,
+      }],
+    });
+
+    expect(readFile).toHaveBeenCalledTimes(1);
+    expect(pane.activePath()).toBe("/w/a.md");
+    expect(pane.activeText()).toBe("# Recovered file");
+    expect(pane.activeDirty()).toBe(true);
+    expect(writeFile).not.toHaveBeenCalled();
+
+    pane.destroy();
+  });
+
   it("uses pane-local split layout instead of relying on global editor CSS", () => {
     const host = document.createElement("div");
     const pane = createEditorPane({

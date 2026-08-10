@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import type { HotExitSnapshot } from "../workspace/hotExit";
 
 export type Result<T> =
   | { status: "ok"; data: T }
@@ -54,6 +55,9 @@ export const commands = {
   listDir: (path: string) => call<FileNode[]>("list_dir", { path }),
   loadSettings: () => call<Settings>("load_settings", {}),
   saveSettings: (settings: Settings) => call<null>("save_settings", { settings }),
+  loadHotExit: () => call<unknown | null>("load_hot_exit", {}),
+  saveHotExit: (snapshot: HotExitSnapshot) => call<null>("save_hot_exit", { snapshot }),
+  clearHotExit: () => call<null>("clear_hot_exit", {}),
   watchFolder: (path: string) => call<null>("watch_folder", { path }),
   search: (root: string, query: string, requestId: number) =>
     call<SearchResults>("search", { root, query, requestId }),

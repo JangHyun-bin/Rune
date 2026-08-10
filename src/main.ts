@@ -45,6 +45,8 @@ import { clampEditorFontScale, stepEditorFontScale, EDITOR_FONT_DEFAULT, clampUi
 import { createPaneWorkspace, type PaneWorkspace } from "./workspace/paneWorkspace";
 import { convertFileSrc, isTauri } from "@tauri-apps/api/core";
 import { normalizePaneWorkspaceSnapshot } from "./workspace/panePersistence";
+import { parseHotExitSnapshot } from "./workspace/hotExit";
+import { createHotExitStore } from "./workspace/hotExitStore";
 import { dropZoneRect, firstMarkdownPath, hitPaneDropZone, physicalToCssPoint } from "./workspace/dropTargets";
 import { createNativeFileOpenQueue, handleNativeFileDrop, type ResolvedDropTarget } from "./workspace/fileDrop";
 import { createViewRegistry } from "./workbench/viewRegistry";
@@ -738,6 +740,25 @@ const settingsSaveScheduler = createSettingsSaveScheduler(
   },
   500,
 );
+const showHotExitError = (error: unknown): void => {
+  const message = error instanceof Error ? error.message : String(error);
+  console.error(message);
+  errorBanner.show(tr("error.save", { msg: message }));
+};
+const hotExitStore = createHotExitStore(
+  () => paneWorkspace.hotExitSnapshot(currentFolder),
+  async (snapshot) => {
+    const result = await commands.saveHotExit(snapshot);
+    if (result.status === "error") throw new Error(result.error);
+  },
+  async () => {
+    const result = await commands.clearHotExit();
+    if (result.status === "error") throw new Error(result.error);
+  },
+  250,
+  showHotExitError,
+  false,
+);
 function scheduleSaveSettings() {
   settingsSaveScheduler.schedule();
 }
@@ -1396,7 +1417,11 @@ findReplacePanel = mountFindReplacePanel({
   },
 });
 async function restore(): Promise<void> {
-  const res = await commands.loadSettings();
+  const [res, recoveryResult] = await Promise.all([
+    commands.loadSettings(),
+    commands.loadHotExit(),
+  ]);
+  const recovery = recoveryResult.status === "ok" ? parseHotExitSnapshot(recoveryResult.data) : null;
   const s = res.status === "ok" ? res.data : { theme: null, lastFolder: null, openTabs: [], locale: null, editorWidth: null, editorMode: null, sidebarWidth: null, layout: null, workbenchLayout: null, viewWindowLayout: null, namedLayouts: null, activeNamedLayout: null, focusMode: null, typewriterMode: null, paneLayout: null, uiScale: null, editorFontScale: null };
   document.documentElement.setAttribute("data-theme", s.theme === "light" || s.theme === "dark" ? s.theme : (prefersDark() ? "dark" : "light"));
   document.documentElement.setAttribute("data-editor-width", s.editorWidth === "wide" ? "wide" : "readable");
@@ -1441,6 +1466,15 @@ async function restore(): Promise<void> {
         loadedRestoredFolder = true;
       } catch {}
     }
+  }
+  if (recovery) {
+    await paneWorkspace.restoreHotExit(recovery);
+  }
+  hotExitStore.enable(false);
+  if (recovery) {
+    hotExitStore.schedule();
+    await hotExitStore.flush().catch(showHotExitError);
+    if (import.meta.env.VITE_WDIO === "1") document.documentElement.dataset.wdioHotExitRecovered = "true";
   }
   if (!activePane().activeTabId()) newDoc();
   syncActiveUI();
@@ -1657,7 +1691,10 @@ paneWorkspace = createPaneWorkspace({
   readFile: commands.readFile,
   writeFile: commands.writeFile,
   onActivePaneChange: () => syncActiveUI(),
-  onActiveDocumentChange: () => syncActiveUI(),
+  onActiveDocumentChange: () => {
+    syncActiveUI();
+    hotExitStore.schedule();
+  },
   onRequestSaveSettings: scheduleSaveSettings,
   onReadError: (msg) => errorBanner.show(tr("error.readFile", { msg })),
   onSaveError: (msg) => errorBanner.show(tr("error.save", { msg })),
@@ -1693,6 +1730,7 @@ if (isTauri()) void getCurrentWebviewWindow().onCloseRequested(async (event) => 
     await viewWindowHost?.prepareForShutdown();
     const saved = await commands.saveSettings(settingsSnapshot());
     if (saved.status === "error") throw new Error(saved.error);
+    await hotExitStore.discard();
     await getCurrentWebviewWindow().destroy();
   } catch (error) {
     mainClosePending = false;
@@ -1701,7 +1739,13 @@ if (isTauri()) void getCurrentWebviewWindow().onCloseRequested(async (event) => 
   }
 });
 
-window.addEventListener("blur", () => { void paneWorkspace.flushSaves(); });
+window.addEventListener("blur", () => {
+  void (async () => {
+    await paneWorkspace.flushSaves();
+    hotExitStore.schedule();
+    await hotExitStore.flush().catch(showHotExitError);
+  })();
+});
 window.addEventListener("resize", () => applySplitRatio(currentSplitRatio(), false));
 window.addEventListener("keydown", (e) => {
   if (e.key === "F1") { e.preventDefault(); helpPanel.toggle(); return; }

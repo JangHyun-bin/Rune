@@ -101,6 +101,15 @@ fn settings_path(app: &AppHandle) -> Result<std::path::PathBuf, String> {
     Ok(dir.join("settings.json"))
 }
 
+fn hot_exit_path(app: &AppHandle) -> Result<std::path::PathBuf, String> {
+    #[cfg(feature = "webdriver")]
+    if let Some(path) = std::env::var_os("RUNE_WDIO_HOT_EXIT_PATH") {
+        return Ok(path.into());
+    }
+    let dir = app.path().app_config_dir().map_err(|e| e.to_string())?;
+    Ok(dir.join("hot-exit.json"))
+}
+
 #[tauri::command]
 pub fn load_settings(app: AppHandle) -> Result<crate::settings::Settings, String> {
     Ok(crate::settings::load(&settings_path(&app)?))
@@ -109,6 +118,21 @@ pub fn load_settings(app: AppHandle) -> Result<crate::settings::Settings, String
 #[tauri::command]
 pub fn save_settings(app: AppHandle, settings: crate::settings::Settings) -> Result<(), String> {
     crate::settings::save(&settings_path(&app)?, &settings)
+}
+
+#[tauri::command]
+pub fn load_hot_exit(app: AppHandle) -> Result<Option<serde_json::Value>, String> {
+    crate::hot_exit::load(&hot_exit_path(&app)?)
+}
+
+#[tauri::command]
+pub fn save_hot_exit(app: AppHandle, snapshot: serde_json::Value) -> Result<(), String> {
+    crate::hot_exit::save(&hot_exit_path(&app)?, &snapshot)
+}
+
+#[tauri::command]
+pub fn clear_hot_exit(app: AppHandle) -> Result<(), String> {
+    crate::hot_exit::clear(&hot_exit_path(&app)?)
 }
 
 #[tauri::command]

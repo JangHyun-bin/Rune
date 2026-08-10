@@ -1,4 +1,5 @@
 mod fs_ops;
+mod hot_exit;
 mod commands;
 mod publishing;
 mod settings;
@@ -132,6 +133,9 @@ pub fn run() {
             commands::list_dir,
             commands::load_settings,
             commands::save_settings,
+            commands::load_hot_exit,
+            commands::save_hot_exit,
+            commands::clear_hot_exit,
             commands::watch_folder,
             commands::search,
             commands::cancel_search,
