@@ -13,11 +13,14 @@ fn macos_screen_rect_origin(
     rect_x: f64,
     rect_y: f64,
     rect_height: f64,
+    safe_area_left: f64,
+    safe_area_top: f64,
 ) -> NativeWebviewOrigin {
     let main_display_logical_height = main_display_pixel_height / primary_scale_factor;
     NativeWebviewOrigin {
-        x: rect_x * primary_scale_factor,
-        y: (main_display_logical_height - rect_y - rect_height) * primary_scale_factor,
+        x: (rect_x + safe_area_left) * primary_scale_factor,
+        y: (main_display_logical_height - rect_y - rect_height + safe_area_top)
+            * primary_scale_factor,
     }
 }
 
@@ -58,6 +61,7 @@ pub async fn native_webview_origin(
                 let window: &NSWindow = unsafe { &*webview.ns_window().cast() };
                 let rect_in_window = view.convertRect_toView(view.bounds(), None);
                 let rect_on_screen = window.convertRectToScreen(rect_in_window);
+                let safe_area = view.safeAreaInsets();
                 let main_screen = NSScreen::mainScreen(mtm)
                     .ok_or_else(|| "macOS main screen is unavailable".to_owned())?;
                 // Match Tauri/Tao's cursor coordinate space. NSScreen::frame can omit the
@@ -71,6 +75,8 @@ pub async fn native_webview_origin(
                     rect_on_screen.origin.x,
                     rect_on_screen.origin.y,
                     rect_on_screen.size.height,
+                    safe_area.left,
+                    safe_area.top,
                 ))
             })();
             let _ = sender.send(result);
@@ -93,7 +99,7 @@ mod tests {
     #[test]
     fn converts_macos_bottom_left_rect_to_cursor_physical_origin() {
         assert_eq!(
-            macos_screen_rect_origin(1800.0, 2.0, 100.0, 600.0, 200.0),
+            macos_screen_rect_origin(1800.0, 2.0, 100.0, 600.0, 200.0, 0.0, 0.0),
             NativeWebviewOrigin { x: 200.0, y: 200.0 }
         );
     }
@@ -101,7 +107,15 @@ mod tests {
     #[test]
     fn retains_core_graphics_menu_bar_extent_in_cursor_coordinates() {
         assert_eq!(
-            macos_screen_rect_origin(928.0, 1.0, 0.0, 0.0, 875.0),
+            macos_screen_rect_origin(928.0, 1.0, 0.0, 0.0, 875.0, 0.0, 0.0),
+            NativeWebviewOrigin { x: 0.0, y: 53.0 }
+        );
+    }
+
+    #[test]
+    fn includes_webview_safe_area_in_the_dom_client_origin() {
+        assert_eq!(
+            macos_screen_rect_origin(900.0, 1.0, 0.0, 0.0, 875.0, 0.0, 28.0),
             NativeWebviewOrigin { x: 0.0, y: 53.0 }
         );
     }
