@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { DEFAULT_WORKBENCH_LAYOUT } from "./workbenchLayout";
-import { normalizeViewWindowLayout, recoverWindowBounds, type ViewWindowLayoutSnapshot } from "./viewWindowLayout";
+import { normalizeCapturedWindowBounds, normalizeViewWindowLayout, recoverWindowBounds, type ViewWindowLayoutSnapshot } from "./viewWindowLayout";
 
 const saved: ViewWindowLayoutSnapshot = {
   version: 1,
@@ -33,5 +33,18 @@ describe("multi-window layout persistence", () => {
       name: "Secondary", scaleFactor: 2, workArea: { x: 1920, y: 0, width: 1600, height: 900 },
     }], "Secondary");
     expect(result).toEqual({ x: 2293, y: 0, width: 1200, height: 900 });
+  });
+
+  it("falls back to the requested size while a native window reports zero geometry", () => {
+    expect(normalizeCapturedWindowBounds(
+      { x: 0, y: 0 },
+      { width: 0, height: 0 },
+      { width: 420, height: 640 },
+    )).toEqual({ x: 0, y: 0, width: 420, height: 640 });
+    expect(normalizeCapturedWindowBounds(
+      { x: 25, y: 40 },
+      { width: 800, height: 600 },
+      { width: 420, height: 640 },
+    )).toEqual({ x: 25, y: 40, width: 800, height: 600 });
   });
 });

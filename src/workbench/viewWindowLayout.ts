@@ -20,6 +20,19 @@ export interface AvailableMonitor {
   workArea: WindowBounds;
 }
 
+export function normalizeCapturedWindowBounds(
+  position: { x: number; y: number },
+  size: { width: number; height: number },
+  fallback: { width: number; height: number },
+): WindowBounds {
+  return {
+    x: Number.isFinite(position.x) ? position.x : 0,
+    y: Number.isFinite(position.y) ? position.y : 0,
+    width: Number.isFinite(size.width) && size.width >= 200 ? size.width : fallback.width,
+    height: Number.isFinite(size.height) && size.height >= 120 ? size.height : fallback.height,
+  };
+}
+
 export const EMPTY_VIEW_WINDOW_LAYOUT: ViewWindowLayoutSnapshot = { version: 1, sessionState: "clean", windows: [] };
 const containers = new Set<WorkbenchContainerId>(["explorer", "search", "auxiliary", "panel"]);
 

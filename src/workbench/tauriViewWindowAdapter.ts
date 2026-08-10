@@ -2,6 +2,7 @@ import { emitTo, listen } from "@tauri-apps/api/event";
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { PhysicalPosition, PhysicalSize, availableMonitors, primaryMonitor } from "@tauri-apps/api/window";
 import type { ViewWindowAdapter, ViewWindowHandle } from "./viewWindowHost";
+import { normalizeCapturedWindowBounds } from "./viewWindowLayout";
 
 export const tauriViewWindowAdapter: ViewWindowAdapter = {
   async create(label, options): Promise<ViewWindowHandle> {
@@ -31,20 +32,21 @@ export const tauriViewWindowAdapter: ViewWindowAdapter = {
       },
       async capture() {
         const [position, size, monitors] = await Promise.all([window.outerPosition(), window.outerSize(), availableMonitors()]);
-        const center = { x: position.x + size.width / 2, y: position.y + size.height / 2 };
+        const captured = normalizeCapturedWindowBounds(position, size, windowOptions);
+        const center = { x: captured.x + captured.width / 2, y: captured.y + captured.height / 2 };
         const monitor = monitors.find((item) => center.x >= item.workArea.position.x && center.y >= item.workArea.position.y
           && center.x < item.workArea.position.x + item.workArea.size.width
           && center.y < item.workArea.position.y + item.workArea.size.height) ?? monitors[0];
         const workArea = monitor?.workArea;
         return {
-          bounds: { x: position.x, y: position.y, width: size.width, height: size.height },
+          bounds: captured,
           monitor: {
             name: monitor?.name ?? null,
             scaleFactor: monitor?.scaleFactor ?? 1,
             x: workArea?.position.x ?? 0,
             y: workArea?.position.y ?? 0,
-            width: workArea?.size.width ?? size.width,
-            height: workArea?.size.height ?? size.height,
+            width: workArea?.size.width ?? captured.width,
+            height: workArea?.size.height ?? captured.height,
           },
         };
       },
