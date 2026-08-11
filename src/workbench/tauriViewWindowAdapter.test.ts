@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const tauri = vi.hoisted(() => ({
   startDragging: vi.fn(async () => {}),
+  cursorPosition: vi.fn(async () => ({ x: -720, y: 540 })),
 }));
 
 vi.mock("@tauri-apps/api/event", () => ({
@@ -13,6 +14,7 @@ vi.mock("@tauri-apps/api/window", () => ({
   PhysicalPosition: class PhysicalPosition { constructor(public x: number, public y: number) {} },
   PhysicalSize: class PhysicalSize { constructor(public width: number, public height: number) {} },
   availableMonitors: vi.fn(async () => []),
+  cursorPosition: tauri.cursorPosition,
   primaryMonitor: vi.fn(async () => null),
 }));
 
@@ -48,5 +50,10 @@ describe("Tauri View window adapter", () => {
     await handle.startDragging?.();
 
     expect(tauri.startDragging).toHaveBeenCalledTimes(1);
+  });
+
+  it("reads the global physical cursor for authoritative cross-window hit testing", async () => {
+    await expect(tauriViewWindowAdapter.cursor?.()).resolves.toEqual({ x: -720, y: 540 });
+    expect(tauri.cursorPosition).toHaveBeenCalledTimes(1);
   });
 });

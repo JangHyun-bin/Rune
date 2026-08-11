@@ -514,6 +514,7 @@ body.detached-view-window {
 }
 
 .detached-view-tabs button,
+.detached-view-group-handle,
 .detached-view-redock {
   border: 0;
   border-radius: 0;
@@ -522,11 +523,15 @@ body.detached-view-window {
   padding: 8px 10px;
 }
 
+.detached-view-group-handle { cursor: grab; touch-action: none; }
+.detached-view-group-handle:active { cursor: grabbing; }
+
 .detached-view-tabs button.active {
   box-shadow: inset 0 -2px var(--accent);
 }
 
 .detached-view-tabs button:focus-visible,
+.detached-view-group-handle:focus-visible,
 .detached-view-redock:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: -2px;

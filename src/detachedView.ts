@@ -16,17 +16,27 @@ import { mountPropertiesPanel } from "./workspace/propertiesPanel";
 import { mountReferencesPanel } from "./workspace/referencesPanel";
 import { mountSearchPanel } from "./workspace/searchPanel";
 import { mountTagsPanel } from "./workspace/tagsPanel";
+import type { DockPayload } from "./workbench/dockTypes";
 import type { WorkbenchViewId } from "./workbench/workbenchLayout";
 import type { ViewWindowContext } from "./workbench/viewWindowHost";
-import { normalizeViewWindowTransfer, type ViewWindowPresentation, type ViewWindowTransfer } from "./workbench/viewWindowTransfer";
+import {
+  DOCK_PROTOCOL_EVENT,
+  normalizeDockProtocolMessage,
+  normalizeViewWindowTransfer,
+  type DockProtocolMessage,
+  type ViewWindowPresentation,
+  type ViewWindowTransfer,
+} from "./workbench/viewWindowTransfer";
 import { nextDetachedTabIndex } from "./workbench/viewWindowTabs";
 import { publishDetachedDockSurface } from "./workbench/dockGeometry";
 import { createTauriDockDragAdapter } from "./workbench/tauriDockDragAdapter";
+import { detachedDockPayload } from "./workbench/detachedDockPayload";
 
 const currentWindow = getCurrentWebviewWindow();
 const mainWindow = "main";
 const host = document.getElementById("detached-view")!;
 const dockDragAdapter = createTauriDockDragAdapter();
+const nativeDockingEnabled = import.meta.env.VITE_NATIVE_DOCKING === "1";
 let transfer: ViewWindowTransfer | null = null;
 let context: ViewWindowContext = {
   currentFolder: null,
@@ -44,6 +54,96 @@ let refreshPanels = (): void => {};
 let disposePanels = (): void => {};
 let cycleTab = (_direction: 1 | -1): void => {};
 let refreshDockSurface = (): void => {};
+let dockRevision = 0;
+let nextDockSession = 0;
+let observedDockSession: Extract<DockProtocolMessage, { type: "dock:start" }> | null = null;
+let pendingDockCommit: Extract<DockProtocolMessage, { type: "dock:commit" }> | null = null;
+let dockOverlay: HTMLElement | null = null;
+
+function clearDockOverlay(): void {
+  dockOverlay?.remove();
+  dockOverlay = null;
+  document.body.classList.remove("dock-drag-active");
+}
+
+function acknowledgePendingDockCommit(): void {
+  const commit = pendingDockCommit;
+  if (!commit || dockRevision !== commit.revision) return;
+  pendingDockCommit = null;
+  void emitTo(mainWindow, DOCK_PROTOCOL_EVENT, {
+    type: "dock:result",
+    version: 2,
+    sessionId: commit.sessionId,
+    sourceWindowLabel: currentWindow.label,
+    ok: true,
+    revision: dockRevision,
+    error: null,
+  } satisfies DockProtocolMessage);
+}
+
+function renderDockOverlay(message: Extract<DockProtocolMessage, { type: "dock:preview" }>): void {
+  clearDockOverlay();
+  if (!message.zone) return;
+  dockOverlay = document.createElement("div");
+  dockOverlay.className = `dock-target-overlay dock-target-${message.zone.target.kind}`;
+  dockOverlay.setAttribute("aria-hidden", "true");
+  dockOverlay.style.setProperty("--dock-target-left", `${message.zone.rect.left}px`);
+  dockOverlay.style.setProperty("--dock-target-top", `${message.zone.rect.top}px`);
+  dockOverlay.style.setProperty("--dock-target-width", `${message.zone.rect.width}px`);
+  dockOverlay.style.setProperty("--dock-target-height", `${message.zone.rect.height}px`);
+  document.body.appendChild(dockOverlay);
+  document.body.classList.add("dock-drag-active");
+}
+
+async function beginDetachedDock(payload: DockPayload): Promise<void> {
+  if (!nativeDockingEnabled || observedDockSession) return;
+  const message: Extract<DockProtocolMessage, { type: "dock:start" }> = {
+    type: "dock:start",
+    version: 2,
+    sessionId: `${currentWindow.label}:${++nextDockSession}`,
+    sourceWindowLabel: currentWindow.label,
+    payload,
+    point: await dockDragAdapter.cursor(),
+  };
+  observedDockSession = message;
+  await emitTo(mainWindow, DOCK_PROTOCOL_EVENT, message).catch(() => { observedDockSession = null; });
+}
+
+function bindDetachedDockPointer(element: HTMLElement, payload: () => DockPayload | null): void {
+  if (!nativeDockingEnabled) return;
+  let armed: { pointerId: number; x: number; y: number } | null = null;
+  let suppressClick = false;
+  element.addEventListener("pointerdown", (event) => {
+    if (event.button !== 0 || observedDockSession) return;
+    armed = { pointerId: event.pointerId, x: event.clientX, y: event.clientY };
+    try { element.setPointerCapture(event.pointerId); } catch { /* capture is best effort */ }
+  });
+  element.addEventListener("pointermove", (event) => {
+    if (!armed || event.pointerId !== armed.pointerId
+      || Math.hypot(event.clientX - armed.x, event.clientY - armed.y) < 5) return;
+    const value = payload();
+    if (element.hasPointerCapture(event.pointerId)) element.releasePointerCapture(event.pointerId);
+    armed = null;
+    if (value) {
+      suppressClick = true;
+      event.preventDefault();
+      void beginDetachedDock(value);
+    }
+  });
+  const clear = (event: PointerEvent): void => {
+    if (armed?.pointerId !== event.pointerId) return;
+    if (element.hasPointerCapture(event.pointerId)) element.releasePointerCapture(event.pointerId);
+    armed = null;
+  };
+  element.addEventListener("pointerup", clear);
+  element.addEventListener("pointercancel", clear);
+  element.addEventListener("click", (event) => {
+    if (!suppressClick) return;
+    suppressClick = false;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+  }, { capture: true });
+}
 
 function action(type: string, values: Record<string, unknown> = {}): Promise<void> {
   return emitTo(mainWindow, "rune:view-window-action", { windowLabel: currentWindow.label, type, ...values });
@@ -82,6 +182,13 @@ function render(): void {
   tabs.setAttribute("role", "tablist");
   const content = document.createElement("section");
   content.className = "detached-view-content";
+  const groupHandle = document.createElement("button");
+  groupHandle.type = "button";
+  groupHandle.className = "detached-view-group-handle";
+  groupHandle.textContent = "⠿";
+  groupHandle.title = t("workbench.moveViewGroup");
+  groupHandle.setAttribute("aria-label", groupHandle.title);
+  bindDetachedDockPointer(groupHandle, () => transfer ? detachedDockPayload(transfer, "group") : null);
   const redock = document.createElement("button");
   redock.type = "button";
   redock.className = "detached-view-redock";
@@ -89,7 +196,7 @@ function render(): void {
   redock.title = t("workbench.moveBackToMainWindow");
   redock.setAttribute("aria-label", redock.title);
   redock.addEventListener("click", () => { void emitTo(mainWindow, "rune:view-window-redock", { windowLabel: currentWindow.label }); });
-  header.append(tabs, redock);
+  header.append(tabs, groupHandle, redock);
   host.append(header, content);
 
   const panels = new Map<WorkbenchViewId, { element: HTMLElement; refresh(): void; focus?(): void; dispose(): void }>();
@@ -188,6 +295,7 @@ function render(): void {
     tab.setAttribute("aria-controls", `detached-panel-${viewId}`);
     tab.textContent = t(`view.${viewId}`);
     tab.addEventListener("click", () => activate(viewId));
+    bindDetachedDockPointer(tab, () => transfer ? detachedDockPayload(transfer, "view", viewId) : null);
     tab.addEventListener("keydown", (event) => {
       const next = nextDetachedTabIndex(transfer!.group.viewIds.indexOf(viewId), transfer!.group.viewIds.length, event.key);
       if (next === null) return;
@@ -200,19 +308,23 @@ function render(): void {
     tabElements.push(tab);
   }
   refreshDockSurface = () => {
-    if (!transfer) return;
+    if (!transfer || !observedDockSession) return;
     void publishDetachedDockSurface({
       windowLabel: currentWindow.label,
-      revision: 0,
+      revision: dockRevision,
       metrics: () => dockDragAdapter.metrics(),
       containerId: transfer.sourceContainerId,
       groupId: transfer.group.id,
       groupElement: host,
       tabStrip: tabs,
       tabElements,
-      publish: (surface) => {
-        window.dispatchEvent(new CustomEvent("rune:dock-surface", { detail: surface }));
-      },
+      publish: (surface) => emitTo(mainWindow, DOCK_PROTOCOL_EVENT, {
+        type: "dock:surface",
+        version: 2,
+        sessionId: observedDockSession!.sessionId,
+        sourceWindowLabel: currentWindow.label,
+        surface,
+      } satisfies DockProtocolMessage),
     }).catch((error) => console.warn(error));
   };
   refreshPanels = () => { for (const panel of panels.values()) panel.refresh(); };
@@ -224,13 +336,45 @@ function render(): void {
 
 void currentWindow.listen("rune:view-window-init", ({ payload }) => {
   if (!payload || typeof payload !== "object") return;
-  const candidate = payload as { transfer?: unknown; context?: ViewWindowContext };
+  const candidate = payload as { transfer?: unknown; context?: ViewWindowContext; revision?: unknown };
   const normalized = normalizeViewWindowTransfer(candidate.transfer);
   if (!normalized || normalized.targetWindowLabel !== currentWindow.label || !candidate.context) return;
   transfer = normalized;
   context = candidate.context;
+  if (typeof candidate.revision === "number" && Number.isInteger(candidate.revision) && candidate.revision >= 0) {
+    dockRevision = candidate.revision;
+  }
   applyPresentation(normalized.presentation);
   render();
+  acknowledgePendingDockCommit();
+});
+if (nativeDockingEnabled) void currentWindow.listen(DOCK_PROTOCOL_EVENT, ({ payload }) => {
+  const message = normalizeDockProtocolMessage(payload);
+  if (!message) return;
+  if (message.type === "dock:start") {
+    if (message.sourceWindowLabel === currentWindow.label) return;
+    observedDockSession = message;
+    pendingDockCommit = null;
+    clearDockOverlay();
+    refreshDockSurface();
+    return;
+  }
+  if (!observedDockSession || message.sessionId !== observedDockSession.sessionId) return;
+  if (message.type === "dock:preview" && message.targetWindowLabel === currentWindow.label) {
+    renderDockOverlay(message);
+    return;
+  }
+  if (message.type === "dock:commit" && message.target.kind !== "new-window"
+    && message.target.windowLabel === currentWindow.label) {
+    pendingDockCommit = message;
+    acknowledgePendingDockCommit();
+    return;
+  }
+  if (message.type === "dock:result" || message.type === "dock:cancel") {
+    observedDockSession = null;
+    pendingDockCommit = null;
+    clearDockOverlay();
+  }
 });
 void currentWindow.listen<ViewWindowContext>("rune:view-window-context", ({ payload }) => {
   context = payload;
@@ -254,6 +398,21 @@ void getCurrentWebview().onDragDropEvent(({ payload }) => {
   if (path) void action("open-path", { path });
 });
 window.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && observedDockSession?.sourceWindowLabel === currentWindow.label) {
+    const session = observedDockSession;
+    observedDockSession = null;
+    pendingDockCommit = null;
+    clearDockOverlay();
+    void emitTo(mainWindow, DOCK_PROTOCOL_EVENT, {
+      type: "dock:cancel",
+      version: 2,
+      sessionId: session.sessionId,
+      sourceWindowLabel: currentWindow.label,
+      reason: "escape",
+    } satisfies DockProtocolMessage);
+    event.preventDefault();
+    return;
+  }
   if ((event.ctrlKey || event.metaKey) && event.key === "Tab") {
     event.preventDefault();
     cycleTab(event.shiftKey ? -1 : 1);

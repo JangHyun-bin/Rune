@@ -66,6 +66,7 @@ import { mountWorkbench } from "./workbench/workbench";
 import { createTauriDockDragAdapter } from "./workbench/tauriDockDragAdapter";
 import { createViewWindowHost } from "./workbench/viewWindowHost";
 import { tauriViewWindowAdapter } from "./workbench/tauriViewWindowAdapter";
+import type { DockProtocolMessage } from "./workbench/viewWindowTransfer";
 import { viewGroupIdForView } from "./workbench/viewGroupLayout";
 import { EMPTY_VIEW_WINDOW_LAYOUT, normalizeViewWindowLayout } from "./workbench/viewWindowLayout";
 import {
@@ -404,6 +405,20 @@ if (isTauri()) {
       viewWindowHost?.detachedWindows() ?? [],
     ),
     commitDockSnapshot: (snapshot) => workbench.commitDockWorkspaceSnapshot(snapshot),
+    ...(nativeDockDrag ? {
+      dockSurfaces: async () => {
+        const workspace = workbench.dockWorkspaceSnapshot(
+          viewWindowHost?.layoutSnapshot() ?? EMPTY_VIEW_WINDOW_LAYOUT,
+          viewWindowHost?.detachedWindows() ?? [],
+        );
+        return [workbench.dockSurface(await nativeDockDrag.metrics(), workspace.revision)];
+      },
+      renderMainDockPreview: (message: Extract<DockProtocolMessage, { type: "dock:preview" }> | null) => workbench.showDockPreview(message ? {
+        payload: message.payload,
+        zone: message.zone,
+        point: message.point,
+      } : null),
+    } : {}),
     setViewGroupDetached: (containerId, groupId, detached) => workbench.setViewGroupDetached(containerId, groupId, detached),
     presentation: () => ({ theme: currentTheme(), uiScale: currentUiScale(), locale: getLocale() }),
     context: viewWindowContext,

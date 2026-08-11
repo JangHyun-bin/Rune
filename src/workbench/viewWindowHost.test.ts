@@ -1,8 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
-import type { DockPayload, DockWorkspaceSnapshot } from "./dockTypes";
+import type { DockPayload, DockSurface, DockWorkspaceSnapshot, DockZone } from "./dockTypes";
 import { DEFAULT_WORKBENCH_LAYOUT, moveViewToWorkbenchGroup } from "./workbenchLayout";
 import { createViewWindowHost, type ViewWindowAdapter, type ViewWindowHandle, type ViewWindowHostOptions } from "./viewWindowHost";
 import type { ViewWindowLayoutSnapshot } from "./viewWindowLayout";
+import { DOCK_PROTOCOL_EVENT, type DockProtocolMessage } from "./viewWindowTransfer";
 
 function pointerHostOptions(overrides: Partial<ViewWindowHostOptions> = {}) {
   let current: DockWorkspaceSnapshot = {
@@ -41,6 +42,126 @@ function pointerHostOptions(overrides: Partial<ViewWindowHostOptions> = {}) {
     current: () => current,
     committed,
     options,
+  };
+}
+
+function dockSurface(windowLabel: string, revision: number, zone: DockZone): DockSurface {
+  return {
+    windowLabel,
+    revision,
+    metrics: {
+      windowLabel,
+      windowInnerOrigin: { x: 0, y: 0 },
+      webviewOffset: { x: 0, y: 0 },
+      innerOrigin: { x: 0, y: 0 },
+      scaleFactor: 1,
+    },
+    viewport: { left: 0, top: 0, width: 800, height: 800 },
+    zones: [zone],
+  };
+}
+
+async function crossWindowHarness(targetAck: boolean | null, multiViewSource = false) {
+  let current: DockWorkspaceSnapshot = {
+    revision: 10,
+    workbench: multiViewSource
+      ? moveViewToWorkbenchGroup(DEFAULT_WORKBENCH_LAYOUT, "tags", "explorer", "explorer:outline")
+      : structuredClone(DEFAULT_WORKBENCH_LAYOUT),
+    viewWindows: { version: 1, sessionState: "running", windows: [] },
+    windowLabels: [],
+  };
+  let cursor = { x: 120, y: 120 };
+  let mainSurface: DockSurface | null = null;
+  let detachedSurface: DockSurface | null = null;
+  let failCommitTransport = false;
+  const listeners = new Map<string, (payload: unknown) => void>();
+  const handles = new Map<string, ViewWindowHandle & { close: ReturnType<typeof vi.fn>; startDragging: ReturnType<typeof vi.fn> }>();
+  const emitted: Array<{ target: string; event: string; payload: unknown }> = [];
+  const pendingCommits = new Map<string, Extract<DockProtocolMessage, { type: "dock:commit" }>>();
+  const adapter: ViewWindowAdapter = {
+    async create(label) {
+      const handle = {
+        label,
+        close: vi.fn(async () => {}),
+        focus: async () => {},
+        startDragging: vi.fn(async () => {}),
+        onClosed: () => () => {},
+        capture: async () => ({
+          bounds: { x: label === "view-1" ? 20 : 480, y: 40, width: 420, height: 640 },
+          monitor: { name: "main", scaleFactor: 1, x: 0, y: 0, width: 1920, height: 1080 },
+        }),
+        onGeometryChanged: async () => () => {},
+      };
+      handles.set(label, handle);
+      return handle;
+    },
+    cursor: async () => ({ ...cursor }),
+    async emitTo(target, event, payload) {
+      emitted.push({ target, event, payload: structuredClone(payload) });
+      if (event === DOCK_PROTOCOL_EVENT && payload && typeof payload === "object") {
+        const message = payload as DockProtocolMessage;
+        if (message.type === "dock:start" && target === "view-2" && detachedSurface) {
+          listeners.get(DOCK_PROTOCOL_EVENT)?.({
+            type: "dock:surface",
+            version: 2,
+            sessionId: message.sessionId,
+            sourceWindowLabel: "view-2",
+            surface: detachedSurface,
+          } satisfies DockProtocolMessage);
+        } else if (message.type === "dock:commit") {
+          if (failCommitTransport) throw new Error("transport failed");
+          pendingCommits.set(target, message);
+        }
+      }
+      if (event === "rune:view-window-init" && pendingCommits.has(target) && targetAck !== null) {
+        const commit = pendingCommits.get(target)!;
+        pendingCommits.delete(target);
+        queueMicrotask(() => listeners.get(DOCK_PROTOCOL_EVENT)?.({
+          type: "dock:result",
+          version: 2,
+          sessionId: commit.sessionId,
+          sourceWindowLabel: target,
+          ok: targetAck,
+          revision: current.revision,
+          error: targetAck ? null : "render rejected",
+        } satisfies DockProtocolMessage));
+      }
+    },
+    async listen(event, listener) { listeners.set(event, listener); return () => {}; },
+  };
+  let host!: ReturnType<typeof createViewWindowHost>;
+  const options: ViewWindowHostOptions = {
+    adapter,
+    sourceWindowLabel: "main",
+    snapshot: () => current.workbench,
+    dockSnapshot: () => ({
+      ...structuredClone(current),
+      viewWindows: host ? structuredClone(host.layoutSnapshot()) : structuredClone(current.viewWindows),
+      windowLabels: host ? host.detachedWindows() : [...(current.windowLabels ?? [])],
+    }),
+    commitDockSnapshot: (snapshot) => { current = structuredClone(snapshot); },
+    dockSurfaces: async () => mainSurface ? [structuredClone(mainSurface)] : [],
+    setViewGroupDetached: vi.fn(),
+    presentation: () => ({ theme: "dark", uiScale: 1, locale: "en" }),
+    context: () => ({ currentFolder: null, activePath: null, activeMarkdown: null, activeLine: 1, workspaceTree: [], workspaceFiles: [], backlinks: "noDocument", references: "noProject" }),
+    onAction: async () => undefined,
+    dockAckTimeoutMs: 5,
+  };
+  host = createViewWindowHost(options);
+  await host.start();
+  await host.tearOff("explorer", "explorer:outline");
+  await host.tearOff("auxiliary", "auxiliary:backlinks");
+  return {
+    host,
+    handles,
+    emitted,
+    listener: listeners.get(DOCK_PROTOCOL_EVENT)!,
+    current: () => structuredClone(current),
+    snapshot: () => options.dockSnapshot!(),
+    setCursor: (point: { x: number; y: number }) => { cursor = point; },
+    setMainSurface: (surface: DockSurface | null) => { mainSurface = surface; },
+    setDetachedSurface: (surface: DockSurface | null) => { detachedSurface = surface; },
+    failCommitTransport: () => { failCommitTransport = true; },
   };
 }
 
@@ -268,6 +389,235 @@ describe("native view window host", () => {
     expect(harness.current()).toEqual(changed);
     expect(host.detachedWindows()).toEqual([]);
     expect(close).toHaveBeenCalledTimes(1);
+  });
+
+  it("applies a detached-to-main DockPlan exactly once before closing the empty source window", async () => {
+    const harness = await crossWindowHarness(true);
+    const zone: DockZone = {
+      id: "container:panel",
+      rect: { left: 0, top: 0, width: 400, height: 400 },
+      target: { kind: "container", windowLabel: "main", containerId: "panel", index: 0 },
+      priority: 1,
+    };
+    harness.setMainSurface(dockSurface("main", 10, zone));
+
+    const start = {
+      type: "dock:start",
+      version: 2,
+      sessionId: "view-1:main-panel",
+      sourceWindowLabel: "view-1",
+      payload: {
+        kind: "view",
+        viewId: "outline",
+        source: { windowLabel: "view-1", containerId: "explorer", groupId: "explorer:outline" },
+      },
+      point: { x: 120, y: 120 },
+    } satisfies DockProtocolMessage;
+    harness.listener(start);
+    harness.listener(structuredClone(start));
+
+    await vi.waitFor(() => expect(harness.handles.get("view-1")!.close).toHaveBeenCalledTimes(1));
+    expect(harness.current()).toMatchObject({ revision: 11, windowLabels: ["view-2"] });
+    expect(harness.current().workbench.views.outline.containerId).toBe("panel");
+    expect(harness.host.detachedWindows()).toEqual(["view-2"]);
+    expect(harness.handles.get("view-1")!.startDragging).toHaveBeenCalledTimes(1);
+    expect(harness.emitted.filter(({ event, payload }) => event === DOCK_PROTOCOL_EVENT
+      && (payload as DockProtocolMessage).type === "dock:result")).toHaveLength(1);
+  });
+
+  it("moves only one detached tab and preserves the remaining source group projection", async () => {
+    const harness = await crossWindowHarness(true, true);
+    harness.setMainSurface(dockSurface("main", 10, {
+      id: "container:panel",
+      rect: { left: 0, top: 0, width: 400, height: 400 },
+      target: { kind: "container", windowLabel: "main", containerId: "panel", index: 0 },
+      priority: 1,
+    }));
+
+    harness.listener({
+      type: "dock:start",
+      version: 2,
+      sessionId: "view-1:single-tab",
+      sourceWindowLabel: "view-1",
+      payload: {
+        kind: "view",
+        viewId: "outline",
+        source: { windowLabel: "view-1", containerId: "explorer", groupId: "explorer:outline" },
+      },
+      point: { x: 120, y: 120 },
+    } satisfies DockProtocolMessage);
+
+    await vi.waitFor(() => expect(harness.current().revision).toBe(11));
+    expect(harness.handles.get("view-1")!.close).not.toHaveBeenCalled();
+    expect(harness.host.detachedWindows()).toEqual(["view-1", "view-2"]);
+    expect(harness.current().workbench.viewGroups.explorer.groups["explorer:outline"].viewIds).toEqual(["tags"]);
+    expect(harness.current().workbench.views.outline.containerId).toBe("panel");
+  });
+
+  it.each([false, null] as const)("rolls back a detached-to-detached transaction when render acknowledgement is %s", async (ack) => {
+    const harness = await crossWindowHarness(ack);
+    const before = harness.snapshot();
+    const zone: DockZone = {
+      id: "group:auxiliary:auxiliary:backlinks:center",
+      rect: { left: 0, top: 0, width: 400, height: 400 },
+      target: { kind: "combine", windowLabel: "view-2", containerId: "auxiliary", groupId: "auxiliary:backlinks" },
+      priority: 10,
+    };
+    harness.setDetachedSurface(dockSurface("view-2", 10, zone));
+
+    harness.listener({
+      type: "dock:start",
+      version: 2,
+      sessionId: `view-1:rollback-${String(ack)}`,
+      sourceWindowLabel: "view-1",
+      payload: {
+        kind: "view",
+        viewId: "outline",
+        source: { windowLabel: "view-1", containerId: "explorer", groupId: "explorer:outline" },
+      },
+      point: { x: 120, y: 120 },
+    } satisfies DockProtocolMessage);
+
+    await vi.waitFor(() => expect(harness.emitted.some(({ event, payload }) => event === DOCK_PROTOCOL_EVENT
+      && (payload as DockProtocolMessage).type === "dock:result"
+      && !(payload as Extract<DockProtocolMessage, { type: "dock:result" }>).ok)).toBe(true));
+    expect(harness.snapshot()).toEqual(before);
+    expect(harness.host.detachedWindows()).toEqual(["view-1", "view-2"]);
+    expect(harness.handles.get("view-1")!.close).not.toHaveBeenCalled();
+  });
+
+  it("renders on only the selected detached target and closes the source after its positive acknowledgement", async () => {
+    const harness = await crossWindowHarness(true);
+    const zone: DockZone = {
+      id: "group:auxiliary:auxiliary:backlinks:center",
+      rect: { left: 0, top: 0, width: 400, height: 400 },
+      target: { kind: "combine", windowLabel: "view-2", containerId: "auxiliary", groupId: "auxiliary:backlinks" },
+      priority: 10,
+    };
+    harness.setDetachedSurface(dockSurface("view-2", 10, zone));
+
+    harness.listener({
+      type: "dock:start",
+      version: 2,
+      sessionId: "view-1:detached-target",
+      sourceWindowLabel: "view-1",
+      payload: {
+        kind: "view",
+        viewId: "outline",
+        source: { windowLabel: "view-1", containerId: "explorer", groupId: "explorer:outline" },
+      },
+      point: { x: 120, y: 120 },
+    } satisfies DockProtocolMessage);
+
+    await vi.waitFor(() => expect(harness.handles.get("view-1")!.close).toHaveBeenCalledTimes(1));
+    expect(harness.current().revision).toBe(11);
+    expect(harness.current().workbench.viewGroups.auxiliary.groups["auxiliary:backlinks"].viewIds).toEqual([
+      "backlinks",
+      "outline",
+    ]);
+    expect(harness.host.detachedWindows()).toEqual(["view-2"]);
+    const previews = harness.emitted.flatMap(({ target, event, payload }) => {
+      const message = payload as DockProtocolMessage;
+      return event === DOCK_PROTOCOL_EVENT && message.type === "dock:preview" && message.zone
+        ? [{ target, message }]
+        : [];
+    });
+    expect(previews.length).toBeGreaterThan(0);
+    expect(new Set(previews.map(({ target }) => target))).toEqual(new Set(["view-2"]));
+  });
+
+  it("ignores stale detached surfaces and cancels without mutating the serialized layout", async () => {
+    const harness = await crossWindowHarness(true);
+    const before = harness.snapshot();
+    harness.setDetachedSurface(dockSurface("view-2", 9, {
+      id: "group:auxiliary:auxiliary:backlinks:center",
+      rect: { left: 0, top: 0, width: 400, height: 400 },
+      target: { kind: "combine", windowLabel: "view-2", containerId: "auxiliary", groupId: "auxiliary:backlinks" },
+      priority: 10,
+    }));
+
+    harness.listener({
+      type: "dock:start",
+      version: 2,
+      sessionId: "view-1:stale-surface",
+      sourceWindowLabel: "view-1",
+      payload: {
+        kind: "view",
+        viewId: "outline",
+        source: { windowLabel: "view-1", containerId: "explorer", groupId: "explorer:outline" },
+      },
+      point: { x: 120, y: 120 },
+    } satisfies DockProtocolMessage);
+
+    await vi.waitFor(() => expect(harness.emitted.some(({ event, payload }) => event === DOCK_PROTOCOL_EVENT
+      && (payload as DockProtocolMessage).type === "dock:cancel"
+      && (payload as Extract<DockProtocolMessage, { type: "dock:cancel" }>).reason === "invalid-drop")).toBe(true));
+    expect(harness.snapshot()).toEqual(before);
+    expect(harness.host.detachedWindows()).toEqual(["view-1", "view-2"]);
+    expect(harness.handles.get("view-1")!.close).not.toHaveBeenCalled();
+  });
+
+  it("keeps the source registered and rolls back when closing the emptied native window fails", async () => {
+    const harness = await crossWindowHarness(true);
+    const before = harness.snapshot();
+    harness.handles.get("view-1")!.close.mockRejectedValueOnce(new Error("close failed"));
+    harness.setMainSurface(dockSurface("main", 10, {
+      id: "container:panel",
+      rect: { left: 0, top: 0, width: 400, height: 400 },
+      target: { kind: "container", windowLabel: "main", containerId: "panel", index: 0 },
+      priority: 1,
+    }));
+
+    harness.listener({
+      type: "dock:start",
+      version: 2,
+      sessionId: "view-1:close-failure",
+      sourceWindowLabel: "view-1",
+      payload: {
+        kind: "view",
+        viewId: "outline",
+        source: { windowLabel: "view-1", containerId: "explorer", groupId: "explorer:outline" },
+      },
+      point: { x: 120, y: 120 },
+    } satisfies DockProtocolMessage);
+
+    await vi.waitFor(() => expect(harness.emitted.some(({ event, payload }) => event === DOCK_PROTOCOL_EVENT
+      && (payload as DockProtocolMessage).type === "dock:result"
+      && !(payload as Extract<DockProtocolMessage, { type: "dock:result" }>).ok)).toBe(true));
+    expect(harness.snapshot()).toEqual(before);
+    expect(harness.host.detachedWindows()).toEqual(["view-1", "view-2"]);
+  });
+
+  it("restores the source without revision advance when commit transport fails", async () => {
+    const harness = await crossWindowHarness(true);
+    const before = harness.snapshot();
+    harness.failCommitTransport();
+    harness.setDetachedSurface(dockSurface("view-2", 10, {
+      id: "group:auxiliary:auxiliary:backlinks:center",
+      rect: { left: 0, top: 0, width: 400, height: 400 },
+      target: { kind: "combine", windowLabel: "view-2", containerId: "auxiliary", groupId: "auxiliary:backlinks" },
+      priority: 10,
+    }));
+
+    harness.listener({
+      type: "dock:start",
+      version: 2,
+      sessionId: "view-1:transport-failure",
+      sourceWindowLabel: "view-1",
+      payload: {
+        kind: "view",
+        viewId: "outline",
+        source: { windowLabel: "view-1", containerId: "explorer", groupId: "explorer:outline" },
+      },
+      point: { x: 120, y: 120 },
+    } satisfies DockProtocolMessage);
+
+    await vi.waitFor(() => expect(harness.emitted.some(({ event, payload }) => event === DOCK_PROTOCOL_EVENT
+      && (payload as DockProtocolMessage).type === "dock:result"
+      && !(payload as Extract<DockProtocolMessage, { type: "dock:result" }>).ok)).toBe(true));
+    expect(harness.snapshot()).toEqual(before);
+    expect(harness.host.detachedWindows()).toEqual(["view-1", "view-2"]);
+    expect(harness.handles.get("view-1")!.close).not.toHaveBeenCalled();
   });
 
   it("hides a group only after window creation and restores it on re-dock", async () => {

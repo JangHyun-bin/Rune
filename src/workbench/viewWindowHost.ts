@@ -2,9 +2,16 @@ import type { FileNode } from "../ipc/bindings";
 import type { BacklinksPanelState } from "../workspace/backlinksPanel";
 import type { ReferencesPanelState } from "../workspace/referencesPanel";
 import { applyDockPlan, planDock } from "./dockTransaction";
-import type { DockPayload, DockWorkspaceSnapshot } from "./dockTypes";
+import { hitDockZone, toPhysicalScreenRect } from "./dockGeometry";
+import type { DockPayload, DockSurface, DockWorkspaceSnapshot, DockZone } from "./dockTypes";
 import type { WorkbenchContainerId, WorkbenchLayoutSnapshot, WorkbenchViewId } from "./workbenchLayout";
-import type { ViewWindowPresentation, ViewWindowTransfer } from "./viewWindowTransfer";
+import {
+  DOCK_PROTOCOL_EVENT,
+  normalizeDockProtocolMessage,
+  type DockProtocolMessage,
+  type ViewWindowPresentation,
+  type ViewWindowTransfer,
+} from "./viewWindowTransfer";
 import { recoverWindowBounds, type AvailableMonitor, type PersistedViewWindow, type ViewWindowLayoutSnapshot, type WindowBounds, type WindowMonitorSnapshot } from "./viewWindowLayout";
 
 export interface ViewWindowContext {
@@ -40,6 +47,7 @@ export interface ViewWindowAdapter {
   }): Promise<ViewWindowHandle>;
   emitTo(target: string, event: string, payload: unknown): Promise<void>;
   listen(event: string, listener: (payload: unknown) => void): Promise<() => void>;
+  cursor?(): Promise<{ x: number; y: number }>;
   screen?(): Promise<{ monitors: AvailableMonitor[]; primaryName: string | null }>;
 }
 
@@ -54,7 +62,10 @@ export interface ViewWindowHostOptions {
   onLayoutChange?(snapshot: ViewWindowLayoutSnapshot): void;
   dockSnapshot?(): DockWorkspaceSnapshot;
   commitDockSnapshot?(snapshot: DockWorkspaceSnapshot): void;
+  dockSurfaces?(): Promise<DockSurface[]>;
+  renderMainDockPreview?(message: Extract<DockProtocolMessage, { type: "dock:preview" }> | null): void;
   readyTimeoutMs?: number;
+  dockAckTimeoutMs?: number;
 }
 
 interface DetachedWindow {
@@ -64,6 +75,25 @@ interface DetachedWindow {
   transfer: ViewWindowTransfer;
   persisted: PersistedViewWindow | null;
   stopGeometry?: () => void;
+}
+
+interface CrossWindowDockSession {
+  id: string;
+  sourceWindowLabel: string;
+  payload: DockPayload;
+  original: DockWorkspaceSnapshot;
+  surfaces: Map<string, DockSurface>;
+  selected: DockZone | null;
+  previewWindowLabel: string | null;
+  point: { x: number; y: number };
+  committing: boolean;
+}
+
+interface DetachedWindowBackup {
+  containerId: WorkbenchContainerId;
+  groupId: string;
+  transfer: ViewWindowTransfer;
+  persisted: PersistedViewWindow | null;
 }
 
 function windowLabel(payload: unknown): string | null {
@@ -83,11 +113,22 @@ export function createViewWindowHost(options: ViewWindowHostOptions) {
   const opening = new Set<string>();
   const ready = new Set<string>();
   const readyWaiters = new Map<string, { resolve(): void; timer: ReturnType<typeof setTimeout> }>();
+  const dockResultWaiters = new Map<string, {
+    targetWindowLabel: string;
+    resolve(message: Extract<DockProtocolMessage, { type: "dock:result" }>): void;
+    timer: ReturnType<typeof setTimeout>;
+  }>();
+  const seenDockSessions = new Set<string>();
+  const closingDockWindows = new Set<string>();
   const unlisten: Array<() => void> = [];
   let nextWindow = 0;
   let sessionState: ViewWindowLayoutSnapshot["sessionState"] = "running";
   let shuttingDown = false;
+  let dockTransactionActive = false;
+  let activeDockSession: CrossWindowDockSession | null = null;
+  let nextDockSession = 0;
   const readyTimeoutMs = Math.max(1, options.readyTimeoutMs ?? 5_000);
+  const dockAckTimeoutMs = Math.max(1, options.dockAckTimeoutMs ?? 3_000);
 
   const waitUntilReady = (label: string): Promise<void> => {
     if (ready.delete(label)) return Promise.resolve();
@@ -154,6 +195,10 @@ export function createViewWindowHost(options: ViewWindowHostOptions) {
   const restore = (label: string): DetachedWindow | null => {
     const detached = windows.get(label);
     if (!detached) return null;
+    if (closingDockWindows.has(label)) return detached;
+    const session = activeDockSession;
+    if (session && (session.sourceWindowLabel === label || session.previewWindowLabel === label
+      || session.surfaces.has(label))) void finishDockSession(session, "window-loss");
     windows.delete(label);
     detached.stopGeometry?.();
     options.setViewGroupDetached(detached.containerId, detached.groupId, false);
@@ -170,7 +215,343 @@ export function createViewWindowHost(options: ViewWindowHostOptions) {
     options.adapter.emitTo(label, "rune:view-window-init", {
       transfer: detached.transfer,
       context: options.context(),
+      revision: options.dockSnapshot?.().revision ?? 0,
     });
+
+  const sourceMatchesSnapshot = (snapshot: DockWorkspaceSnapshot, payload: DockPayload): boolean => {
+    const group = snapshot.workbench.viewGroups[payload.source.containerId]?.groups[payload.source.groupId];
+    if (!group) return false;
+    const index = snapshot.windowLabels?.indexOf(payload.source.windowLabel) ?? -1;
+    if (payload.source.windowLabel === options.sourceWindowLabel) {
+      if (snapshot.viewWindows.windows.some((item) => item.containerId === payload.source.containerId && item.groupId === payload.source.groupId)) return false;
+    } else {
+      const saved = index >= 0 ? snapshot.viewWindows.windows[index] : null;
+      if (!saved || saved.containerId !== payload.source.containerId || saved.groupId !== payload.source.groupId) return false;
+    }
+    if (payload.kind === "view") return group.viewIds.includes(payload.viewId)
+      && snapshot.workbench.views[payload.viewId]?.containerId === payload.source.containerId;
+    return payload.viewIds.length === group.viewIds.length
+      && payload.viewIds.every((id, position) => id === group.viewIds[position])
+      && payload.viewIds.includes(payload.activeViewId)
+      && payload.viewIds.every((id) => snapshot.workbench.views[id]?.containerId === payload.source.containerId);
+  };
+
+  const surfaceContains = (surface: DockSurface, point: { x: number; y: number }): boolean => {
+    const rects = surface.viewport
+      ? [toPhysicalScreenRect(surface.viewport, surface.metrics)]
+      : surface.zones.map((zone) => toPhysicalScreenRect(zone.rect, surface.metrics));
+    return rects.some((rect) => rect.width > 0 && rect.height > 0
+      && point.x >= rect.x && point.x < rect.x + rect.width
+      && point.y >= rect.y && point.y < rect.y + rect.height);
+  };
+
+  const protocol = <T extends DockProtocolMessage>(target: string, message: T): Promise<void> =>
+    options.adapter.emitTo(target, DOCK_PROTOCOL_EVENT, message);
+
+  const clearPreviewWindow = async (session: CrossWindowDockSession, label: string): Promise<void> => {
+    if (label === options.sourceWindowLabel) {
+      options.renderMainDockPreview?.(null);
+      return;
+    }
+    await protocol(label, {
+      type: "dock:preview",
+      version: 2,
+      sessionId: session.id,
+      sourceWindowLabel: options.sourceWindowLabel,
+      targetWindowLabel: label,
+      payload: structuredClone(session.payload),
+      zone: null,
+      point: { ...session.point },
+    });
+  };
+
+  const showSelectedPreview = async (session: CrossWindowDockSession, zone: DockZone | null): Promise<void> => {
+    const nextLabel = zone?.target.kind === "new-window" ? null : zone?.target.windowLabel ?? null;
+    if (session.previewWindowLabel && session.previewWindowLabel !== nextLabel) {
+      await clearPreviewWindow(session, session.previewWindowLabel).catch(() => {});
+    }
+    session.previewWindowLabel = nextLabel;
+    if (!nextLabel || !zone) return;
+    const message: Extract<DockProtocolMessage, { type: "dock:preview" }> = {
+      type: "dock:preview",
+      version: 2,
+      sessionId: session.id,
+      sourceWindowLabel: options.sourceWindowLabel,
+      targetWindowLabel: nextLabel,
+      payload: structuredClone(session.payload),
+      zone: structuredClone(zone),
+      point: { ...session.point },
+    };
+    if (nextLabel === options.sourceWindowLabel) options.renderMainDockPreview?.(message);
+    else await protocol(nextLabel, message);
+  };
+
+  const selectDockZone = async (session: CrossWindowDockSession, point: { x: number; y: number }): Promise<DockZone | null> => {
+    session.point = { ...point };
+    const local = await options.dockSurfaces?.().catch(() => []) ?? [];
+    const surfaces = [...local, ...session.surfaces.values()]
+      .filter((surface) => surface.revision === session.original.revision
+        && surface.windowLabel !== session.sourceWindowLabel);
+    const matches = surfaces.flatMap((surface) => {
+      if (!surfaceContains(surface, point)) return [];
+      const zone = hitDockZone(surface, point);
+      return zone ? [{ surface, zone }] : [];
+    });
+    matches.sort((left, right) => right.zone.priority - left.zone.priority
+      || left.surface.windowLabel.localeCompare(right.surface.windowLabel)
+      || left.zone.id.localeCompare(right.zone.id));
+    const selected = matches[0]?.zone ?? null;
+    session.selected = selected;
+    await showSelectedPreview(session, selected);
+    return selected;
+  };
+
+  const finishDockSession = async (session: CrossWindowDockSession, reason: string): Promise<void> => {
+    if (activeDockSession === session) activeDockSession = null;
+    if (session.previewWindowLabel) await clearPreviewWindow(session, session.previewWindowLabel).catch(() => {});
+    for (const label of windows.keys()) {
+      await protocol(label, {
+        type: "dock:cancel",
+        version: 2,
+        sessionId: session.id,
+        sourceWindowLabel: options.sourceWindowLabel,
+        reason,
+      }).catch(() => {});
+    }
+  };
+
+  const backupDetachedWindows = (): Map<string, DetachedWindowBackup> => new Map(
+    [...windows].map(([label, detached]) => [label, {
+      containerId: detached.containerId,
+      groupId: detached.groupId,
+      transfer: structuredClone(detached.transfer),
+      persisted: detached.persisted ? structuredClone(detached.persisted) : null,
+    }]),
+  );
+
+  const restoreDetachedWindows = async (backup: Map<string, DetachedWindowBackup>): Promise<void> => {
+    for (const [label, saved] of backup) {
+      const detached = windows.get(label);
+      if (!detached) continue;
+      detached.containerId = saved.containerId;
+      detached.groupId = saved.groupId;
+      detached.transfer = structuredClone(saved.transfer);
+      detached.persisted = saved.persisted ? structuredClone(saved.persisted) : null;
+      options.setViewGroupDetached(saved.containerId, saved.groupId, true);
+      await sendInit(label, detached).catch(() => {});
+    }
+  };
+
+  const projectDetachedWindows = (snapshot: DockWorkspaceSnapshot): string[] => {
+    const updated: string[] = [];
+    const labels = snapshot.windowLabels ?? snapshot.viewWindows.windows.map((_, index) => `view-${index + 1}`);
+    labels.forEach((label, index) => {
+      const detached = windows.get(label);
+      const saved = snapshot.viewWindows.windows[index];
+      const group = saved && snapshot.workbench.viewGroups[saved.containerId]?.groups[saved.groupId];
+      if (!detached || !saved || !group?.activeViewId) return;
+      detached.containerId = saved.containerId;
+      detached.groupId = saved.groupId;
+      detached.persisted = structuredClone(saved);
+      detached.transfer = {
+        ...detached.transfer,
+        sourceWindowLabel: options.sourceWindowLabel,
+        targetWindowLabel: label,
+        sourceContainerId: saved.containerId,
+        group: { ...structuredClone(group), activeViewId: saved.activeViewId },
+      };
+      updated.push(label);
+    });
+    return updated;
+  };
+
+  const waitForDockResult = (session: CrossWindowDockSession, targetWindowLabel: string): Promise<Extract<DockProtocolMessage, { type: "dock:result" }>> =>
+    new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        dockResultWaiters.delete(session.id);
+        reject(new Error(`Dock target ${targetWindowLabel} did not acknowledge render`));
+      }, dockAckTimeoutMs);
+      dockResultWaiters.set(session.id, { targetWindowLabel, timer, resolve: (message) => {
+        clearTimeout(timer);
+        dockResultWaiters.delete(session.id);
+        resolve(message);
+      } });
+    });
+
+  const clearDockResultWaiter = (sessionId: string): void => {
+    const waiter = dockResultWaiters.get(sessionId);
+    if (!waiter) return;
+    clearTimeout(waiter.timer);
+    dockResultWaiters.delete(sessionId);
+  };
+
+  const commitDockSession = async (session: CrossWindowDockSession): Promise<boolean> => {
+    if (!options.dockSnapshot || !options.commitDockSnapshot || !session.selected || session.committing) return false;
+    session.committing = true;
+    const latest = options.dockSnapshot();
+    if (JSON.stringify(latest) !== JSON.stringify(session.original)) {
+      await finishDockSession(session, "source-loss");
+      return false;
+    }
+    const plan = planDock(latest, session.payload, session.selected.target);
+    if (!plan.ok) {
+      await finishDockSession(session, plan.reason);
+      return false;
+    }
+    const applied = applyDockPlan(latest, plan);
+    if (!applied.ok) {
+      await finishDockSession(session, applied.reason);
+      return false;
+    }
+    const targetWindowLabel = session.selected.target.kind === "new-window"
+      ? null
+      : session.selected.target.windowLabel;
+    if (!targetWindowLabel) {
+      await finishDockSession(session, "invalid-target");
+      return false;
+    }
+    const backup = backupDetachedWindows();
+    dockTransactionActive = true;
+    let committed = false;
+    try {
+      let acknowledgement: Promise<Extract<DockProtocolMessage, { type: "dock:result" }>> | null = null;
+      if (targetWindowLabel !== options.sourceWindowLabel) {
+        if (!windows.has(targetWindowLabel)) throw new Error("Dock target window was lost");
+        acknowledgement = waitForDockResult(session, targetWindowLabel);
+      }
+      options.commitDockSnapshot(applied.snapshot);
+      committed = true;
+      const projected = projectDetachedWindows(applied.snapshot);
+      if (targetWindowLabel !== options.sourceWindowLabel) {
+        await protocol(targetWindowLabel, {
+          type: "dock:commit",
+          version: 2,
+          sessionId: session.id,
+          sourceWindowLabel: options.sourceWindowLabel,
+          target: structuredClone(session.selected.target),
+          revision: applied.snapshot.revision,
+        });
+        const target = windows.get(targetWindowLabel);
+        if (!target) throw new Error("Dock target window was lost");
+        await sendInit(targetWindowLabel, target);
+        const result = await acknowledgement!;
+        if (!result.ok || result.revision !== applied.snapshot.revision) throw new Error(result.error ?? "Dock target rejected render");
+      }
+      for (const label of projected) {
+        if (label === targetWindowLabel) continue;
+        const detached = windows.get(label);
+        if (detached) await sendInit(label, detached);
+      }
+      await protocol(session.sourceWindowLabel, {
+        type: "dock:result",
+        version: 2,
+        sessionId: session.id,
+        sourceWindowLabel: options.sourceWindowLabel,
+        ok: true,
+        revision: applied.snapshot.revision,
+        error: null,
+      }).catch(() => {});
+      for (const effect of applied.effects) {
+        if (effect.kind !== "close-window") continue;
+        const detached = windows.get(effect.windowLabel);
+        if (!detached) continue;
+        closingDockWindows.add(effect.windowLabel);
+        try {
+          await detached.handle.close();
+          windows.delete(effect.windowLabel);
+          detached.stopGeometry?.();
+        } finally {
+          closingDockWindows.delete(effect.windowLabel);
+        }
+      }
+      for (const detached of windows.values()) options.setViewGroupDetached(detached.containerId, detached.groupId, true);
+      changed();
+      await finishDockSession(session, "committed");
+      return true;
+    } catch (error) {
+      clearDockResultWaiter(session.id);
+      if (committed) options.commitDockSnapshot(session.original);
+      await restoreDetachedWindows(backup);
+      await protocol(session.sourceWindowLabel, {
+        type: "dock:result",
+        version: 2,
+        sessionId: session.id,
+        sourceWindowLabel: options.sourceWindowLabel,
+        ok: false,
+        revision: session.original.revision,
+        error: error instanceof Error ? error.message : String(error),
+      }).catch(() => {});
+      await finishDockSession(session, "rollback");
+      return false;
+    } finally {
+      dockTransactionActive = false;
+    }
+  };
+
+  const beginDockSession = async (
+    message: Extract<DockProtocolMessage, { type: "dock:start" }>,
+    propagateNativeFailure = false,
+  ): Promise<boolean> => {
+    const rejectStart = async (reason: string): Promise<boolean> => {
+      if (!propagateNativeFailure) await protocol(message.sourceWindowLabel, {
+        type: "dock:cancel",
+        version: 2,
+        sessionId: message.sessionId,
+        sourceWindowLabel: options.sourceWindowLabel,
+        reason,
+      }).catch(() => {});
+      return false;
+    };
+    if (!options.dockSnapshot) return rejectStart("native-docking-disabled");
+    if (seenDockSessions.has(message.sessionId)) return false;
+    const source = windows.get(message.sourceWindowLabel);
+    const original = options.dockSnapshot();
+    if (!source?.handle.startDragging) return rejectStart("source-loss");
+    if (!sourceMatchesSnapshot(original, message.payload)) return rejectStart("invalid-source");
+    if (!options.dockSurfaces || !options.adapter.cursor) {
+      await source.handle.startDragging();
+      return false;
+    }
+    if (activeDockSession) await finishDockSession(activeDockSession, "competing-session");
+    seenDockSessions.add(message.sessionId);
+    if (seenDockSessions.size > 1_024) seenDockSessions.delete(seenDockSessions.values().next().value!);
+    const session: CrossWindowDockSession = {
+      id: message.sessionId,
+      sourceWindowLabel: message.sourceWindowLabel,
+      payload: structuredClone(message.payload),
+      original,
+      surfaces: new Map(),
+      selected: null,
+      previewWindowLabel: null,
+      point: { ...message.point },
+      committing: false,
+    };
+    activeDockSession = session;
+    await Promise.all([...windows.keys()].filter((label) => label !== session.sourceWindowLabel).map((label) =>
+      protocol(label, message).catch(() => {})));
+    try {
+      await source.handle.startDragging();
+      if (activeDockSession !== session) return false;
+      const point = await options.adapter.cursor();
+      const zone = await selectDockZone(session, point);
+      if (!zone) {
+        await finishDockSession(session, "invalid-drop");
+        return false;
+      }
+      return commitDockSession(session);
+    } catch (error) {
+      await finishDockSession(session, "native-drag-failed");
+      if (propagateNativeFailure) throw error;
+      return false;
+    }
+  };
+
+  const onNativeWindowGeometryChanged = (label: string): void => {
+    void capture(label);
+    const session = activeDockSession;
+    if (!session || session.sourceWindowLabel !== label || session.committing || !options.adapter.cursor) return;
+    void options.adapter.cursor().then((point) => selectDockZone(session, point)).catch(() => {});
+  };
 
   return {
     async start(): Promise<void> {
@@ -217,6 +598,35 @@ export function createViewWindowHost(options: ViewWindowHostOptions) {
             },
           );
         }),
+        await options.adapter.listen(DOCK_PROTOCOL_EVENT, (payload) => {
+          const message = normalizeDockProtocolMessage(payload);
+          if (!message) return;
+          if (message.type === "dock:start") {
+            if (message.sourceWindowLabel === options.sourceWindowLabel || !windows.has(message.sourceWindowLabel)) return;
+            void beginDockSession(message);
+            return;
+          }
+          if (message.type === "dock:surface") {
+            const session = activeDockSession;
+            if (!session || session.committing || message.sessionId !== session.id || !windows.has(message.sourceWindowLabel)
+              || message.surface.revision !== session.original.revision) return;
+            session.surfaces.set(message.sourceWindowLabel, message.surface);
+            if (options.adapter.cursor) void options.adapter.cursor().then((point) => selectDockZone(session, point)).catch(() => {});
+            return;
+          }
+          if (message.type === "dock:result") {
+            const waiter = dockResultWaiters.get(message.sessionId);
+            if (!waiter || waiter.targetWindowLabel !== message.sourceWindowLabel) return;
+            waiter.resolve(message);
+            return;
+          }
+          if (message.type === "dock:cancel") {
+            const session = activeDockSession;
+            if (session && message.sessionId === session.id && message.sourceWindowLabel === session.sourceWindowLabel) {
+              void finishDockSession(session, message.reason);
+            }
+          }
+        }),
       );
     },
 
@@ -245,6 +655,7 @@ export function createViewWindowHost(options: ViewWindowHostOptions) {
     redockAll,
 
     reconcileLayout(): void {
+      if (dockTransactionActive) return;
       const snapshot = options.snapshot();
       for (const [label, detached] of windows) {
         const group = snapshot.viewGroups[detached.containerId].groups[detached.groupId];
@@ -288,7 +699,7 @@ export function createViewWindowHost(options: ViewWindowHostOptions) {
       opening.delete(label);
       handle.onClosed(() => { restore(label); });
       if (handle.onGeometryChanged) {
-        try { detached.stopGeometry = await handle.onGeometryChanged(() => { void capture(label); }); }
+        try { detached.stopGeometry = await handle.onGeometryChanged(() => onNativeWindowGeometryChanged(label)); }
         catch (error) { console.warn(error); }
       }
       options.setViewGroupDetached(containerId, groupId, true);
@@ -354,11 +765,30 @@ export function createViewWindowHost(options: ViewWindowHostOptions) {
         await sendInit(label, detached);
         await handle.focus();
         if (!handle.startDragging) throw new Error("Native View window cannot start dragging");
-        await handle.startDragging();
         if (handle.onGeometryChanged) {
-          try { detached.stopGeometry = await handle.onGeometryChanged(() => { void capture(label); }); }
+          try { detached.stopGeometry = await handle.onGeometryChanged(() => onNativeWindowGeometryChanged(label)); }
           catch (error) { console.warn(error); }
         }
+        const detachedPayload: DockPayload = payload.kind === "view"
+          ? {
+            kind: "view",
+            viewId: payload.viewId,
+            source: { windowLabel: label, containerId: saved.containerId, groupId: saved.groupId },
+          }
+          : {
+            kind: "group",
+            viewIds: [...payload.viewIds],
+            activeViewId: payload.activeViewId,
+            source: { windowLabel: label, containerId: saved.containerId, groupId: saved.groupId },
+          };
+        await beginDockSession({
+          type: "dock:start",
+          version: 2,
+          sessionId: `${label}:${++nextDockSession}`,
+          sourceWindowLabel: label,
+          payload: detachedPayload,
+          point: { ...point },
+        }, true);
         await capture(label).catch((error) => console.warn(error));
         changed();
         return label;
@@ -409,6 +839,9 @@ export function createViewWindowHost(options: ViewWindowHostOptions) {
       unlisten.splice(0).forEach((stop) => stop());
       for (const waiter of readyWaiters.values()) clearTimeout(waiter.timer);
       readyWaiters.clear();
+      for (const waiter of dockResultWaiters.values()) clearTimeout(waiter.timer);
+      dockResultWaiters.clear();
+      if (activeDockSession) await finishDockSession(activeDockSession, "host-destroyed");
       await redockAll();
     },
   };

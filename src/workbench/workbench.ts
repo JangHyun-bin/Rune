@@ -43,6 +43,7 @@ export interface Workbench {
   restore(snapshot: WorkbenchLayoutSnapshot, options?: { emitChange?: boolean }): void;
   onDidChange(listener: (snapshot: WorkbenchLayoutSnapshot) => void): () => void;
   dockSurface(metrics: NativeDockWindowMetrics, revision: number): DockSurface;
+  showDockPreview(preview: DockDragPreview | null): void;
   dockWorkspaceSnapshot(viewWindows: ViewWindowLayoutSnapshot, windowLabels?: string[]): DockWorkspaceSnapshot;
   commitDockWorkspaceSnapshot(snapshot: DockWorkspaceSnapshot): void;
   openView(id: WorkbenchViewId): void;
@@ -829,6 +830,7 @@ export function mountWorkbench(options: {
         zones,
       };
     },
+    showDockPreview: (preview) => renderDockPreview(preview),
     restore: (snapshot, restoreOptions) => commit(normalizeWorkbenchLayout(snapshot), restoreOptions?.emitChange !== false),
     onDidChange: (listener) => {
       changeListeners.add(listener);

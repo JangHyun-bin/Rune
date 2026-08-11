@@ -1,6 +1,6 @@
 import { emitTo, listen } from "@tauri-apps/api/event";
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
-import { PhysicalPosition, PhysicalSize, availableMonitors, primaryMonitor } from "@tauri-apps/api/window";
+import { PhysicalPosition, PhysicalSize, availableMonitors, cursorPosition, primaryMonitor } from "@tauri-apps/api/window";
 import type { ViewWindowAdapter, ViewWindowHandle } from "./viewWindowHost";
 import { normalizeCapturedWindowBounds } from "./viewWindowLayout";
 
@@ -60,6 +60,7 @@ export const tauriViewWindowAdapter: ViewWindowAdapter = {
     };
   },
   emitTo,
+  cursor: () => cursorPosition(),
   async listen(event, listener) {
     return listen(event, ({ payload }) => listener(payload));
   },

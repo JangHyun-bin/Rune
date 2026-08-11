@@ -150,6 +150,70 @@ describe("atomic dock transactions", () => {
     expect(applied.snapshot.workbench.viewGroups.explorer.groups["explorer:outline"]).toBeUndefined();
   });
 
+  it.each([
+    ["Primary Sidebar", { kind: "combine", windowLabel: "main", containerId: "explorer", groupId: "explorer:workspace" }],
+    ["Secondary Sidebar empty container", { kind: "container", windowLabel: "main", containerId: "auxiliary", index: 1 }],
+    ["Panel empty container", { kind: "container", windowLabel: "main", containerId: "panel", index: 1 }],
+    ["exact tab index", { kind: "tabs", windowLabel: "main", containerId: "explorer", groupId: "explorer:workspace", index: 0 }],
+    ["left split edge", { kind: "split", windowLabel: "main", containerId: "explorer", groupId: "explorer:workspace", direction: "row", side: "before" }],
+    ["right split edge", { kind: "split", windowLabel: "main", containerId: "explorer", groupId: "explorer:workspace", direction: "row", side: "after" }],
+    ["top split edge", { kind: "split", windowLabel: "main", containerId: "explorer", groupId: "explorer:workspace", direction: "column", side: "before" }],
+    ["bottom split edge", { kind: "split", windowLabel: "main", containerId: "explorer", groupId: "explorer:workspace", direction: "column", side: "after" }],
+  ] as const)("docks a detached View into the main-window %s destination", (_name, target) => {
+    const initial = workspace();
+    initial.windowLabels = ["view-1"];
+    initial.viewWindows.windows.push({
+      containerId: "explorer",
+      groupId: "explorer:outline",
+      activeViewId: "outline",
+      bounds: { x: 20, y: 20, width: 420, height: 600 },
+      monitor: { name: null, scaleFactor: 1, x: 0, y: 0, width: 1920, height: 1080 },
+    });
+
+    const next = commit(initial, viewPayload("outline", "explorer:outline", "view-1"), target);
+
+    expect(next.revision).toBe(initial.revision + 1);
+    expect(next.windowLabels).toEqual([]);
+    expect(next.viewWindows.windows).toEqual([]);
+  });
+
+  it("combines a detached View into another detached window and closes only the empty source", () => {
+    const initial = workspace();
+    initial.windowLabels = ["view-1", "view-2"];
+    initial.viewWindows.windows.push(
+      {
+        containerId: "explorer",
+        groupId: "explorer:outline",
+        activeViewId: "outline",
+        bounds: { x: 20, y: 20, width: 420, height: 600 },
+        monitor: { name: null, scaleFactor: 1, x: 0, y: 0, width: 1920, height: 1080 },
+      },
+      {
+        containerId: "auxiliary",
+        groupId: "auxiliary:backlinks",
+        activeViewId: "backlinks",
+        bounds: { x: 480, y: 20, width: 420, height: 600 },
+        monitor: { name: null, scaleFactor: 1, x: 0, y: 0, width: 1920, height: 1080 },
+      },
+    );
+
+    const plan = planDock(
+      initial,
+      viewPayload("outline", "explorer:outline", "view-1"),
+      { kind: "combine", windowLabel: "view-2", containerId: "auxiliary", groupId: "auxiliary:backlinks" },
+    );
+    expect(plan).toMatchObject({ ok: true, effects: [{ kind: "close-window", windowLabel: "view-1" }] });
+    if (!plan.ok) throw new Error(plan.reason);
+    const applied = applyDockPlan(initial, plan);
+    if (!applied.ok) throw new Error(applied.reason);
+
+    expect(applied.snapshot.windowLabels).toEqual(["view-2"]);
+    expect(applied.snapshot.workbench.viewGroups.auxiliary.groups["auxiliary:backlinks"].viewIds).toEqual([
+      "backlinks",
+      "outline",
+    ]);
+  });
+
   it("keeps a detached target projection aligned with its newly active view", () => {
     const initial = workspace();
     initial.viewWindows.windows.push({
