@@ -57,7 +57,9 @@ export const nativePointerClick = (point, options = {}) => {
     pointerWindowGeometry,
   })}`);
   wait(250);
-  checkedSpawn("xdotool", ["click", "1"]);
+  checkedSpawn("xdotool", ["mousedown", "1"]);
+  wait(250);
+  checkedSpawn("xdotool", ["mouseup", "1"]);
   wait(350);
   return clicked;
 };
