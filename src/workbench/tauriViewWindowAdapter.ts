@@ -26,6 +26,10 @@ export const tauriViewWindowAdapter: ViewWindowAdapter = {
       close: () => window.close(),
       focus: () => window.setFocus(),
       startDragging: () => window.startDragging(),
+      async setBounds(next) {
+        await window.setSize(new PhysicalSize(next.width, next.height));
+        await window.setPosition(new PhysicalPosition(next.x, next.y));
+      },
       onClosed(listener) {
         let active = true;
         void window.once("tauri://destroyed", () => { if (active) listener(); });

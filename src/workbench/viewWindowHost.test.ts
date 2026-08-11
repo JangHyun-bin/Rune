@@ -181,6 +181,7 @@ describe("native view window host", () => {
     const listeners = new Map<string, (payload: unknown) => void>();
     const lifecycle: string[] = [];
     const startDragging = vi.fn(async () => { lifecycle.push("drag"); });
+    const setBounds = vi.fn(async () => { lifecycle.push("clamp"); });
     const close = vi.fn(async () => { lifecycle.push("close"); });
     const create = vi.fn(async (): Promise<ViewWindowHandle> => {
       lifecycle.push("create");
@@ -189,6 +190,7 @@ describe("native view window host", () => {
         close,
         focus: async () => {},
         startDragging,
+        setBounds,
         onClosed: () => () => {},
       };
     });
@@ -222,7 +224,7 @@ describe("native view window host", () => {
     listeners.get("rune:view-window-ready")?.({ windowLabel: "view-1" });
     await expect(tearingOff).resolves.toBe("view-1");
 
-    expect(lifecycle).toEqual(["create", "apply", "hide", "init", "rune:view-window-context", "drag"]);
+    expect(lifecycle).toEqual(["create", "apply", "hide", "init", "rune:view-window-context", "drag", "clamp"]);
     expect(create).toHaveBeenCalledWith("view-1", expect.objectContaining({
       bounds: { x: -420, y: 0, width: 420, height: 640 },
     }));
@@ -236,6 +238,7 @@ describe("native view window host", () => {
     });
     expect(setDetached).toHaveBeenCalledWith("explorer", detachedGroup.groupId, true);
     expect(startDragging).toHaveBeenCalledTimes(1);
+    expect(setBounds).toHaveBeenCalledWith({ x: -420, y: 0, width: 420, height: 640 });
     expect(close).not.toHaveBeenCalled();
   });
 

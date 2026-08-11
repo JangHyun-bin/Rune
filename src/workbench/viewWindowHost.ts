@@ -30,6 +30,7 @@ export interface ViewWindowHandle {
   close(): Promise<void>;
   focus(): Promise<void>;
   startDragging?(): Promise<void>;
+  setBounds?(bounds: WindowBounds): Promise<void>;
   onClosed(listener: () => void): () => void;
   capture?(): Promise<{ bounds: WindowBounds; monitor: WindowMonitorSnapshot }>;
   onGeometryChanged?(listener: () => void): Promise<() => void>;
@@ -907,6 +908,7 @@ export function createViewWindowHost(options: ViewWindowHostOptions) {
           payload: detachedPayload,
           point: { ...point },
         }, true);
+        await handle.setBounds?.(placement.bounds);
         await capture(label).catch((error) => console.warn(error));
         changed();
         return label;
