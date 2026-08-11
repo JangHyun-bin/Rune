@@ -15,7 +15,7 @@ const checkedSpawn = (command, args) => {
   return result;
 };
 
-export const nativePointerDrag = (start, end, scaleFactor = 1) => {
+export const nativePointerDrag = (start, end, scaleFactor = 1, options = {}) => {
   const delta = { x: end.x - start.x, y: end.y - start.y };
   if (process.platform === "win32") {
     const typeDefinition = `
@@ -76,6 +76,15 @@ post(2, ex, ey)
   const activeWindow = checkedSpawn("xdotool", ["getactivewindow"]).stdout.trim();
   if (!/^\d+$/.test(activeWindow)) throw new Error(`xdotool returned an invalid active window: ${activeWindow}`);
   checkedSpawn("xdotool", ["windowactivate", "--sync", activeWindow]);
+  if (options.linuxWindowPosition) {
+    checkedSpawn("xdotool", [
+      "windowmove",
+      "--sync",
+      activeWindow,
+      String(Math.round(options.linuxWindowPosition.x)),
+      String(Math.round(options.linuxWindowPosition.y)),
+    ]);
+  }
   checkedSpawn("xdotool", ["mousemove", "--sync", String(Math.round(start.x)), String(Math.round(start.y))]);
   const location = checkedSpawn("xdotool", ["getmouselocation", "--shell"]).stdout;
   const pointerWindow = /^WINDOW=(\d+)$/m.exec(location)?.[1] ?? "";

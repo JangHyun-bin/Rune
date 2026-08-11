@@ -117,7 +117,9 @@ describe("native Workbench release smoke", () => {
       await browser.execute(() => window.__RUNE_DOCKING_RELEASE_GATE__.normalizeWindow());
       const source = await physicalPoint('.detached-view-tabs [data-view-id="outline"]', 0.5, 0.9);
       console.log(`CROSS_WINDOW_POINTER ${JSON.stringify({ source, target })}`);
-      nativePointerDrag(source.point, target.point, source.metrics.scaleFactor);
+      nativePointerDrag(source.point, target.point, source.metrics.scaleFactor, {
+        linuxWindowPosition: { x: 850, y: 60 },
+      });
       await browser.pause(2_000);
       if ((await browser.getWindowHandles()).length !== 1) {
         await browser.switchToWindow(main);
