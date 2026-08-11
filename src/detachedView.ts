@@ -61,14 +61,31 @@ let nextDockSession = 0;
 let observedDockSession: Extract<DockProtocolMessage, { type: "dock:start" }> | null = null;
 let pendingDockCommit: Extract<DockProtocolMessage, { type: "dock:commit" }> | null = null;
 let dockOverlay: HTMLElement | null = null;
-const pointerEvidence = { down: 0, move: 0, up: 0, lastTarget: null as string | null };
+const pointerEvidence = {
+  down: 0,
+  move: 0,
+  up: 0,
+  lastTarget: null as string | null,
+  downTarget: null as string | null,
+  downPoint: null as { x: number; y: number } | null,
+  firstMoveTarget: null as string | null,
+  firstMovePoint: null as { x: number; y: number } | null,
+};
 
 if (import.meta.env.VITE_WDIO === "1") {
   void currentWindow.setTitle(`Rune WDIO ${currentWindow.label}`);
   const recordPointer = (key: "down" | "move" | "up") => (event: PointerEvent): void => {
     pointerEvidence[key] += 1;
     const target = event.target as HTMLElement | null;
-    pointerEvidence.lastTarget = target?.dataset.viewId ?? target?.className ?? target?.tagName ?? null;
+    const targetName = target?.dataset.viewId ?? target?.className ?? target?.tagName ?? null;
+    pointerEvidence.lastTarget = targetName;
+    if (key === "down") {
+      pointerEvidence.downTarget = targetName;
+      pointerEvidence.downPoint = { x: event.clientX, y: event.clientY };
+    } else if (key === "move" && pointerEvidence.firstMovePoint === null) {
+      pointerEvidence.firstMoveTarget = targetName;
+      pointerEvidence.firstMovePoint = { x: event.clientX, y: event.clientY };
+    }
   };
   document.addEventListener("pointerdown", recordPointer("down"), { capture: true });
   document.addEventListener("pointermove", recordPointer("move"), { capture: true });
