@@ -137,6 +137,7 @@ jobs:
             webkit2gtk-driver \
             patchelf \
             build-essential \
+            xdotool \
             xvfb
 
       - name: Setup Node
