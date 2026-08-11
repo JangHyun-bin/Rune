@@ -115,10 +115,6 @@ describe("native Workbench release smoke", () => {
       await browser.execute(() => window.__RUNE_DOCKING_RELEASE_GATE__.preparePanel());
       const target = await physicalPoint('.view-group[data-container-id="panel"]', 0.7, 0.5);
       await browser.switchToWindow(detachedHandle);
-      await browser.execute(async () => {
-        await window.__RUNE_DOCKING_RELEASE_GATE__.normalizeWindow();
-        return true;
-      });
       const source = await physicalPoint('.detached-view-tabs [data-view-id="outline"]', 0.5, 0.9);
       console.log(`CROSS_WINDOW_POINTER ${JSON.stringify({ source, target })}`);
       const linuxWindow = { linuxWindowTitle: "^Rune", linuxWindowMaxWidth: 600 };
