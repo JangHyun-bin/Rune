@@ -43,6 +43,8 @@ export interface Workbench {
   restore(snapshot: WorkbenchLayoutSnapshot, options?: { emitChange?: boolean }): void;
   onDidChange(listener: (snapshot: WorkbenchLayoutSnapshot) => void): () => void;
   dockSurface(metrics: NativeDockWindowMetrics, revision: number): DockSurface;
+  dockWorkspaceSnapshot(viewWindows: ViewWindowLayoutSnapshot, windowLabels?: string[]): DockWorkspaceSnapshot;
+  commitDockWorkspaceSnapshot(snapshot: DockWorkspaceSnapshot): void;
   openView(id: WorkbenchViewId): void;
   closeView(id: WorkbenchViewId): void;
   toggleView(id: WorkbenchViewId): void;
@@ -782,6 +784,19 @@ export function mountWorkbench(options: {
 
   const workbench: Workbench = {
     snapshot: () => normalizeWorkbenchLayout(state),
+    dockWorkspaceSnapshot: (viewWindows, windowLabels) => ({
+      revision: dockRevision,
+      workbench: normalizeWorkbenchLayout(state),
+      viewWindows: structuredClone(viewWindows),
+      ...(windowLabels ? { windowLabels: [...windowLabels] } : {}),
+    }),
+    commitDockWorkspaceSnapshot: (snapshot) => {
+      state = boundState(snapshot.workbench);
+      dockRevision = snapshot.revision;
+      render();
+      const next = normalizeWorkbenchLayout(state);
+      for (const listener of changeListeners) listener(next);
+    },
     dockSurface: (metrics, revision) => {
       const zones = [];
       for (const [containerId, element] of renderedContainers) {
@@ -972,12 +987,10 @@ export function mountWorkbench(options: {
     dockDragCoordinator = createDockDragCoordinator({
       snapshot: () => {
         const workspace = options.nativeDocking?.workspace?.();
-        return {
-          revision: dockRevision,
-          workbench: normalizeWorkbenchLayout(state),
-          viewWindows: structuredClone(workspace?.viewWindows ?? EMPTY_VIEW_WINDOW_LAYOUT),
-          ...(workspace?.windowLabels ? { windowLabels: [...workspace.windowLabels] } : {}),
-        };
+        return workbench.dockWorkspaceSnapshot(
+          workspace?.viewWindows ?? EMPTY_VIEW_WINDOW_LAYOUT,
+          workspace?.windowLabels,
+        );
       },
       surfaces: () => dockMetrics ? [
         workbench.dockSurface(dockMetrics, dockRevision),
@@ -989,7 +1002,7 @@ export function mountWorkbench(options: {
           throw new Error("Cross-window dock effects require the Task 6 transport");
         }
         await options.nativeDocking?.commitEffects?.(effects, snapshot);
-        commit(snapshot.workbench);
+        workbench.commitDockWorkspaceSnapshot(snapshot);
       },
       requestNewWindow: options.nativeDocking.requestNewWindow,
     });

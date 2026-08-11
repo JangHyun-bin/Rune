@@ -359,10 +359,9 @@ const workbench = mountWorkbench({
       viewWindows: viewWindowHost?.layoutSnapshot() ?? EMPTY_VIEW_WINDOW_LAYOUT,
       windowLabels: viewWindowHost?.detachedWindows() ?? [],
     }),
-    requestNewWindow: (payload, point) => {
-      window.dispatchEvent(new CustomEvent("rune:native-dock-new-window-request", {
-        detail: { payload, point },
-      }));
+    requestNewWindow: async (payload, point) => {
+      if (!viewWindowHost) throw new Error("Native View window host is not ready");
+      await viewWindowHost.tearOffPayload(payload, point);
     },
   } : undefined,
   onViewMenu: (id, x, y) => {
@@ -400,6 +399,11 @@ if (isTauri()) {
     adapter: tauriViewWindowAdapter,
     sourceWindowLabel: "main",
     snapshot: () => workbench.snapshot(),
+    dockSnapshot: () => workbench.dockWorkspaceSnapshot(
+      viewWindowHost?.layoutSnapshot() ?? EMPTY_VIEW_WINDOW_LAYOUT,
+      viewWindowHost?.detachedWindows() ?? [],
+    ),
+    commitDockSnapshot: (snapshot) => workbench.commitDockWorkspaceSnapshot(snapshot),
     setViewGroupDetached: (containerId, groupId, detached) => workbench.setViewGroupDetached(containerId, groupId, detached),
     presentation: () => ({ theme: currentTheme(), uiScale: currentUiScale(), locale: getLocale() }),
     context: viewWindowContext,

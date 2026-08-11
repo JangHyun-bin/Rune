@@ -5,6 +5,8 @@ import { createViewRegistry } from "./viewRegistry";
 import { mountWorkbench, type NativeDockingOptions } from "./workbench";
 import { VIEW_DRAG_TYPE } from "./viewDrop";
 import type { NativeDockWindowMetrics } from "./tauriDockDragAdapter";
+import type { DockWorkspaceSnapshot } from "./dockTypes";
+import type { ViewWindowLayoutSnapshot } from "./viewWindowLayout";
 
 type Listener = (event: Event) => void;
 
@@ -491,6 +493,31 @@ describe("workbench", () => {
       { kind: "container", windowLabel: "main", containerId: "explorer", index: 3 },
     ]));
     expect(workbench.snapshot()).toEqual(before);
+  });
+
+  it("commits and rolls back an authoritative DockWorkspace snapshot without revision drift", () => {
+    const { workbench, onDidChange } = setup();
+    const native = workbench as typeof workbench & {
+      dockWorkspaceSnapshot(viewWindows: ViewWindowLayoutSnapshot, windowLabels?: string[]): DockWorkspaceSnapshot;
+      commitDockWorkspaceSnapshot(snapshot: DockWorkspaceSnapshot): void;
+    };
+    const viewWindows: ViewWindowLayoutSnapshot = { version: 1, sessionState: "running", windows: [] };
+    const original = native.dockWorkspaceSnapshot(viewWindows, []);
+    const applied = structuredClone(original);
+    applied.revision = 1;
+    applied.workbench.views.outline.collapsed = true;
+
+    native.commitDockWorkspaceSnapshot(applied);
+
+    expect(workbench.snapshot().views.outline.collapsed).toBe(true);
+    expect(native.dockWorkspaceSnapshot(viewWindows, []).revision).toBe(1);
+    expect(onDidChange).toHaveBeenCalledTimes(1);
+
+    native.commitDockWorkspaceSnapshot(original);
+
+    expect(workbench.snapshot()).toEqual(original.workbench);
+    expect(native.dockWorkspaceSnapshot(viewWindows, []).revision).toBe(0);
+    expect(onDidChange).toHaveBeenCalledTimes(2);
   });
 
   it("commits one native pointer dock and renders one exact-target preview", async () => {
