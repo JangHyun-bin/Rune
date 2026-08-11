@@ -6,6 +6,14 @@ pub struct NativeWebviewOrigin {
     pub y: f64,
 }
 
+#[cfg(any(test, target_os = "linux"))]
+fn linux_gdk_origin((_, x, y): (i32, i32, i32)) -> NativeWebviewOrigin {
+    NativeWebviewOrigin {
+        x: f64::from(x),
+        y: f64::from(y),
+    }
+}
+
 #[cfg(any(test, target_os = "macos"))]
 fn macos_screen_rect_origin(
     main_display_pixel_height: f64,
@@ -24,7 +32,7 @@ fn macos_screen_rect_origin(
     }
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
 #[tauri::command]
 pub fn native_webview_origin(
     webview_window: tauri::WebviewWindow,
@@ -36,6 +44,35 @@ pub fn native_webview_origin(
         x: f64::from(position.x),
         y: f64::from(position.y),
     })
+}
+
+#[cfg(target_os = "linux")]
+#[tauri::command]
+pub async fn native_webview_origin(
+    webview_window: tauri::WebviewWindow,
+) -> Result<NativeWebviewOrigin, String> {
+    use gdk::prelude::WindowExt;
+    use gtk::prelude::WidgetExt;
+
+    let (sender, receiver) = std::sync::mpsc::sync_channel(1);
+    webview_window
+        .with_webview(move |webview| {
+            let result = webview
+                .inner()
+                .window()
+                .map(|window| linux_gdk_origin(window.origin()))
+                .ok_or_else(|| "Linux WebView GDK window is unavailable".to_owned());
+            let _ = sender.send(result);
+        })
+        .map_err(|error| error.to_string())?;
+
+    tauri::async_runtime::spawn_blocking(move || {
+        receiver
+            .recv()
+            .map_err(|error| format!("Linux WebView origin callback failed: {error}"))?
+    })
+    .await
+    .map_err(|error| error.to_string())?
 }
 
 #[cfg(target_os = "macos")]
@@ -117,6 +154,14 @@ mod tests {
         assert_eq!(
             macos_screen_rect_origin(900.0, 1.0, 0.0, 0.0, 875.0, 0.0, 28.0),
             NativeWebviewOrigin { x: 0.0, y: 53.0 }
+        );
+    }
+
+    #[test]
+    fn keeps_linux_gdk_root_coordinates_for_the_webview_origin() {
+        assert_eq!(
+            linux_gdk_origin((0, 726, 31)),
+            NativeWebviewOrigin { x: 726.0, y: 31.0 }
         );
     }
 }

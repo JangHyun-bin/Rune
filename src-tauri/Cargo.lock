@@ -3236,6 +3236,8 @@ dependencies = [
 name = "rune"
 version = "1.0.0"
 dependencies = [
+ "gdk",
+ "gtk",
  "notify",
  "objc2",
  "objc2-app-kit",

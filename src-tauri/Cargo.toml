@@ -43,5 +43,9 @@ tauri-plugin-single-instance = "2"
 objc2 = "0.6"
 objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSScreen", "NSView", "NSWindow"] }
 
+[target.'cfg(target_os = "linux")'.dependencies]
+gdk = "0.18"
+gtk = "0.18"
+
 [dev-dependencies]
 tempfile = "3.27.0"
