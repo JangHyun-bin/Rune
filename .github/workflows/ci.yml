@@ -88,6 +88,7 @@ jobs:
             webkit2gtk-driver \
             patchelf \
             build-essential \
+            openbox \
             xdotool \
             xvfb
 
@@ -126,4 +127,4 @@ jobs:
           RUNE_WDIO_HOT_EXIT_PATH: ${{ runner.temp }}/rune-wdio-hot-exit.json
           WEBKIT_DISABLE_COMPOSITING_MODE: "1"
           WEBKIT_DISABLE_DMABUF_RENDERER: "1"
-        run: xvfb-run -a npm run test:e2e:workbench:linux
+        run: xvfb-run -a sh -c 'openbox >"${RUNNER_TEMP}/rune-openbox.log" 2>&1 & npm run test:e2e:workbench:linux'
