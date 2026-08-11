@@ -77,6 +77,7 @@ if (import.meta.env.VITE_WDIO === "1") {
       metrics: dockDragAdapter.metrics,
       focus: () => currentWindow.setFocus(),
       normalizeWindow: async () => {
+        await currentWindow.setTitle(`Rune WDIO ${currentWindow.label}`);
         await currentWindow.setPosition(new PhysicalPosition(850, 60));
         await currentWindow.setFocus();
       },
