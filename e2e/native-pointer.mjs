@@ -114,6 +114,21 @@ post(2, ex, ey)
     pointerWindowName,
     pointerWindowGeometry,
   })}`);
+  if (options.linuxWindowPosition && pointerWindow) {
+    checkedSpawn("xdotool", [
+      "windowmove",
+      "--sync",
+      pointerWindow,
+      String(Math.round(options.linuxWindowPosition.x)),
+      String(Math.round(options.linuxWindowPosition.y)),
+    ]);
+    wait(350);
+    checkedSpawn("xdotool", ["mousemove", "--sync", String(Math.round(start.x)), String(Math.round(start.y))]);
+    console.log(`LINUX_POINTER_FRAME ${JSON.stringify({
+      pointerWindow,
+      geometry: checkedSpawn("xdotool", ["getwindowgeometry", "--shell", pointerWindow]).stdout.trim(),
+    })}`);
+  }
   if (options.linuxFocusClick) {
     checkedSpawn("xdotool", ["click", "1"]);
     wait(350);
