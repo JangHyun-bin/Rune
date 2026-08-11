@@ -129,8 +129,8 @@ describe("native Workbench release smoke", () => {
           y: (source.point.y - source.metrics.innerOrigin.y) / source.metrics.scaleFactor,
         },
         linuxFrameInset: {
-          x: source.metrics.innerOrigin.x - 850,
-          y: source.metrics.innerOrigin.y - 60,
+          x: 0,
+          y: 0,
         },
         linuxFocusClick: true,
       });
