@@ -76,7 +76,13 @@ post(2, ex, ey)
   const matchingWindows = options.linuxWindowTitle
     ? checkedSpawn("xdotool", ["search", "--onlyvisible", "--name", options.linuxWindowTitle]).stdout.trim().split(/\s+/)
     : [];
-  const activeWindow = matchingWindows.find((value) => /^\d+$/.test(value))
+  const windowCandidates = matchingWindows.filter((value) => /^\d+$/.test(value)).map((id) => {
+    const geometry = checkedSpawn("xdotool", ["getwindowgeometry", "--shell", id]).stdout.trim();
+    return { id, geometry, width: Number(/^WIDTH=(\d+)$/m.exec(geometry)?.[1] ?? Number.NaN) };
+  });
+  const activeWindow = windowCandidates.find(({ width }) => (
+    !options.linuxWindowMaxWidth || width <= options.linuxWindowMaxWidth
+  ))?.id
     ?? checkedSpawn("xdotool", ["getactivewindow"]).stdout.trim();
   if (!/^\d+$/.test(activeWindow)) throw new Error(`xdotool returned an invalid active window: ${activeWindow}`);
   checkedSpawn("xdotool", ["windowactivate", "--sync", activeWindow]);
@@ -101,6 +107,7 @@ post(2, ex, ey)
   console.log(`LINUX_POINTER_SOURCE ${JSON.stringify({
     activeWindow,
     matchingWindows,
+    windowCandidates,
     location: location.trim(),
     pointerWindow,
     pointerWindowName,

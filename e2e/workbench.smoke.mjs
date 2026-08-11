@@ -121,7 +121,8 @@ describe("native Workbench release smoke", () => {
       const source = await physicalPoint('.detached-view-tabs [data-view-id="outline"]', 0.5, 0.9);
       console.log(`CROSS_WINDOW_POINTER ${JSON.stringify({ source, target })}`);
       nativePointerDrag(source.point, target.point, source.metrics.scaleFactor, {
-        linuxWindowTitle: `^Rune WDIO ${source.metrics.windowLabel}$`,
+        linuxWindowTitle: "^Rune",
+        linuxWindowMaxWidth: 600,
         linuxWindowPosition: { x: 850, y: 60 },
       });
       await browser.pause(2_000);
