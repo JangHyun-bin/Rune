@@ -7,10 +7,13 @@ pub struct NativeWebviewOrigin {
 }
 
 #[cfg(any(test, target_os = "linux"))]
-fn linux_gdk_origin((_, x, y): (i32, i32, i32)) -> NativeWebviewOrigin {
+fn linux_gdk_origin(
+    (_, root_x, root_y): (i32, i32, i32),
+    (offset_x, offset_y): (i32, i32),
+) -> NativeWebviewOrigin {
     NativeWebviewOrigin {
-        x: f64::from(x),
-        y: f64::from(y),
+        x: f64::from(root_x + offset_x),
+        y: f64::from(root_y + offset_y),
     }
 }
 
@@ -56,11 +59,19 @@ pub async fn native_webview_origin(
     let (sender, receiver) = std::sync::mpsc::sync_channel(1);
     webview_window
         .with_webview(move |webview| {
-            let result = webview
-                .inner()
-                .window()
-                .map(|window| linux_gdk_origin(window.origin()))
-                .ok_or_else(|| "Linux WebView GDK window is unavailable".to_owned());
+            let view = webview.inner();
+            let result = (|| {
+                let toplevel = view
+                    .toplevel()
+                    .ok_or_else(|| "Linux WebView top-level widget is unavailable".to_owned())?;
+                let root_window = toplevel
+                    .window()
+                    .ok_or_else(|| "Linux top-level GDK window is unavailable".to_owned())?;
+                let offset = view
+                    .translate_coordinates(&toplevel, 0, 0)
+                    .ok_or_else(|| "Linux WebView widget offset is unavailable".to_owned())?;
+                Ok(linux_gdk_origin(root_window.origin(), offset))
+            })();
             let _ = sender.send(result);
         })
         .map_err(|error| error.to_string())?;
@@ -159,7 +170,7 @@ mod tests {
     #[test]
     fn keeps_linux_gdk_root_coordinates_for_the_webview_origin() {
         assert_eq!(
-            linux_gdk_origin((0, 726, 31)),
+            linux_gdk_origin((0, 726, 0), (0, 31)),
             NativeWebviewOrigin { x: 726.0, y: 31.0 }
         );
     }
