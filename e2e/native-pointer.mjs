@@ -40,6 +40,22 @@ export const nativePointerClick = (point, options = {}) => {
   const clicked = { x: Math.round(point.x), y: Math.round(point.y) };
   checkedSpawn("xdotool", ["windowactivate", "--sync", activeWindow]);
   checkedSpawn("xdotool", ["mousemove", "--sync", String(clicked.x), String(clicked.y)]);
+  const location = checkedSpawn("xdotool", ["getmouselocation", "--shell"]).stdout;
+  const pointerWindow = /^WINDOW=(\d+)$/m.exec(location)?.[1] ?? "";
+  const pointerWindowName = pointerWindow
+    ? checkedSpawn("xdotool", ["getwindowname", pointerWindow]).stdout.trim()
+    : "";
+  const pointerWindowGeometry = pointerWindow
+    ? checkedSpawn("xdotool", ["getwindowgeometry", "--shell", pointerWindow]).stdout.trim()
+    : "";
+  console.log(`LINUX_POINTER_CALIBRATION_PROBE ${JSON.stringify({
+    activeWindow,
+    clicked,
+    location: location.trim(),
+    pointerWindow,
+    pointerWindowName,
+    pointerWindowGeometry,
+  })}`);
   wait(250);
   checkedSpawn("xdotool", ["click", "1"]);
   wait(350);
