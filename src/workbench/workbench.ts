@@ -24,11 +24,15 @@ import type { ViewGroupLayoutNode, ViewGroupSplitDirection } from "./viewGroupLa
 import type { ViewContribution, ViewRegistry } from "./viewRegistry";
 import { decodeViewDrag, encodeViewDrag, insertionIndex, VIEW_DRAG_TYPE } from "./viewDrop";
 import { t } from "../i18n/i18n";
+import { containerDockZone, groupDockZones, logicalRectForElement, tabDockZones } from "./dockGeometry";
+import type { DockSurface } from "./dockTypes";
+import type { NativeDockWindowMetrics } from "./tauriDockDragAdapter";
 
 export interface Workbench {
   snapshot(): WorkbenchLayoutSnapshot;
   restore(snapshot: WorkbenchLayoutSnapshot, options?: { emitChange?: boolean }): void;
   onDidChange(listener: (snapshot: WorkbenchLayoutSnapshot) => void): () => void;
+  dockSurface(metrics: NativeDockWindowMetrics, revision: number): DockSurface;
   openView(id: WorkbenchViewId): void;
   closeView(id: WorkbenchViewId): void;
   toggleView(id: WorkbenchViewId): void;
@@ -90,6 +94,9 @@ export function mountWorkbench(options: {
   let groupIdSequence = 0;
   const detachedGroups = new Set<string>();
   const dropIndicators = new Set<HTMLElement>();
+  const renderedGroups = new Map<string, { containerId: WorkbenchContainerId; groupId: string; element: HTMLElement }>();
+  const renderedTabs = new Map<string, { containerId: WorkbenchContainerId; groupId: string; strip: HTMLElement; tabs: HTMLElement[] }>();
+  const renderedContainers = new Map<WorkbenchContainerId, HTMLElement>();
   const OUTLINE_DEFAULT_SIZE = 220;
   const MIN_EDITOR_WIDTH = 220;
   const MIN_WORKSPACE_HEIGHT = 120;
@@ -397,6 +404,7 @@ export function mountWorkbench(options: {
       wrapper.classList.add("hidden");
       return wrapper;
     }
+    renderedGroups.set(groupKey(containerId, groupId), { containerId, groupId, element: wrapper });
 
     const splitDrop = (event: DragEvent): void => {
       const viewId = viewIdFromEvent(event);
@@ -480,6 +488,12 @@ export function mountWorkbench(options: {
       tabsByViewId.set(view.id, item);
       tabs.appendChild(item);
     }
+    renderedTabs.set(groupKey(containerId, groupId), {
+      containerId,
+      groupId,
+      strip: tabs,
+      tabs: [...tabsByViewId.values()],
+    });
     bindDropTarget(
       tabs,
       containerId,
@@ -577,6 +591,7 @@ export function mountWorkbench(options: {
     const body = document.createElement("div");
     body.className = "view-container-body";
     body.replaceChildren(renderViewGroupTree(contribution.id, state.viewGroups[contribution.id].root, true, false));
+    renderedContainers.set(contribution.id, body);
     bindDropTarget(body, contribution.id, "y", () => views.filter((view) => state.views[view.id].visible));
     container.appendChild(titlebar);
     container.appendChild(body);
@@ -614,6 +629,7 @@ export function mountWorkbench(options: {
     container.dataset.containerId = contribution.id;
     if (partId === "panel") {
       container.appendChild(renderViewGroupTree(contribution.id, state.viewGroups[contribution.id].root, visible, true));
+      renderedContainers.set(contribution.id, container);
       host.replaceChildren(container);
       return;
     }
@@ -632,6 +648,7 @@ export function mountWorkbench(options: {
     const body = document.createElement("div");
     body.className = "view-container-body";
     body.replaceChildren(renderViewGroupTree(contribution.id, state.viewGroups[contribution.id].root, visible, false));
+    renderedContainers.set(contribution.id, body);
     bindDropTarget(body, contribution.id, "y", () => views.filter((view) => state.views[view.id].visible));
     container.appendChild(titlebar);
     container.appendChild(body);
@@ -659,6 +676,9 @@ export function mountWorkbench(options: {
 
   const render = (): void => {
     state = boundState(state);
+    renderedGroups.clear();
+    renderedTabs.clear();
+    renderedContainers.clear();
     const body = options.activityBar.parentElement;
     body?.setAttribute("data-primary-sidebar-position", state.positions.primarySidebar);
     options.panel.parentElement?.setAttribute("data-panel-position", state.positions.panel);
@@ -681,6 +701,32 @@ export function mountWorkbench(options: {
 
   const workbench: Workbench = {
     snapshot: () => normalizeWorkbenchLayout(state),
+    dockSurface: (metrics, revision) => {
+      const zones = [];
+      for (const [containerId, element] of renderedContainers) {
+        const rect = logicalRectForElement(element);
+        if (rect) zones.push(containerDockZone(
+          metrics.windowLabel,
+          containerId,
+          viewsIn(containerId).filter((view) => state.views[view.id].visible).length,
+          rect,
+        ));
+      }
+      for (const { containerId, groupId, element } of renderedGroups.values()) {
+        const rect = logicalRectForElement(element);
+        if (rect) zones.push(...groupDockZones(metrics.windowLabel, containerId, groupId, rect));
+      }
+      for (const { containerId, groupId, strip, tabs } of renderedTabs.values()) {
+        const stripRect = logicalRectForElement(strip);
+        if (!stripRect) continue;
+        const tabRects = tabs.flatMap((tab) => {
+          const rect = logicalRectForElement(tab);
+          return rect ? [rect] : [];
+        });
+        zones.push(...tabDockZones(metrics.windowLabel, containerId, groupId, stripRect, tabRects));
+      }
+      return { windowLabel: metrics.windowLabel, revision, metrics, zones };
+    },
     restore: (snapshot, restoreOptions) => commit(normalizeWorkbenchLayout(snapshot), restoreOptions?.emitChange !== false),
     onDidChange: (listener) => {
       changeListeners.add(listener);

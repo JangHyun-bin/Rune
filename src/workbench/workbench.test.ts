@@ -4,6 +4,7 @@ import { DEFAULT_WORKBENCH_LAYOUT } from "./workbenchLayout";
 import { createViewRegistry } from "./viewRegistry";
 import { mountWorkbench } from "./workbench";
 import { VIEW_DRAG_TYPE } from "./viewDrop";
+import type { NativeDockWindowMetrics } from "./tauriDockDragAdapter";
 
 type Listener = (event: Event) => void;
 
@@ -413,6 +414,62 @@ describe("workbench", () => {
     expect(workbench.snapshot().viewGroups.explorer.root).toMatchObject({ type: "split" });
     expect(Object.values(workbench.snapshot().viewGroups.explorer.groups).find((group) => group.viewIds[0] === "outline")?.id)
       .not.toBe("explorer:workspace");
+  });
+
+  it("publishes tab, center, edge, and container dock zones without changing layout", () => {
+    const { primarySidebar, workbench } = setup();
+    workbench.moveViewToGroup("outline", "explorer", "explorer:workspace");
+    workbench.closeView("project");
+    const root = primarySidebar as unknown as TestElement;
+    const group = byData(root, "groupId", "explorer:workspace");
+    group.rectLeft = 100;
+    group.rectTop = 80;
+    group.rectWidth = 240;
+    group.rectHeight = 320;
+    const tabs = byClass(group, "view-group-tabs")[0];
+    tabs.rectLeft = 100;
+    tabs.rectTop = 80;
+    tabs.rectWidth = 240;
+    tabs.rectHeight = 32;
+    const tabItems = byClass(tabs, "view-group-tab-item");
+    tabItems[0].rectLeft = 100;
+    tabItems[0].rectTop = 80;
+    tabItems[0].rectWidth = 80;
+    tabItems[0].rectHeight = 32;
+    tabItems[1].rectLeft = 180;
+    tabItems[1].rectTop = 80;
+    tabItems[1].rectWidth = 80;
+    tabItems[1].rectHeight = 32;
+    const containerBody = byClass(root, "view-container-body")[0];
+    containerBody.rectLeft = 80;
+    containerBody.rectTop = 48;
+    containerBody.rectWidth = 280;
+    containerBody.rectHeight = 700;
+    const before = workbench.snapshot();
+    const nativeMetrics: NativeDockWindowMetrics = {
+      windowLabel: "main",
+      windowInnerOrigin: { x: -200, y: 40 },
+      webviewOffset: { x: 0, y: 0 },
+      innerOrigin: { x: -200, y: 40 },
+      scaleFactor: 1.25,
+    };
+
+    const surface = workbench.dockSurface(nativeMetrics, 19);
+    const targets = surface.zones.map((zone) => zone.target);
+
+    expect(surface).toMatchObject({ windowLabel: "main", revision: 19, metrics: nativeMetrics });
+    expect(targets).toEqual(expect.arrayContaining([
+      { kind: "tabs", windowLabel: "main", containerId: "explorer", groupId: "explorer:workspace", index: 0 },
+      { kind: "tabs", windowLabel: "main", containerId: "explorer", groupId: "explorer:workspace", index: 1 },
+      { kind: "tabs", windowLabel: "main", containerId: "explorer", groupId: "explorer:workspace", index: 2 },
+      { kind: "combine", windowLabel: "main", containerId: "explorer", groupId: "explorer:workspace" },
+      { kind: "split", windowLabel: "main", containerId: "explorer", groupId: "explorer:workspace", direction: "row", side: "before" },
+      { kind: "split", windowLabel: "main", containerId: "explorer", groupId: "explorer:workspace", direction: "row", side: "after" },
+      { kind: "split", windowLabel: "main", containerId: "explorer", groupId: "explorer:workspace", direction: "column", side: "before" },
+      { kind: "split", windowLabel: "main", containerId: "explorer", groupId: "explorer:workspace", direction: "column", side: "after" },
+      { kind: "container", windowLabel: "main", containerId: "explorer", index: 3 },
+    ]));
+    expect(workbench.snapshot()).toEqual(before);
   });
 
   it("splits a view group when a dragged header is dropped on its edge", () => {

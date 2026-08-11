@@ -20,10 +20,13 @@ import type { WorkbenchViewId } from "./workbench/workbenchLayout";
 import type { ViewWindowContext } from "./workbench/viewWindowHost";
 import { normalizeViewWindowTransfer, type ViewWindowPresentation, type ViewWindowTransfer } from "./workbench/viewWindowTransfer";
 import { nextDetachedTabIndex } from "./workbench/viewWindowTabs";
+import { publishDetachedDockSurface } from "./workbench/dockGeometry";
+import { createTauriDockDragAdapter } from "./workbench/tauriDockDragAdapter";
 
 const currentWindow = getCurrentWebviewWindow();
 const mainWindow = "main";
 const host = document.getElementById("detached-view")!;
+const dockDragAdapter = createTauriDockDragAdapter();
 let transfer: ViewWindowTransfer | null = null;
 let context: ViewWindowContext = {
   currentFolder: null,
@@ -40,6 +43,7 @@ const requests = new Map<string, { resolve(value: unknown): void; reject(error: 
 let refreshPanels = (): void => {};
 let disposePanels = (): void => {};
 let cycleTab = (_direction: 1 | -1): void => {};
+let refreshDockSurface = (): void => {};
 
 function action(type: string, values: Record<string, unknown> = {}): Promise<void> {
   return emitTo(mainWindow, "rune:view-window-action", { windowLabel: currentWindow.label, type, ...values });
@@ -89,6 +93,7 @@ function render(): void {
   host.append(header, content);
 
   const panels = new Map<WorkbenchViewId, { element: HTMLElement; refresh(): void; focus?(): void; dispose(): void }>();
+  const tabElements: HTMLButtonElement[] = [];
   const openPath = (path: string, line?: number) => { void action("open-path", { path, line }); };
   const elements = new Map<WorkbenchViewId, HTMLElement>();
   for (const viewId of transfer.group.viewIds) {
@@ -192,11 +197,29 @@ function render(): void {
       tabs.querySelector<HTMLButtonElement>(`[data-view-id="${nextView}"]`)?.focus();
     });
     tabs.appendChild(tab);
+    tabElements.push(tab);
   }
+  refreshDockSurface = () => {
+    if (!transfer) return;
+    void publishDetachedDockSurface({
+      windowLabel: currentWindow.label,
+      revision: 0,
+      metrics: () => dockDragAdapter.metrics(),
+      containerId: transfer.sourceContainerId,
+      groupId: transfer.group.id,
+      groupElement: host,
+      tabStrip: tabs,
+      tabElements,
+      publish: (surface) => {
+        window.dispatchEvent(new CustomEvent("rune:dock-surface", { detail: surface }));
+      },
+    }).catch((error) => console.warn(error));
+  };
   refreshPanels = () => { for (const panel of panels.values()) panel.refresh(); };
   disposePanels = () => { for (const panel of panels.values()) panel.dispose(); };
   refreshPanels();
   activate(transfer.group.activeViewId!);
+  refreshDockSurface();
 }
 
 void currentWindow.listen("rune:view-window-init", ({ payload }) => {
@@ -236,4 +259,5 @@ window.addEventListener("keydown", (event) => {
     cycleTab(event.shiftKey ? -1 : 1);
   }
 });
+window.addEventListener("resize", () => refreshDockSurface());
 void emitTo(mainWindow, "rune:view-window-ready", { windowLabel: currentWindow.label });

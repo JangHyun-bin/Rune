@@ -1,5 +1,9 @@
 import type { WorkbenchContainerId, WorkbenchLayoutSnapshot, WorkbenchViewId } from "./workbenchLayout";
 import type { ViewWindowLayoutSnapshot, WindowBounds } from "./viewWindowLayout";
+import type { NativeDockWindowMetrics } from "./tauriDockDragAdapter";
+
+export interface LogicalRect { left: number; top: number; width: number; height: number }
+export interface PhysicalRect { x: number; y: number; width: number; height: number }
 
 export interface DockLocation {
   windowLabel: string;
@@ -24,6 +28,20 @@ export type DockTarget =
   }
   | { kind: "container"; windowLabel: string; containerId: WorkbenchContainerId; index: number }
   | { kind: "new-window"; bounds: WindowBounds };
+
+export interface DockZone {
+  id: string;
+  rect: LogicalRect;
+  target: DockTarget;
+  priority: number;
+}
+
+export interface DockSurface {
+  windowLabel: string;
+  revision: number;
+  metrics: NativeDockWindowMetrics;
+  zones: DockZone[];
+}
 
 export interface DockWorkspaceSnapshot {
   revision: number;
