@@ -1,6 +1,7 @@
 import "./styles.css";
 if (import.meta.env.VITE_WDIO === "1") void import("@wdio/tauri-plugin");
 import { emitTo } from "@tauri-apps/api/event";
+import { PhysicalPosition } from "@tauri-apps/api/dpi";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { parseHeadings } from "./editor/outline";
@@ -66,6 +67,10 @@ if (import.meta.env.VITE_WDIO === "1") {
     __RUNE_DOCKING_RELEASE_GATE__: {
       metrics: dockDragAdapter.metrics,
       focus: () => currentWindow.setFocus(),
+      normalizeWindow: async () => {
+        await currentWindow.setPosition(new PhysicalPosition(850, 60));
+        await currentWindow.setFocus();
+      },
       toPhysical: logicalClientPointToPhysicalScreen,
       transfer: () => structuredClone(transfer),
       dockState: () => ({
