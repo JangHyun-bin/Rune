@@ -124,6 +124,7 @@ describe("native Workbench release smoke", () => {
         linuxWindowTitle: "^Rune",
         linuxWindowMaxWidth: 600,
         linuxWindowPosition: { x: 850, y: 60 },
+        linuxFocusClick: true,
       });
       await browser.pause(2_000);
       if ((await browser.getWindowHandles()).length !== 1) {

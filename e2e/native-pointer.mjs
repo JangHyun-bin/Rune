@@ -113,6 +113,11 @@ post(2, ex, ey)
     pointerWindowName,
     pointerWindowGeometry,
   })}`);
+  if (options.linuxFocusClick) {
+    checkedSpawn("xdotool", ["click", "1"]);
+    wait(350);
+    checkedSpawn("xdotool", ["mousemove", "--sync", String(Math.round(start.x)), String(Math.round(start.y))]);
+  }
   wait(250);
   checkedSpawn("xdotool", ["mousedown", "1"]);
   wait(350);
