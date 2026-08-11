@@ -44,13 +44,8 @@ const summary = {
 
 console.log(`Workbench recovery fixture: ${JSON.stringify(summary)}`);
 
-if (windows.length !== 1) {
-  throw new Error(`Expected one persisted detached window before restart, found ${windows.length}`);
-}
-const bounds = windows[0]?.bounds;
-if (!bounds || !Number.isFinite(bounds.width) || bounds.width < 200
-  || !Number.isFinite(bounds.height) || bounds.height < 120) {
-  throw new Error(`Expected valid persisted detached-window bounds before restart, found ${JSON.stringify(bounds ?? null)}`);
+if (windows.length !== 0) {
+  throw new Error(`Expected the re-docked Linux layout to have no detached windows before restart, found ${windows.length}`);
 }
 if (!summary.hotExit.hasDirtyBufferSentinel) {
   throw new Error("Expected the dirty editor buffer in the Hot Exit fixture before restart");

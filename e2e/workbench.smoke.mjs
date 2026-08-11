@@ -6,6 +6,8 @@ const waitForWindowCount = async (count) => {
   return browser.getWindowHandles();
 };
 
+const singleSessionDocking = process.platform === "linux";
+
 const mainHandle = async () => {
   for (const handle of await browser.getWindowHandles()) {
     await browser.switchToWindow(handle);
@@ -60,8 +62,21 @@ const tearOffOutline = async () => {
   return waitForWindowCount(2);
 };
 
+const physicalPoint = async (selector, xRatio = 0.5, yRatio = 0.5) => browser.execute(async (value, x, y) => {
+  const gate = window.__RUNE_DOCKING_RELEASE_GATE__;
+  const element = document.querySelector(value);
+  if (!gate || !element) throw new Error(`Docking release-gate target is unavailable: ${value}`);
+  const rect = element.getBoundingClientRect();
+  await gate.focus();
+  const metrics = await gate.metrics();
+  return {
+    point: gate.toPhysical(metrics, { x: rect.left + rect.width * x, y: rect.top + rect.height * y }),
+    metrics,
+  };
+}, selector, xRatio, yRatio);
+
 describe("native Workbench release smoke", () => {
-  it("preserves a dirty editor while tearing off and persists the detached layout", async () => {
+  it("preserves a dirty editor while tearing off and persists the committed layout", async () => {
     await $('html[data-wdio-ready="true"]').waitForExist();
     await browser.execute(() => window.dispatchEvent(new Event("rune:wdio-restore-view-windows")));
     await resetDetachedViews();
@@ -92,9 +107,31 @@ describe("native Workbench release smoke", () => {
     expect(detachedHandle).toBeTruthy();
     await browser.switchToWindow(detachedHandle);
     await $(".detached-view-redock").waitForDisplayed();
+
+    if (singleSessionDocking) {
+      await $('html[data-wdio-docking-release-gate-ready="true"]').waitForExist();
+      await browser.switchToWindow(main);
+      await browser.execute(() => window.__RUNE_DOCKING_RELEASE_GATE__.preparePanel());
+      const target = await physicalPoint('.view-group[data-container-id="panel"]', 0.7, 0.5);
+      await browser.switchToWindow(detachedHandle);
+      const source = await physicalPoint('.detached-view-tabs [data-view-id="outline"]');
+      console.log(`CROSS_WINDOW_POINTER ${JSON.stringify({ source, target })}`);
+      nativePointerDrag(source.point, target.point, source.metrics.scaleFactor);
+      await waitForWindowCount(1);
+      await browser.switchToWindow(main);
+      const after = await browser.execute(() => window.__RUNE_DOCKING_RELEASE_GATE__.workspace());
+      const group = Object.values(after.workbench.viewGroups.panel.groups)
+        .find((candidate) => candidate.viewIds.includes("outline"));
+      expect(after.workbench.views.outline.containerId).toBe("panel");
+      expect(group.viewIds).toEqual(["search", "outline"]);
+      await $('html[data-wdio-saved-window-count="0"]').waitForExist();
+    } else {
+      await browser.switchToWindow(main);
+      await $('html[data-wdio-saved-window-count="1"]').waitForExist();
+    }
+
     await browser.switchToWindow(main);
     expect(await $('.cm-content[contenteditable="true"]').getText()).toContain("RC dirty buffer sentinel");
-    await $('html[data-wdio-saved-window-count="1"]').waitForExist();
     await browser.execute(() => window.dispatchEvent(new Event("rune:wdio-save-shutdown-layout")));
     await $('html[data-wdio-shutdown-saved="true"]').waitForExist();
   });
