@@ -10,10 +10,11 @@ pub struct NativeWebviewOrigin {
 fn linux_gdk_origin(
     (_, root_x, root_y): (i32, i32, i32),
     (offset_x, offset_y): (i32, i32),
+    titlebar_height: i32,
 ) -> NativeWebviewOrigin {
     NativeWebviewOrigin {
         x: f64::from(root_x + offset_x),
-        y: f64::from(root_y + offset_y),
+        y: f64::from(root_y + offset_y + titlebar_height),
     }
 }
 
@@ -54,7 +55,7 @@ pub fn native_webview_origin(
 pub async fn native_webview_origin(
     webview_window: tauri::WebviewWindow,
 ) -> Result<NativeWebviewOrigin, String> {
-    use gtk::prelude::WidgetExt;
+    use gtk::prelude::*;
 
     let (sender, receiver) = std::sync::mpsc::sync_channel(1);
     webview_window
@@ -70,7 +71,18 @@ pub async fn native_webview_origin(
                 let offset = view
                     .translate_coordinates(&toplevel, 0, 0)
                     .ok_or_else(|| "Linux WebView widget offset is unavailable".to_owned())?;
-                Ok(linux_gdk_origin(root_window.origin(), offset))
+                let titlebar_height = toplevel
+                    .clone()
+                    .downcast::<gtk::Window>()
+                    .ok()
+                    .and_then(|window| window.titlebar())
+                    .map(|titlebar| titlebar.allocated_height())
+                    .unwrap_or(0);
+                Ok(linux_gdk_origin(
+                    root_window.origin(),
+                    offset,
+                    titlebar_height,
+                ))
             })();
             let _ = sender.send(result);
         })
@@ -170,7 +182,7 @@ mod tests {
     #[test]
     fn keeps_linux_gdk_root_coordinates_for_the_webview_origin() {
         assert_eq!(
-            linux_gdk_origin((0, 726, 0), (0, 31)),
+            linux_gdk_origin((0, 726, 0), (0, 0), 31),
             NativeWebviewOrigin { x: 726.0, y: 31.0 }
         );
     }
