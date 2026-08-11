@@ -71,6 +71,7 @@ const physicalPoint = async (selector, xRatio = 0.5, yRatio = 0.5) => browser.ex
   const metrics = await gate.metrics();
   return {
     point: gate.toPhysical(metrics, { x: rect.left + rect.width * x, y: rect.top + rect.height * y }),
+    clientPoint: { x: rect.left + rect.width * x, y: rect.top + rect.height * y },
     metrics,
   };
 }, selector, xRatio, yRatio);
@@ -120,19 +121,22 @@ describe("native Workbench release smoke", () => {
       });
       const source = await physicalPoint('.detached-view-tabs [data-view-id="outline"]', 0.5, 0.9);
       console.log(`CROSS_WINDOW_POINTER ${JSON.stringify({ source, target })}`);
-      nativePointerDrag(source.point, target.point, source.metrics.scaleFactor, {
+      const linuxWindow = { linuxWindowTitle: "^Rune", linuxWindowMaxWidth: 600 };
+      const calibrationScreen = nativePointerClick(source.point, linuxWindow);
+      const observedClient = await browser.execute(() => (
+        window.__RUNE_DOCKING_RELEASE_GATE__.dockState().pointerEvidence.downPoint
+      ));
+      if (!observedClient) throw new Error("Linux pointer calibration did not reach the detached webview");
+      const calibratedSource = calibrateScreenPoint({
+        calibrationScreen,
+        observedClient,
+        desiredClient: source.clientPoint,
+        scaleFactor: source.metrics.scaleFactor,
+      });
+      console.log(`LINUX_POINTER_CALIBRATION ${JSON.stringify({ calibrationScreen, observedClient, calibratedSource })}`);
+      nativePointerDrag(calibratedSource, target.point, source.metrics.scaleFactor, {
         linuxWindowTitle: "^Rune",
         linuxWindowMaxWidth: 600,
-        linuxWindowPosition: { x: 850, y: 60 },
-        linuxClientPoint: {
-          x: (source.point.x - source.metrics.innerOrigin.x) / source.metrics.scaleFactor,
-          y: (source.point.y - source.metrics.innerOrigin.y) / source.metrics.scaleFactor,
-        },
-        linuxFrameInset: {
-          x: 0,
-          y: 0,
-        },
-        linuxFocusClick: true,
       });
       await browser.pause(2_000);
       if ((await browser.getWindowHandles()).length !== 1) {
@@ -164,4 +168,4 @@ describe("native Workbench release smoke", () => {
     await $('html[data-wdio-shutdown-saved="true"]').waitForExist();
   });
 });
-import { nativePointerDrag } from "./native-pointer.mjs";
+import { calibrateScreenPoint, nativePointerClick, nativePointerDrag } from "./native-pointer.mjs";

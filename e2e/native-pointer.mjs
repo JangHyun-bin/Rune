@@ -15,6 +15,37 @@ const checkedSpawn = (command, args) => {
   return result;
 };
 
+export const calibrateScreenPoint = ({
+  calibrationScreen,
+  observedClient,
+  desiredClient,
+  scaleFactor,
+}) => ({
+  x: calibrationScreen.x + (desiredClient.x - observedClient.x) * scaleFactor,
+  y: calibrationScreen.y + (desiredClient.y - observedClient.y) * scaleFactor,
+});
+
+export const nativePointerClick = (point, options = {}) => {
+  if (process.platform !== "linux") throw new Error("Native pointer calibration is Linux-only");
+  const matchingWindows = options.linuxWindowTitle
+    ? checkedSpawn("xdotool", ["search", "--onlyvisible", "--name", options.linuxWindowTitle]).stdout.trim().split(/\s+/)
+    : [];
+  const activeWindow = matchingWindows.filter((value) => /^\d+$/.test(value)).find((id) => {
+    if (!options.linuxWindowMaxWidth) return true;
+    const geometry = checkedSpawn("xdotool", ["getwindowgeometry", "--shell", id]).stdout;
+    const width = Number(/^WIDTH=(\d+)$/m.exec(geometry)?.[1] ?? Number.NaN);
+    return width <= options.linuxWindowMaxWidth;
+  }) ?? checkedSpawn("xdotool", ["getactivewindow"]).stdout.trim();
+  if (!/^\d+$/.test(activeWindow)) throw new Error(`xdotool returned an invalid active window: ${activeWindow}`);
+  const clicked = { x: Math.round(point.x), y: Math.round(point.y) };
+  checkedSpawn("xdotool", ["windowactivate", "--sync", activeWindow]);
+  checkedSpawn("xdotool", ["mousemove", "--sync", String(clicked.x), String(clicked.y)]);
+  wait(250);
+  checkedSpawn("xdotool", ["click", "1"]);
+  wait(350);
+  return clicked;
+};
+
 export const nativePointerDrag = (start, end, scaleFactor = 1, options = {}) => {
   const delta = { x: end.x - start.x, y: end.y - start.y };
   if (process.platform === "win32") {
