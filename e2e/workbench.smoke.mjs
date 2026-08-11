@@ -117,25 +117,14 @@ describe("native Workbench release smoke", () => {
       await browser.switchToWindow(detachedHandle);
       const source = await physicalPoint('.detached-view-tabs [data-view-id="outline"]', 0.5, 0.9);
       console.log(`CROSS_WINDOW_POINTER ${JSON.stringify({ source, target })}`);
-      const linuxWindow = { linuxWindowTitle: "^Rune", linuxWindowMaxWidth: 600 };
-      const calibrationScreen = nativePointerClick({
-        x: source.point.x,
-        y: source.point.y + 80 * source.metrics.scaleFactor,
-      }, linuxWindow);
-      const observedClient = await browser.execute(() => (
-        window.__RUNE_DOCKING_RELEASE_GATE__.dockState().pointerEvidence.downPoint
-      ));
-      if (!observedClient) throw new Error("Linux pointer calibration did not reach the detached webview");
-      const calibratedSource = calibrateScreenPoint({
-        calibrationScreen,
-        observedClient,
-        desiredClient: source.clientPoint,
-        scaleFactor: source.metrics.scaleFactor,
-      });
-      console.log(`LINUX_POINTER_CALIBRATION ${JSON.stringify({ calibrationScreen, observedClient, calibratedSource })}`);
-      nativePointerDrag(calibratedSource, target.point, source.metrics.scaleFactor, {
+      nativePointerDrag(source.point, target.point, source.metrics.scaleFactor, {
         linuxWindowTitle: "^Rune",
         linuxWindowMaxWidth: 600,
+        linuxWindowPosition: {
+          x: source.point.x - 80,
+          y: source.point.y - 40,
+        },
+        linuxFocusClick: true,
       });
       await browser.pause(2_000);
       if ((await browser.getWindowHandles()).length !== 1) {
@@ -167,4 +156,4 @@ describe("native Workbench release smoke", () => {
     await $('html[data-wdio-shutdown-saved="true"]').waitForExist();
   });
 });
-import { calibrateScreenPoint, nativePointerClick, nativePointerDrag } from "./native-pointer.mjs";
+import { nativePointerDrag } from "./native-pointer.mjs";
