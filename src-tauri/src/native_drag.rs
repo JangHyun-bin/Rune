@@ -51,7 +51,6 @@ pub fn native_webview_origin(
 pub async fn native_webview_origin(
     webview_window: tauri::WebviewWindow,
 ) -> Result<NativeWebviewOrigin, String> {
-    use gdk::prelude::WindowExt;
     use gtk::prelude::WidgetExt;
 
     let (sender, receiver) = std::sync::mpsc::sync_channel(1);
