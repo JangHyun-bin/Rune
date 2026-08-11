@@ -63,7 +63,7 @@ import { createNativeFileOpenQueue, handleNativeFileDrop, type ResolvedDropTarge
 import { createViewRegistry } from "./workbench/viewRegistry";
 import { createCommandRegistry } from "./workbench/commandRegistry";
 import { mountWorkbench } from "./workbench/workbench";
-import { createTauriDockDragAdapter } from "./workbench/tauriDockDragAdapter";
+import { createTauriDockDragAdapter, logicalClientPointToPhysicalScreen } from "./workbench/tauriDockDragAdapter";
 import { createViewWindowHost } from "./workbench/viewWindowHost";
 import { tauriViewWindowAdapter } from "./workbench/tauriViewWindowAdapter";
 import type { DockProtocolMessage } from "./workbench/viewWindowTransfer";
@@ -426,6 +426,26 @@ if (isTauri()) {
     onLayoutChange: scheduleSaveSettings,
   });
   void viewWindowHost.start().catch((error) => console.warn(error));
+}
+
+if (import.meta.env.VITE_WDIO === "1" && nativeDockDrag) {
+  Object.assign(window, {
+    __RUNE_DOCKING_RELEASE_GATE__: {
+      metrics: nativeDockDrag.metrics,
+      focus: () => getCurrentWebviewWindow().setFocus(),
+      toPhysical: logicalClientPointToPhysicalScreen,
+      workspace: () => structuredClone(workbench.dockWorkspaceSnapshot(
+        viewWindowHost?.layoutSnapshot() ?? EMPTY_VIEW_WINDOW_LAYOUT,
+        viewWindowHost?.detachedWindows() ?? [],
+      )),
+      serializedLayout: () => JSON.stringify(viewWindowHost?.layoutSnapshot() ?? EMPTY_VIEW_WINDOW_LAYOUT),
+      preparePanel: () => {
+        workbench.openView("search");
+        workbench.moveView("search", "panel", 0);
+      },
+    },
+  });
+  document.documentElement.dataset.wdioDockingReleaseGateReady = "true";
 }
 
 const viewDestinations = [

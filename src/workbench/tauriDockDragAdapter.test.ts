@@ -71,4 +71,17 @@ describe("Tauri native dock drag adapter", () => {
       scaleFactor: 1.5,
     }, { x: 480, y: 240 })).toEqual({ x: -720, y: 540 });
   });
+
+  it.each([1, 1.25, 1.5, 2])("converts negative-origin screen coordinates at scale %s", (scaleFactor) => {
+    expect(logicalClientPointToPhysicalScreen({
+      windowLabel: "fixture",
+      windowInnerOrigin: { x: -2560, y: -180 },
+      webviewOffset: { x: 0, y: 24 },
+      innerOrigin: { x: -2560, y: -156 },
+      scaleFactor,
+    }, { x: 320, y: 200 })).toEqual({
+      x: -2560 + 320 * scaleFactor,
+      y: -156 + 200 * scaleFactor,
+    });
+  });
 });

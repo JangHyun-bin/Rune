@@ -35,12 +35,25 @@ const resetDetachedViews = async () => {
 };
 
 const tearOffOutline = async () => {
-  const more = await $('.workbench-view[data-view-id="outline"] .view-more');
-  await more.waitForClickable();
-  await more.click();
-  const firstAction = await $(".ctx-menu .ctx-item");
-  await firstAction.waitForClickable();
-  await firstAction.click();
+  await $('html[data-wdio-docking-release-gate-ready="true"]').waitForExist();
+  const drag = await browser.execute(async () => {
+    const gate = window.__RUNE_DOCKING_RELEASE_GATE__;
+    const element = [
+      document.querySelector('.panel-tab[data-view-id="outline"]'),
+      document.querySelector('.view-group-tab[data-view-id="outline"]'),
+      document.querySelector('.workbench-view[data-view-id="outline"] .workbench-view-header'),
+    ].find((candidate) => candidate?.getBoundingClientRect().width > 0);
+    if (!gate || !element) throw new Error("Outline pointer source is unavailable");
+    const rect = element.getBoundingClientRect();
+    await gate.focus();
+    const metrics = await gate.metrics();
+    return {
+      start: gate.toPhysical(metrics, { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 }),
+      end: gate.toPhysical(metrics, { x: window.innerWidth + 96, y: Math.max(120, rect.top + rect.height / 2) }),
+      scaleFactor: metrics.scaleFactor,
+    };
+  });
+  nativePointerDrag(drag.start, drag.end, drag.scaleFactor);
   return waitForWindowCount(2);
 };
 
@@ -56,6 +69,20 @@ describe("native Workbench release smoke", () => {
     await editor.setValue("RC dirty buffer sentinel");
     expect(await editor.getText()).toContain("RC dirty buffer sentinel");
 
+    const exactBeforeCancel = await browser.execute(() => window.__RUNE_DOCKING_RELEASE_GATE__.serializedLayout());
+    await browser.execute(() => {
+      const header = [
+        document.querySelector('.panel-tab[data-view-id="outline"]'),
+        document.querySelector('.view-group-tab[data-view-id="outline"]'),
+        document.querySelector('.workbench-view[data-view-id="outline"] .workbench-view-header'),
+      ].find((candidate) => candidate?.getBoundingClientRect().width > 0);
+      header.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0, pointerId: 91, clientX: 20, clientY: 20 }));
+      window.dispatchEvent(new PointerEvent("pointermove", { bubbles: true, pointerId: 91, clientX: 40, clientY: 40 }));
+      window.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, key: "Escape" }));
+    });
+    const exactAfterCancel = await browser.execute(() => window.__RUNE_DOCKING_RELEASE_GATE__.serializedLayout());
+    expect(exactAfterCancel).toBe(exactBeforeCancel);
+
     await browser.execute(() => delete document.documentElement.dataset.wdioSavedWindowCount);
     const handles = await tearOffOutline();
     const detachedHandle = handles.find((handle) => handle !== main);
@@ -69,3 +96,4 @@ describe("native Workbench release smoke", () => {
     await $('html[data-wdio-shutdown-saved="true"]').waitForExist();
   });
 });
+import { nativePointerDrag } from "./native-pointer.mjs";

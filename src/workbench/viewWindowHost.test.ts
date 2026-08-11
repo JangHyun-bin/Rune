@@ -76,6 +76,8 @@ async function crossWindowHarness(targetAck: boolean | null, multiViewSource = f
   let failCommitTransport = false;
   const listeners = new Map<string, (payload: unknown) => void>();
   const handles = new Map<string, ViewWindowHandle & { close: ReturnType<typeof vi.fn>; startDragging: ReturnType<typeof vi.fn> }>();
+  const geometryListeners = new Map<string, () => void>();
+  const captureX = new Map<string, number>();
   const emitted: Array<{ target: string; event: string; payload: unknown }> = [];
   const pendingCommits = new Map<string, Extract<DockProtocolMessage, { type: "dock:commit" }>>();
   const adapter: ViewWindowAdapter = {
@@ -87,10 +89,13 @@ async function crossWindowHarness(targetAck: boolean | null, multiViewSource = f
         startDragging: vi.fn(async () => {}),
         onClosed: () => () => {},
         capture: async () => ({
-          bounds: { x: label === "view-1" ? 20 : 480, y: 40, width: 420, height: 640 },
+          bounds: { x: captureX.get(label) ?? (label === "view-1" ? 20 : 480), y: 40, width: 420, height: 640 },
           monitor: { name: "main", scaleFactor: 1, x: 0, y: 0, width: 1920, height: 1080 },
         }),
-        onGeometryChanged: async () => () => {},
+        onGeometryChanged: async (listener: () => void) => {
+          geometryListeners.set(label, listener);
+          return () => { geometryListeners.delete(label); };
+        },
       };
       handles.set(label, handle);
       return handle;
@@ -146,6 +151,8 @@ async function crossWindowHarness(targetAck: boolean | null, multiViewSource = f
     context: () => ({ currentFolder: null, activePath: null, activeMarkdown: null, activeLine: 1, workspaceTree: [], workspaceFiles: [], backlinks: "noDocument", references: "noProject" }),
     onAction: async () => undefined,
     dockAckTimeoutMs: 5,
+    nativeDragIdleMs: 1,
+    nativeDragStartTimeoutMs: 2,
   };
   host = createViewWindowHost(options);
   await host.start();
@@ -162,6 +169,10 @@ async function crossWindowHarness(targetAck: boolean | null, multiViewSource = f
     setMainSurface: (surface: DockSurface | null) => { mainSurface = surface; },
     setDetachedSurface: (surface: DockSurface | null) => { detachedSurface = surface; },
     failCommitTransport: () => { failCommitTransport = true; },
+    moveWindow: (label: string, x: number) => {
+      captureX.set(label, x);
+      geometryListeners.get(label)?.();
+    },
   };
 }
 
@@ -427,6 +438,41 @@ describe("native view window host", () => {
     expect(harness.handles.get("view-1")!.startDragging).toHaveBeenCalledTimes(1);
     expect(harness.emitted.filter(({ event, payload }) => event === DOCK_PROTOCOL_EVENT
       && (payload as DockProtocolMessage).type === "dock:result")).toHaveLength(1);
+  });
+
+  it("does not persist source-window geometry while a native dock transaction is active", async () => {
+    const harness = await crossWindowHarness(true);
+    harness.setMainSurface(dockSurface("main", 10, {
+      id: "container:panel",
+      rect: { left: 0, top: 0, width: 400, height: 400 },
+      target: { kind: "container", windowLabel: "main", containerId: "panel", index: 0 },
+      priority: 1,
+    }));
+    let releaseDrag!: () => void;
+    harness.handles.get("view-1")!.startDragging.mockImplementationOnce(() => new Promise<void>((resolve) => {
+      releaseDrag = resolve;
+    }));
+    const before = harness.host.layoutSnapshot();
+
+    harness.listener({
+      type: "dock:start",
+      version: 2,
+      sessionId: "view-1:geometry-isolation",
+      sourceWindowLabel: "view-1",
+      payload: {
+        kind: "view",
+        viewId: "outline",
+        source: { windowLabel: "view-1", containerId: "explorer", groupId: "explorer:outline" },
+      },
+      point: { x: 120, y: 120 },
+    });
+    await vi.waitFor(() => expect(harness.handles.get("view-1")!.startDragging).toHaveBeenCalledTimes(1));
+    harness.moveWindow("view-1", 900);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(harness.host.layoutSnapshot()).toEqual(before);
+    releaseDrag();
+    await vi.waitFor(() => expect(harness.handles.get("view-1")!.close).toHaveBeenCalledTimes(1));
   });
 
   it("moves only one detached tab and preserves the remaining source group projection", async () => {

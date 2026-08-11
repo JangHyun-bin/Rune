@@ -313,6 +313,7 @@ export function mountWorkbench(options: {
         payload: nextPayload,
         client: { x: event.clientX, y: event.clientY },
       })) return;
+      try { element.setPointerCapture(event.pointerId); } catch { /* capture is best effort */ }
       void loadDockMetrics()?.catch(() => { dockDragCoordinator?.cancel(); });
     });
   };

@@ -53,7 +53,11 @@ export const tauriViewWindowAdapter: ViewWindowAdapter = {
       },
       async onGeometryChanged(listener) {
         let timer: ReturnType<typeof setTimeout> | undefined;
-        const notify = () => { if (timer) clearTimeout(timer); timer = setTimeout(listener, 150); };
+        const notify = () => {
+          listener();
+          if (timer) clearTimeout(timer);
+          timer = setTimeout(listener, 150);
+        };
         const [stopMove, stopResize] = await Promise.all([window.onMoved(notify), window.onResized(notify)]);
         return () => { if (timer) clearTimeout(timer); stopMove(); stopResize(); };
       },

@@ -163,6 +163,7 @@ jobs:
       - name: Build native Workbench smoke app
         env:
           VITE_WDIO: "1"
+          VITE_NATIVE_DOCKING: "1"
         run: npm run tauri -- build --debug --no-bundle --features webdriver --config src-tauri/tauri.smoke.conf.json
 
       - name: Verify native Workbench windows

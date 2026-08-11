@@ -1,94 +1,10 @@
-import { spawnSync } from "node:child_process";
+import { distance, nativePointerDrag } from "./native-pointer.mjs";
 
-const distance = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
-const wait = (milliseconds) => Atomics.wait(
-  new Int32Array(new SharedArrayBuffer(4)),
-  0,
-  0,
-  milliseconds,
-);
-
-const checkedSpawn = (command, args) => {
-  const result = spawnSync(command, args, { encoding: "utf8" });
-  if (result.error || result.status !== 0) {
-    throw result.error ?? new Error(`${command} failed: ${result.stderr || result.stdout}`);
-  }
-};
-
-const nativePointerDrag = (start, delta, scaleFactor) => {
-  const end = { x: start.x + delta.x, y: start.y + delta.y };
-  if (process.platform === "win32") {
-    const typeDefinition = `
-using System;
-using System.Runtime.InteropServices;
-public static class RuneNativePointer {
-  [DllImport("user32.dll")] public static extern bool SetProcessDpiAwarenessContext(IntPtr value);
-  [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr value);
-  [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr value, int command);
-  [DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y);
-  [DllImport("user32.dll")] public static extern void mouse_event(uint flags, uint dx, uint dy, uint data, UIntPtr extra);
-}
-`;
-    const steps = Array.from({ length: 12 }, (_, index) => {
-      const ratio = (index + 1) / 12;
-      return `[RuneNativePointer]::SetCursorPos(${Math.round(start.x + delta.x * ratio)}, ${Math.round(start.y + delta.y * ratio)}) | Out-Null; Start-Sleep -Milliseconds 60`;
-    }).join("\n");
-    const command = `$typeDefinition = @'\n${typeDefinition}\n'@\nAdd-Type -TypeDefinition $typeDefinition\n[RuneNativePointer]::SetProcessDpiAwarenessContext([IntPtr](-4)) | Out-Null\n$process = Get-Process -Name rune | Where-Object { $_.MainWindowHandle -ne 0 } | Select-Object -First 1\nif ($process) { [RuneNativePointer]::ShowWindow($process.MainWindowHandle, 9) | Out-Null; [RuneNativePointer]::SetForegroundWindow($process.MainWindowHandle) | Out-Null }\nStart-Sleep -Milliseconds 250\n[RuneNativePointer]::SetCursorPos(${Math.round(start.x)}, ${Math.round(start.y)}) | Out-Null\nStart-Sleep -Milliseconds 250\n[RuneNativePointer]::mouse_event(0x0002, 0, 0, 0, [UIntPtr]::Zero)\nStart-Sleep -Milliseconds 350\n${steps}\nStart-Sleep -Milliseconds 250\n[RuneNativePointer]::mouse_event(0x0004, 0, 0, 0, [UIntPtr]::Zero)`;
-    checkedSpawn("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", command]);
-    return;
-  }
-  if (process.platform === "darwin") {
-    const logicalStart = { x: start.x / scaleFactor, y: start.y / scaleFactor };
-    const logicalDelta = { x: delta.x / scaleFactor, y: delta.y / scaleFactor };
-    const python = `
-import ctypes, time
-class CGPoint(ctypes.Structure):
-    _fields_ = [("x", ctypes.c_double), ("y", ctypes.c_double)]
-cg = ctypes.cdll.LoadLibrary("/System/Library/Frameworks/CoreGraphics.framework/CoreGraphics")
-cf = ctypes.cdll.LoadLibrary("/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation")
-cg.CGEventCreateMouseEvent.restype = ctypes.c_void_p
-cg.CGEventCreateMouseEvent.argtypes = [ctypes.c_void_p, ctypes.c_uint32, CGPoint, ctypes.c_uint32]
-cg.CGEventPost.argtypes = [ctypes.c_uint32, ctypes.c_void_p]
-cf.CFRelease.argtypes = [ctypes.c_void_p]
-def post(kind, x, y):
-    event = cg.CGEventCreateMouseEvent(None, kind, CGPoint(x, y), 0)
-    cg.CGEventPost(0, event)
-    cf.CFRelease(event)
-sx, sy = ${logicalStart.x}, ${logicalStart.y}
-dx, dy = ${logicalDelta.x}, ${logicalDelta.y}
-post(5, sx, sy)
-time.sleep(.25)
-post(1, sx, sy)
-time.sleep(.35)
-for step in range(1, 13):
-    ratio = step / 12
-    post(6, sx + dx * ratio, sy + dy * ratio)
-    time.sleep(.06)
-time.sleep(.25)
-post(2, sx + dx, sy + dy)
-`;
-    checkedSpawn("python3", ["-c", python]);
-    return;
-  }
-
-  checkedSpawn("xdotool", ["mousemove", "--sync", String(Math.round(start.x)), String(Math.round(start.y))]);
-  wait(250);
-  checkedSpawn("xdotool", ["mousedown", "1"]);
-  wait(350);
-  for (let step = 1; step <= 12; step += 1) {
-    const ratio = step / 12;
-    checkedSpawn("xdotool", [
-      "mousemove",
-      "--sync",
-      String(Math.round(start.x + delta.x * ratio)),
-      String(Math.round(start.y + delta.y * ratio)),
-    ]);
-    wait(60);
-  }
-  wait(250);
-  checkedSpawn("xdotool", ["mouseup", "1"]);
-};
-
+/* The shared helper takes an absolute destination so evidence is comparable across suites. */
+const dragBy = (start, delta, scaleFactor) => nativePointerDrag(start, {
+  x: start.x + delta.x,
+  y: start.y + delta.y,
+}, scaleFactor);
 describe("native docking drag boundary", () => {
   it("observes native movement, physical cursor coordinates, and drag completion", async () => {
     await $('html[data-wdio-ready="true"]').waitForExist();
@@ -164,7 +80,7 @@ describe("native docking drag boundary", () => {
       };
     });
     console.log(`NATIVE_DOCK_ARMED ${JSON.stringify(armed)}`);
-    nativePointerDrag(armed.start, { x: 180, y: 120 }, armed.scaleFactor);
+    dragBy(armed.start, { x: 180, y: 120 }, armed.scaleFactor);
     await browser.waitUntil(async () => browser.execute(() => (
       window.__RUNE_NATIVE_DOCK_DRAG__.state.startCalledAt !== null
     )), { timeoutMsg: "The native drag handle did not receive an OS press event" });

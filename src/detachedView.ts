@@ -29,7 +29,7 @@ import {
 } from "./workbench/viewWindowTransfer";
 import { nextDetachedTabIndex } from "./workbench/viewWindowTabs";
 import { measureDetachedDockTreeSurface } from "./workbench/dockGeometry";
-import { createTauriDockDragAdapter } from "./workbench/tauriDockDragAdapter";
+import { createTauriDockDragAdapter, logicalClientPointToPhysicalScreen } from "./workbench/tauriDockDragAdapter";
 import { detachedDockPayload } from "./workbench/detachedDockPayload";
 import { renderViewGroupTree } from "./workbench/viewGroupTreeRenderer";
 
@@ -60,6 +60,18 @@ let nextDockSession = 0;
 let observedDockSession: Extract<DockProtocolMessage, { type: "dock:start" }> | null = null;
 let pendingDockCommit: Extract<DockProtocolMessage, { type: "dock:commit" }> | null = null;
 let dockOverlay: HTMLElement | null = null;
+
+if (import.meta.env.VITE_WDIO === "1") {
+  Object.assign(window, {
+    __RUNE_DOCKING_RELEASE_GATE__: {
+      metrics: dockDragAdapter.metrics,
+      focus: () => currentWindow.setFocus(),
+      toPhysical: logicalClientPointToPhysicalScreen,
+      transfer: () => structuredClone(transfer),
+    },
+  });
+  document.documentElement.dataset.wdioDockingReleaseGateReady = "true";
+}
 
 function clearDockOverlay(): void {
   dockOverlay?.remove();

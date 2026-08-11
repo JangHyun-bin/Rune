@@ -61,14 +61,24 @@ jobs:
       - name: Test installed Pandoc integration
         run: cargo test --manifest-path src-tauri/Cargo.toml installed_pandoc_converts_rich_fixture_to_docx_and_epub -- --ignored
 
-  native-workbench-smoke-linux:
-    if: startsWith(github.ref, 'refs/heads/release/')
-    runs-on: ubuntu-24.04
+  native-workbench-smoke:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos-15
+            os: macos
+          - platform: ubuntu-24.04
+            os: linux
+          - platform: windows-latest
+            os: windows
+    runs-on: ${{ matrix.platform }}
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 
       - name: Install Linux dependencies
+        if: matrix.os == 'linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y \
@@ -92,6 +102,7 @@ jobs:
           workspaces: "./src-tauri -> target"
 
       - name: Install tauri-driver
+        if: matrix.os == 'linux'
         run: cargo install tauri-driver --locked
 
       - run: npm ci
@@ -99,9 +110,15 @@ jobs:
       - name: Build native Workbench smoke app
         env:
           VITE_WDIO: "1"
+          VITE_NATIVE_DOCKING: "1"
         run: npm run tauri -- build --debug --no-bundle --features webdriver --config src-tauri/tauri.smoke.conf.json
 
-      - name: Verify native Workbench windows
+      - name: Verify actual-pointer Workbench docking
+        if: matrix.os != 'linux'
+        run: npm run test:e2e:workbench
+
+      - name: Verify actual-pointer Workbench docking on Linux
+        if: matrix.os == 'linux'
         env:
           LIBGL_ALWAYS_SOFTWARE: "1"
           RUNE_WDIO_SETTINGS_PATH: ${{ runner.temp }}/rune-wdio-settings.json

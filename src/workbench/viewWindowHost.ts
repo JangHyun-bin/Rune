@@ -66,6 +66,8 @@ export interface ViewWindowHostOptions {
   renderMainDockPreview?(message: Extract<DockProtocolMessage, { type: "dock:preview" }> | null): void;
   readyTimeoutMs?: number;
   dockAckTimeoutMs?: number;
+  nativeDragIdleMs?: number;
+  nativeDragStartTimeoutMs?: number;
 }
 
 interface DetachedWindow {
@@ -130,6 +132,36 @@ export function createViewWindowHost(options: ViewWindowHostOptions) {
   let nextDockSession = 0;
   const readyTimeoutMs = Math.max(1, options.readyTimeoutMs ?? 5_000);
   const dockAckTimeoutMs = Math.max(1, options.dockAckTimeoutMs ?? 3_000);
+  const nativeDragIdleMs = Math.max(1, options.nativeDragIdleMs ?? 600);
+  const nativeDragStartTimeoutMs = Math.max(nativeDragIdleMs, options.nativeDragStartTimeoutMs ?? 1_500);
+  const nativeDragMovement = new Map<string, () => void>();
+
+  const waitForNativeDragEnd = async (label: string, startDragging: () => Promise<void>): Promise<void> => {
+    let timer: ReturnType<typeof setTimeout>;
+    let settled = false;
+    let finish!: () => void;
+    const movementSettled = new Promise<void>((resolve) => {
+      finish = () => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        nativeDragMovement.delete(label);
+        resolve();
+      };
+      timer = setTimeout(finish, nativeDragStartTimeoutMs);
+      nativeDragMovement.set(label, () => {
+        clearTimeout(timer);
+        timer = setTimeout(finish, nativeDragIdleMs);
+      });
+    });
+    try {
+      await startDragging();
+      await movementSettled;
+    } catch (error) {
+      finish();
+      throw error;
+    }
+  };
 
   const waitUntilReady = (label: string): Promise<void> => {
     if (ready.delete(label)) return Promise.resolve();
@@ -547,7 +579,7 @@ export function createViewWindowHost(options: ViewWindowHostOptions) {
     if (!source?.handle.startDragging) return rejectStart("source-loss");
     if (!sourceMatchesSnapshot(original, message.payload)) return rejectStart("invalid-source");
     if (!options.dockSurfaces || !options.adapter.cursor) {
-      await source.handle.startDragging();
+      await waitForNativeDragEnd(message.sourceWindowLabel, () => source.handle.startDragging!());
       return false;
     }
     if (activeDockSession) await finishDockSession(activeDockSession, "competing-session");
@@ -568,7 +600,7 @@ export function createViewWindowHost(options: ViewWindowHostOptions) {
     await Promise.all([...windows.keys()].filter((label) => label !== session.sourceWindowLabel).map((label) =>
       protocol(label, message).catch(() => {})));
     try {
-      await source.handle.startDragging();
+      await waitForNativeDragEnd(message.sourceWindowLabel, () => source.handle.startDragging!());
       if (activeDockSession !== session) return false;
       const point = await options.adapter.cursor();
       const zone = await selectDockZone(session, point);
@@ -585,10 +617,15 @@ export function createViewWindowHost(options: ViewWindowHostOptions) {
   };
 
   const onNativeWindowGeometryChanged = (label: string): void => {
-    void capture(label);
     const session = activeDockSession;
-    if (!session || session.sourceWindowLabel !== label || session.committing || !options.adapter.cursor) return;
-    void options.adapter.cursor().then((point) => selectDockZone(session, point)).catch(() => {});
+    if (session?.sourceWindowLabel === label) {
+      nativeDragMovement.get(label)?.();
+      if (!session.committing && options.adapter.cursor) {
+        void options.adapter.cursor().then((point) => selectDockZone(session, point)).catch(() => {});
+      }
+      return;
+    }
+    void capture(label);
   };
 
   return {
