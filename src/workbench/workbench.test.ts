@@ -501,7 +501,7 @@ describe("workbench", () => {
       dockWorkspaceSnapshot(viewWindows: ViewWindowLayoutSnapshot, windowLabels?: string[]): DockWorkspaceSnapshot;
       commitDockWorkspaceSnapshot(snapshot: DockWorkspaceSnapshot): void;
     };
-    const viewWindows: ViewWindowLayoutSnapshot = { version: 1, sessionState: "running", windows: [] };
+    const viewWindows: ViewWindowLayoutSnapshot = { version: 2, sessionState: "running", windows: [] };
     const original = native.dockWorkspaceSnapshot(viewWindows, []);
     const applied = structuredClone(original);
     applied.revision = 1;

@@ -8,6 +8,7 @@ import {
   serializeLayoutSettings,
 } from "./layoutSettings";
 import { DEFAULT_WORKBENCH_LAYOUT, moveView } from "../workbench/workbenchLayout";
+import { normalizeViewWindowLayout } from "../workbench/viewWindowLayout";
 
 describe("layout settings", () => {
   it("fills missing values with defaults", () => {
@@ -148,6 +149,34 @@ describe("layout settings", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("keeps View-window layout migration isolated from PaneWorkspace and Hot Exit state", () => {
+    const paneWorkspace = {
+      version: 1 as const,
+      root: { type: "pane" as const, paneId: "pane-1" },
+      activePaneId: "pane-1",
+      panes: [{ id: "pane-1", openTabs: ["/draft.md"], activePath: "/draft.md" }],
+    };
+    const hotExit = { version: 1, documents: [{ path: "/draft.md", markdown: "unsaved sentinel" }] };
+    const paneBefore = structuredClone(paneWorkspace);
+    const hotExitBefore = structuredClone(hotExit);
+    const viewWindows = normalizeViewWindowLayout({
+      version: 1,
+      sessionState: "running",
+      windows: [{
+        containerId: "explorer",
+        groupId: "explorer:outline",
+        activeViewId: "outline",
+        bounds: { x: 0, y: 0, width: 420, height: 640 },
+        monitor: { name: null, scaleFactor: 1, x: 0, y: 0, width: 1920, height: 1080 },
+      }],
+    }, DEFAULT_WORKBENCH_LAYOUT);
+
+    expect(viewWindows).toMatchObject({ version: 2, windows: [{ label: "view-1" }] });
+    expect(JSON.stringify(viewWindows)).not.toContain("unsaved sentinel");
+    expect(paneWorkspace).toEqual(paneBefore);
+    expect(hotExit).toEqual(hotExitBefore);
   });
 
 });

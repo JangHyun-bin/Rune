@@ -28,9 +28,10 @@ import {
   type ViewWindowTransfer,
 } from "./workbench/viewWindowTransfer";
 import { nextDetachedTabIndex } from "./workbench/viewWindowTabs";
-import { publishDetachedDockSurface } from "./workbench/dockGeometry";
+import { measureDetachedDockTreeSurface } from "./workbench/dockGeometry";
 import { createTauriDockDragAdapter } from "./workbench/tauriDockDragAdapter";
 import { detachedDockPayload } from "./workbench/detachedDockPayload";
+import { renderViewGroupTree } from "./workbench/viewGroupTreeRenderer";
 
 const currentWindow = getCurrentWebviewWindow();
 const mainWindow = "main";
@@ -175,44 +176,18 @@ function render(): void {
   disposePanels();
   host.replaceChildren();
   host.className = "detached-view-shell";
-  const header = document.createElement("header");
-  header.className = "detached-view-header";
-  const tabs = document.createElement("div");
-  tabs.className = "detached-view-tabs";
-  tabs.setAttribute("role", "tablist");
-  const content = document.createElement("section");
-  content.className = "detached-view-content";
-  const groupHandle = document.createElement("button");
-  groupHandle.type = "button";
-  groupHandle.className = "detached-view-group-handle";
-  groupHandle.textContent = "⠿";
-  groupHandle.title = t("workbench.moveViewGroup");
-  groupHandle.setAttribute("aria-label", groupHandle.title);
-  bindDetachedDockPointer(groupHandle, () => transfer ? detachedDockPayload(transfer, "group") : null);
-  const redock = document.createElement("button");
-  redock.type = "button";
-  redock.className = "detached-view-redock";
-  redock.textContent = "↙";
-  redock.title = t("workbench.moveBackToMainWindow");
-  redock.setAttribute("aria-label", redock.title);
-  redock.addEventListener("click", () => { void emitTo(mainWindow, "rune:view-window-redock", { windowLabel: currentWindow.label }); });
-  header.append(tabs, groupHandle, redock);
-  host.append(header, content);
-
   const panels = new Map<WorkbenchViewId, { element: HTMLElement; refresh(): void; focus?(): void; dispose(): void }>();
-  const tabElements: HTMLButtonElement[] = [];
   const openPath = (path: string, line?: number) => { void action("open-path", { path, line }); };
-  const elements = new Map<WorkbenchViewId, HTMLElement>();
-  for (const viewId of transfer.group.viewIds) {
-    const element = document.createElement("div");
-    element.className = "detached-view-panel";
-    element.id = `detached-panel-${viewId}`;
-    element.setAttribute("role", "tabpanel");
-    element.setAttribute("aria-labelledby", `detached-tab-${viewId}`);
-    element.hidden = true;
-    content.appendChild(element);
-    elements.set(viewId, element);
+  const surfaces: Array<{
+    containerId: ViewWindowTransfer["groups"][number]["containerId"];
+    groupId: string;
+    groupElement: HTMLElement;
+    tabStrip: HTMLElement;
+    tabElements: HTMLElement[];
+  }> = [];
+  const groupCycles = new Map<string, (direction: 1 | -1) => void>();
 
+  const mountPanel = (viewId: WorkbenchViewId, element: HTMLElement): void => {
     if (viewId === "workspace") {
       const panel = mountFileTree(element, openPath, () => { void action("open-folder"); }, () => {}, {
         onNewFile: () => { void action("new-file"); },
@@ -267,80 +242,136 @@ function render(): void {
       const panel = mountReferencesPanel(element, openPath);
       panels.set(viewId, { element, refresh: () => panel.render(context.references), focus: panel.focus, dispose: panel.dispose });
     }
-  }
+  };
 
-  const activate = (viewId: WorkbenchViewId, focusPanel = true): void => {
-    transfer!.group.activeViewId = viewId;
-    void action("active-view", { viewId });
-    for (const [id, panel] of panels) panel.element.hidden = id !== viewId;
-    for (const button of tabs.querySelectorAll<HTMLButtonElement>("button[data-view-id]")) {
-      const active = button.dataset.viewId === viewId;
-      button.classList.toggle("active", active);
-      button.setAttribute("aria-selected", String(active));
-      button.tabIndex = active ? 0 : -1;
-    }
-    if (focusPanel) panels.get(viewId)?.focus?.();
-  };
-  cycleTab = (direction) => {
-    const current = transfer!.group.viewIds.indexOf(transfer!.group.activeViewId!);
-    const next = (current + direction + transfer!.group.viewIds.length) % transfer!.group.viewIds.length;
-    activate(transfer!.group.viewIds[next]);
-  };
-  for (const viewId of transfer.group.viewIds) {
-    const tab = document.createElement("button");
-    tab.type = "button";
-    tab.id = `detached-tab-${viewId}`;
-    tab.dataset.viewId = viewId;
-    tab.setAttribute("role", "tab");
-    tab.setAttribute("aria-controls", `detached-panel-${viewId}`);
-    tab.textContent = t(`view.${viewId}`);
-    tab.addEventListener("click", () => activate(viewId));
-    bindDetachedDockPointer(tab, () => transfer ? detachedDockPayload(transfer, "view", viewId) : null);
-    tab.addEventListener("keydown", (event) => {
-      const next = nextDetachedTabIndex(transfer!.group.viewIds.indexOf(viewId), transfer!.group.viewIds.length, event.key);
-      if (next === null) return;
-      event.preventDefault();
-      const nextView = transfer!.group.viewIds[next];
-      activate(nextView, false);
-      tabs.querySelector<HTMLButtonElement>(`[data-view-id="${nextView}"]`)?.focus();
+  const renderGroup = (groupId: string): HTMLElement => {
+    const projected = transfer!.groups.find((candidate) => candidate.group.id === groupId);
+    if (!projected) throw new Error(`Detached group ${groupId} is missing`);
+    const wrapper = document.createElement("section");
+    wrapper.className = "detached-view-group view-group";
+    wrapper.dataset.groupId = groupId;
+    wrapper.dataset.containerId = projected.containerId;
+    const header = document.createElement("header");
+    header.className = "detached-view-header";
+    const tabs = document.createElement("div");
+    tabs.className = "detached-view-tabs";
+    tabs.setAttribute("role", "tablist");
+    const content = document.createElement("section");
+    content.className = "detached-view-content";
+    const groupHandle = document.createElement("button");
+    groupHandle.type = "button";
+    groupHandle.className = "detached-view-group-handle";
+    groupHandle.textContent = "⠿";
+    groupHandle.title = t("workbench.moveViewGroup");
+    groupHandle.setAttribute("aria-label", groupHandle.title);
+    bindDetachedDockPointer(groupHandle, () => transfer ? detachedDockPayload(transfer, groupId, "group") : null);
+    const redock = document.createElement("button");
+    redock.type = "button";
+    redock.className = "detached-view-redock";
+    redock.textContent = "↙";
+    redock.title = t("workbench.moveBackToMainWindow");
+    redock.setAttribute("aria-label", redock.title);
+    redock.addEventListener("click", () => { void emitTo(mainWindow, "rune:view-window-redock", { windowLabel: currentWindow.label }); });
+    header.append(tabs, groupHandle, redock);
+    wrapper.append(header, content);
+
+    const tabElements: HTMLButtonElement[] = [];
+    const groupPanels = new Map<WorkbenchViewId, HTMLElement>();
+    const activate = (viewId: WorkbenchViewId, focusPanel = true, updateWindow = true): void => {
+      projected.group.activeViewId = viewId;
+      if (updateWindow) {
+        transfer!.activeGroupId = groupId;
+        void action("active-view", { groupId, viewId });
+      }
+      for (const [id, element] of groupPanels) element.hidden = id !== viewId;
+      for (const button of tabs.querySelectorAll<HTMLButtonElement>("button[data-view-id]")) {
+        const active = button.dataset.viewId === viewId;
+        button.classList.toggle("active", active);
+        button.setAttribute("aria-selected", String(active));
+        button.tabIndex = active ? 0 : -1;
+      }
+      if (focusPanel) panels.get(viewId)?.focus?.();
+    };
+    groupCycles.set(groupId, (direction) => {
+      const current = projected.group.viewIds.indexOf(projected.group.activeViewId!);
+      const next = (current + direction + projected.group.viewIds.length) % projected.group.viewIds.length;
+      activate(projected.group.viewIds[next]);
     });
-    tabs.appendChild(tab);
-    tabElements.push(tab);
-  }
-  refreshDockSurface = () => {
-    if (!transfer || !observedDockSession) return;
-    void publishDetachedDockSurface({
-      windowLabel: currentWindow.label,
-      revision: dockRevision,
-      metrics: () => dockDragAdapter.metrics(),
-      containerId: transfer.sourceContainerId,
-      groupId: transfer.group.id,
-      groupElement: host,
+    for (const viewId of projected.group.viewIds) {
+      const element = document.createElement("div");
+      element.className = "detached-view-panel";
+      element.id = `detached-panel-${groupId.replace(/[^a-zA-Z0-9_-]/g, "-")}-${viewId}`;
+      element.setAttribute("role", "tabpanel");
+      element.hidden = true;
+      content.appendChild(element);
+      groupPanels.set(viewId, element);
+      mountPanel(viewId, element);
+
+      const tab = document.createElement("button");
+      tab.type = "button";
+      tab.dataset.viewId = viewId;
+      tab.setAttribute("role", "tab");
+      tab.setAttribute("aria-controls", element.id);
+      tab.textContent = t(`view.${viewId}`);
+      tab.addEventListener("click", () => activate(viewId));
+      bindDetachedDockPointer(tab, () => transfer ? detachedDockPayload(transfer, groupId, "view", viewId) : null);
+      tab.addEventListener("keydown", (event) => {
+        const next = nextDetachedTabIndex(projected.group.viewIds.indexOf(viewId), projected.group.viewIds.length, event.key);
+        if (next === null) return;
+        event.preventDefault();
+        const nextView = projected.group.viewIds[next];
+        activate(nextView, false);
+        tabs.querySelector<HTMLButtonElement>(`[data-view-id="${nextView}"]`)?.focus();
+      });
+      tabs.appendChild(tab);
+      tabElements.push(tab);
+    }
+    surfaces.push({
+      containerId: projected.containerId,
+      groupId,
+      groupElement: wrapper,
       tabStrip: tabs,
       tabElements,
-      publish: (surface) => emitTo(mainWindow, DOCK_PROTOCOL_EVENT, {
+    });
+    activate(projected.group.activeViewId!, false, false);
+    return wrapper;
+  };
+
+  const tree = document.createElement("div");
+  tree.className = "detached-view-tree";
+  tree.appendChild(renderViewGroupTree(transfer.root, renderGroup));
+  host.appendChild(tree);
+  cycleTab = (direction) => groupCycles.get(transfer!.activeGroupId)?.(direction);
+  refreshDockSurface = () => {
+    if (!transfer || !observedDockSession) return;
+    void dockDragAdapter.metrics().then((metrics) => {
+      const surface = measureDetachedDockTreeSurface({
+        windowLabel: currentWindow.label,
+        revision: dockRevision,
+        metrics,
+        groups: surfaces,
+      });
+      return emitTo(mainWindow, DOCK_PROTOCOL_EVENT, {
         type: "dock:surface",
         version: 2,
         sessionId: observedDockSession!.sessionId,
         sourceWindowLabel: currentWindow.label,
         surface,
-      } satisfies DockProtocolMessage),
+      } satisfies DockProtocolMessage);
     }).catch((error) => console.warn(error));
   };
   refreshPanels = () => { for (const panel of panels.values()) panel.refresh(); };
   disposePanels = () => { for (const panel of panels.values()) panel.dispose(); };
   refreshPanels();
-  activate(transfer.group.activeViewId!);
   refreshDockSurface();
 }
 
 void currentWindow.listen("rune:view-window-init", ({ payload }) => {
   if (!payload || typeof payload !== "object") return;
-  const candidate = payload as { transfer?: unknown; context?: ViewWindowContext; revision?: unknown };
+  const candidate = payload as { transfer?: unknown; revision?: unknown };
   const normalized = normalizeViewWindowTransfer(candidate.transfer);
-  if (!normalized || normalized.targetWindowLabel !== currentWindow.label || !candidate.context) return;
+  if (!normalized || normalized.targetWindowLabel !== currentWindow.label) return;
   transfer = normalized;
-  context = candidate.context;
   if (typeof candidate.revision === "number" && Number.isInteger(candidate.revision) && candidate.revision >= 0) {
     dockRevision = candidate.revision;
   }

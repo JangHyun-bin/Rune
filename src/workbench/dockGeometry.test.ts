@@ -4,6 +4,7 @@ import {
   hitDockZone,
   logicalRectForElement,
   measureDetachedDockSurface,
+  measureDetachedDockTreeSurface,
   publishDetachedDockSurface,
   toPhysicalScreenRect,
 } from "./dockGeometry";
@@ -151,5 +152,44 @@ describe("dock geometry", () => {
 
     expect(published).toEqual([surface]);
     expect(surface).toMatchObject({ windowLabel: "view-4", revision: 2 });
+  });
+
+  it("publishes split edges for every group in a restored detached tree", () => {
+    const element = (left: number) => ({
+      hidden: false,
+      classList: { contains: () => false },
+      getAttribute: () => null,
+      getBoundingClientRect: () => ({ left, top: 0, width: 200, height: 400 }),
+    }) as unknown as HTMLElement;
+    const first = element(0);
+    const second = element(200);
+    const surface = measureDetachedDockTreeSurface({
+      windowLabel: "view-4",
+      revision: 7,
+      metrics: { ...metrics(1.25), windowLabel: "view-4" },
+      groups: [
+        {
+          containerId: "explorer",
+          groupId: "explorer:workspace",
+          groupElement: first,
+          tabStrip: first,
+          tabElements: [first],
+        },
+        {
+          containerId: "explorer",
+          groupId: "explorer:outline",
+          groupElement: second,
+          tabStrip: second,
+          tabElements: [second],
+        },
+      ],
+    });
+
+    const splitTargets = surface.zones.filter((zone) => zone.target.kind === "split");
+    expect(splitTargets).toHaveLength(8);
+    expect(new Set(splitTargets.map((zone) => zone.target.kind === "split" && zone.target.groupId))).toEqual(new Set([
+      "explorer:workspace",
+      "explorer:outline",
+    ]));
   });
 });

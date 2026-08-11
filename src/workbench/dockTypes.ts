@@ -48,7 +48,7 @@ export interface DockWorkspaceSnapshot {
   revision: number;
   workbench: WorkbenchLayoutSnapshot;
   viewWindows: ViewWindowLayoutSnapshot;
-  /** Runtime-only native labels aligned with viewWindows.windows. V1 persistence intentionally omits them. */
+  /** Deprecated runtime mirror retained while Task 6 callers transition to persisted v2 labels. */
   windowLabels?: string[];
 }
 

@@ -7,16 +7,20 @@ import {
 } from "./viewWindowTransfer";
 
 const transfer: ViewWindowTransfer = {
-  version: 1,
+  version: 2,
   transferId: "transfer-1",
   sourceWindowLabel: "main",
   targetWindowLabel: "view-1",
-  sourceContainerId: "explorer",
-  group: {
-    id: "explorer:workspace",
-    viewIds: ["workspace", "outline"],
-    activeViewId: "outline",
-  },
+  groups: [{
+    containerId: "explorer",
+    group: {
+      id: "explorer:workspace",
+      viewIds: ["workspace", "outline"],
+      activeViewId: "outline",
+    },
+  }],
+  root: { type: "group", groupId: "explorer:workspace" },
+  activeGroupId: "explorer:workspace",
   presentation: {
     theme: "dark",
     uiScale: 1.1,
@@ -30,23 +34,50 @@ describe("view window transfer", () => {
 
     expect(normalized).toEqual(transfer);
     expect(normalized).not.toBe(transfer);
-    expect(normalized?.group).not.toBe(transfer.group);
+    expect(normalized?.groups).not.toBe(transfer.groups);
+    expect(normalized?.groups[0].group).not.toBe(transfer.groups[0].group);
   });
 
   it("rejects duplicate views, invalid active views, labels, and presentation state", () => {
     expect(normalizeViewWindowTransfer({
       ...transfer,
-      group: { ...transfer.group, viewIds: ["workspace", "workspace"] },
+      groups: [{ ...transfer.groups[0], group: { ...transfer.groups[0].group, viewIds: ["workspace", "workspace"] } }],
     })).toBeNull();
     expect(normalizeViewWindowTransfer({
       ...transfer,
-      group: { ...transfer.group, activeViewId: "search" },
+      groups: [{ ...transfer.groups[0], group: { ...transfer.groups[0].group, activeViewId: "search" } }],
     })).toBeNull();
     expect(normalizeViewWindowTransfer({ ...transfer, targetWindowLabel: "unsafe label" })).toBeNull();
     expect(normalizeViewWindowTransfer({
       ...transfer,
       presentation: { ...transfer.presentation, uiScale: Number.NaN },
     })).toBeNull();
+    expect(normalizeViewWindowTransfer({ ...transfer, documentBody: "# private draft" })).toBeNull();
+  });
+
+  it("normalizes an ordered multi-group detached tree", () => {
+    const multi: ViewWindowTransfer = {
+      ...structuredClone(transfer),
+      groups: [
+        transfer.groups[0],
+        {
+          containerId: "explorer",
+          group: { id: "explorer:outline", viewIds: ["tags"], activeViewId: "tags" },
+        },
+      ],
+      root: {
+        type: "split",
+        direction: "row",
+        children: [
+          { type: "group", groupId: "explorer:workspace" },
+          { type: "group", groupId: "explorer:outline" },
+        ],
+        ratios: [0.45, 0.55],
+      },
+      activeGroupId: "explorer:outline",
+    };
+
+    expect(normalizeViewWindowTransfer(multi)).toEqual(multi);
   });
 
   const start: DockProtocolMessage = {

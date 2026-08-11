@@ -14,7 +14,7 @@ function pointerHostOptions(overrides: Partial<ViewWindowHostOptions> = {}) {
       "explorer",
       "explorer:workspace",
     ),
-    viewWindows: { version: 1, sessionState: "running", windows: [] },
+    viewWindows: { version: 2, sessionState: "running", windows: [] },
     windowLabels: [],
   };
   const committed: DockWorkspaceSnapshot[] = [];
@@ -67,7 +67,7 @@ async function crossWindowHarness(targetAck: boolean | null, multiViewSource = f
     workbench: multiViewSource
       ? moveViewToWorkbenchGroup(DEFAULT_WORKBENCH_LAYOUT, "tags", "explorer", "explorer:outline")
       : structuredClone(DEFAULT_WORKBENCH_LAYOUT),
-    viewWindows: { version: 1, sessionState: "running", windows: [] },
+    viewWindows: { version: 2, sessionState: "running", windows: [] },
     windowLabels: [],
   };
   let cursor = { x: 120, y: 120 };
@@ -211,18 +211,19 @@ describe("native view window host", () => {
     listeners.get("rune:view-window-ready")?.({ windowLabel: "view-1" });
     await expect(tearingOff).resolves.toBe("view-1");
 
-    expect(lifecycle).toEqual(["create", "apply", "hide", "init", "drag"]);
+    expect(lifecycle).toEqual(["create", "apply", "hide", "init", "rune:view-window-context", "drag"]);
     expect(create).toHaveBeenCalledWith("view-1", expect.objectContaining({
       bounds: { x: -420, y: 0, width: 420, height: 640 },
     }));
     expect(harness.current()).toMatchObject({ revision: 4, windowLabels: ["view-1"] });
     expect(harness.current().viewWindows.windows).toHaveLength(1);
     const detached = harness.current().viewWindows.windows[0];
-    expect(harness.current().workbench.viewGroups.explorer.groups[detached.groupId]).toMatchObject({
+    const detachedGroup = detached.groups[0];
+    expect(harness.current().workbench.viewGroups[detachedGroup.containerId].groups[detachedGroup.groupId]).toMatchObject({
       viewIds: ["outline"],
       activeViewId: "outline",
     });
-    expect(setDetached).toHaveBeenCalledWith("explorer", detached.groupId, true);
+    expect(setDetached).toHaveBeenCalledWith("explorer", detachedGroup.groupId, true);
     expect(startDragging).toHaveBeenCalledTimes(1);
     expect(close).not.toHaveBeenCalled();
   });
@@ -309,11 +310,14 @@ describe("native view window host", () => {
 
     expect(harness.current().workbench.viewGroups.explorer.groups["explorer:workspace"].viewIds).toEqual(["workspace", "outline"]);
     expect(harness.current().viewWindows.windows[0]).toMatchObject({
-      groupId: "explorer:workspace",
+      groups: [{ containerId: "explorer", groupId: "explorer:workspace" }],
+      activeGroupId: "explorer:workspace",
       activeViewId: "outline",
     });
     expect(transfers).toEqual([expect.objectContaining({
-      transfer: expect.objectContaining({ group: expect.objectContaining({ viewIds: ["workspace", "outline"] }) }),
+      transfer: expect.objectContaining({
+        groups: [expect.objectContaining({ group: expect.objectContaining({ viewIds: ["workspace", "outline"] }) })],
+      }),
     })]);
   });
 
@@ -731,6 +735,7 @@ describe("native view window host", () => {
   });
 
   it("restores recovered bounds and keeps the window snapshot on clean shutdown", async () => {
+    const listeners = new Map<string, (payload: unknown) => void>();
     const create = vi.fn(async (label: string): Promise<ViewWindowHandle> => ({
       label,
       close: async () => {},
@@ -743,22 +748,37 @@ describe("native view window host", () => {
       onGeometryChanged: async () => () => {},
     }));
     const layout: ViewWindowLayoutSnapshot = {
-      version: 1,
+      version: 2,
       sessionState: "running",
       windows: [{
-        containerId: "explorer",
-        groupId: "explorer:outline",
+        label: "view-1",
+        groups: [
+          { containerId: "explorer", groupId: "explorer:workspace" },
+          { containerId: "explorer", groupId: "explorer:outline" },
+        ],
+        root: {
+          type: "split",
+          direction: "column",
+          children: [
+            { type: "group", groupId: "explorer:workspace" },
+            { type: "group", groupId: "explorer:outline" },
+          ],
+          ratios: [0.35, 0.65],
+        },
+        activeGroupId: "explorer:outline",
         activeViewId: "outline",
         bounds: { x: 2200, y: 120, width: 900, height: 700 },
         monitor: { name: "Missing", scaleFactor: 1.5, x: 1920, y: 0, width: 2560, height: 1440 },
       }],
     };
     const onLayoutChange = vi.fn();
+    const setViewGroupDetached = vi.fn();
+    const emitted: unknown[] = [];
     const host = createViewWindowHost({
       adapter: {
         create,
-        emitTo: async () => {},
-        listen: async () => () => {},
+        emitTo: async (_target, event, payload) => { if (event === "rune:view-window-init") emitted.push(payload); },
+        listen: async (event, listener) => { listeners.set(event, listener); return () => {}; },
         screen: async () => ({
           primaryName: "Primary",
           monitors: [{ name: "Primary", scaleFactor: 1, workArea: { x: 0, y: 0, width: 1920, height: 1040 } }],
@@ -766,20 +786,95 @@ describe("native view window host", () => {
       },
       sourceWindowLabel: "main",
       snapshot: () => DEFAULT_WORKBENCH_LAYOUT,
-      setViewGroupDetached: () => {},
+      setViewGroupDetached,
       presentation: () => ({ theme: "dark", uiScale: 1, locale: "en" }),
       context: () => ({ currentFolder: null, activePath: null, activeMarkdown: null, activeLine: 1, workspaceTree: [], workspaceFiles: [], backlinks: "noDocument", references: "noProject" }),
       onAction: async () => undefined,
       onLayoutChange,
     });
 
-    await host.restoreLayout(layout);
+    await host.start();
+    const restoring = host.restoreLayout(layout);
+    await vi.waitFor(() => expect(create).toHaveBeenCalledTimes(1));
+    expect(setViewGroupDetached).not.toHaveBeenCalled();
+    listeners.get("rune:view-window-ready")?.({ windowLabel: "view-1" });
+    await restoring;
     expect(create).toHaveBeenCalledWith("view-1", expect.objectContaining({
       bounds: { x: 187, y: 80, width: 600, height: 467 },
     }));
     expect(host.layoutSnapshot().windows[0].bounds).toEqual({ x: 20, y: 30, width: 500, height: 600 });
+    expect(setViewGroupDetached).toHaveBeenCalledWith("explorer", "explorer:workspace", true);
+    expect(setViewGroupDetached).toHaveBeenCalledWith("explorer", "explorer:outline", true);
+    expect(emitted).toEqual([expect.objectContaining({
+      transfer: expect.objectContaining({
+        version: 2,
+        activeGroupId: "explorer:outline",
+        groups: [expect.any(Object), expect.any(Object)],
+      }),
+    })]);
+    expect(emitted[0]).not.toHaveProperty("context");
     await host.prepareForShutdown();
-    expect(host.layoutSnapshot()).toMatchObject({ sessionState: "clean", windows: [{ groupId: "explorer:outline" }] });
+    expect(host.layoutSnapshot()).toMatchObject({
+      sessionState: "clean",
+      windows: [{ label: "view-1", activeGroupId: "explorer:outline", activeViewId: "outline" }],
+    });
     expect(onLayoutChange).toHaveBeenCalled();
+  });
+
+  it("returns only a failed restored window to main and continues restoring later windows", async () => {
+    const listeners = new Map<string, (payload: unknown) => void>();
+    const create = vi.fn(async (label: string): Promise<ViewWindowHandle> => {
+      if (label === "view-1") throw new Error("first window failed");
+      return { label, close: async () => {}, focus: async () => {}, onClosed: () => () => {} };
+    });
+    const setViewGroupDetached = vi.fn();
+    const host = createViewWindowHost({
+      adapter: {
+        create,
+        emitTo: async () => {},
+        listen: async (event, listener) => { listeners.set(event, listener); return () => {}; },
+      },
+      sourceWindowLabel: "main",
+      snapshot: () => DEFAULT_WORKBENCH_LAYOUT,
+      setViewGroupDetached,
+      presentation: () => ({ theme: "dark", uiScale: 1, locale: "en" }),
+      context: () => ({ currentFolder: null, activePath: null, activeMarkdown: null, activeLine: 1, workspaceTree: [], workspaceFiles: [], backlinks: "noDocument", references: "noProject" }),
+      onAction: async () => undefined,
+      readyTimeoutMs: 50,
+    });
+    await host.start();
+    const placement = {
+      bounds: { x: 10, y: 10, width: 420, height: 640 },
+      monitor: { name: null, scaleFactor: 1, x: 0, y: 0, width: 1920, height: 1080 },
+    };
+    const restoring = host.restoreLayout({
+      version: 2,
+      sessionState: "clean",
+      windows: [
+        {
+          label: "view-1",
+          groups: [{ containerId: "explorer", groupId: "explorer:outline" }],
+          root: { type: "group", groupId: "explorer:outline" },
+          activeGroupId: "explorer:outline",
+          activeViewId: "outline",
+          ...placement,
+        },
+        {
+          label: "view-2",
+          groups: [{ containerId: "auxiliary", groupId: "auxiliary:backlinks" }],
+          root: { type: "group", groupId: "auxiliary:backlinks" },
+          activeGroupId: "auxiliary:backlinks",
+          activeViewId: "backlinks",
+          ...placement,
+        },
+      ],
+    });
+    await vi.waitFor(() => expect(create).toHaveBeenCalledWith("view-2", expect.any(Object)));
+    listeners.get("rune:view-window-ready")?.({ windowLabel: "view-2" });
+    await restoring;
+
+    expect(host.detachedWindows()).toEqual(["view-2"]);
+    expect(setViewGroupDetached).not.toHaveBeenCalledWith("explorer", "explorer:outline", true);
+    expect(setViewGroupDetached).toHaveBeenCalledWith("auxiliary", "auxiliary:backlinks", true);
   });
 });

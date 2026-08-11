@@ -1,7 +1,7 @@
 import type { Locale } from "../i18n/i18n";
 import type { DockPayload, DockSurface, DockTarget, DockZone, LogicalRect } from "./dockTypes";
 import type { WorkbenchContainerId, WorkbenchViewId } from "./workbenchLayout";
-import type { ViewGroupState } from "./viewGroupLayout";
+import type { ViewGroupLayoutNode, ViewGroupState } from "./viewGroupLayout";
 
 export interface ViewWindowPresentation {
   theme: "light" | "dark";
@@ -10,12 +10,13 @@ export interface ViewWindowPresentation {
 }
 
 export interface ViewWindowTransfer {
-  version: 1;
+  version: 2;
   transferId: string;
   sourceWindowLabel: string;
   targetWindowLabel: string;
-  sourceContainerId: WorkbenchContainerId;
-  group: ViewGroupState;
+  groups: Array<{ containerId: WorkbenchContainerId; group: ViewGroupState }>;
+  root: ViewGroupLayoutNode;
+  activeGroupId: string;
   presentation: ViewWindowPresentation;
 }
 
@@ -255,38 +256,81 @@ export function normalizeDockProtocolMessage(
 
 export function normalizeViewWindowTransfer(value: unknown): ViewWindowTransfer | null {
   if (!isRecord(value) || !hasOnlyKeys(value, [
-    "version", "transferId", "sourceWindowLabel", "targetWindowLabel", "sourceContainerId", "group", "presentation",
-  ]) || value.version !== 1 || typeof value.transferId !== "string" || !value.transferId
+    "version", "transferId", "sourceWindowLabel", "targetWindowLabel", "groups", "root", "activeGroupId", "presentation",
+  ]) || value.version !== 2 || typeof value.transferId !== "string" || !value.transferId
     || typeof value.sourceWindowLabel !== "string" || !labelPattern.test(value.sourceWindowLabel)
     || typeof value.targetWindowLabel !== "string" || !labelPattern.test(value.targetWindowLabel)
-    || !containerIds.has(value.sourceContainerId as WorkbenchContainerId)
-    || !isRecord(value.group) || !hasOnlyKeys(value.group, ["id", "viewIds", "activeViewId"])
-    || typeof value.group.id !== "string" || !value.group.id || !Array.isArray(value.group.viewIds)
+    || !Array.isArray(value.groups) || value.groups.length === 0 || value.groups.length > 64
+    || typeof value.activeGroupId !== "string"
     || !isRecord(value.presentation) || !hasOnlyKeys(value.presentation, ["theme", "uiScale", "locale"])) return null;
 
-  const groupViewIds: WorkbenchViewId[] = [];
-  for (const viewId of value.group.viewIds) {
-    if (typeof viewId !== "string" || !viewIds.has(viewId as WorkbenchViewId) || groupViewIds.includes(viewId as WorkbenchViewId)) return null;
-    groupViewIds.push(viewId as WorkbenchViewId);
+  const groups: ViewWindowTransfer["groups"] = [];
+  const groupIds = new Set<string>();
+  const seenViews = new Set<WorkbenchViewId>();
+  for (const candidate of value.groups) {
+    if (!isRecord(candidate) || !hasOnlyKeys(candidate, ["containerId", "group"])
+      || !containerIds.has(candidate.containerId as WorkbenchContainerId)
+      || !isRecord(candidate.group) || !hasOnlyKeys(candidate.group, ["id", "viewIds", "activeViewId"])
+      || typeof candidate.group.id !== "string" || !candidate.group.id || groupIds.has(candidate.group.id)
+      || !Array.isArray(candidate.group.viewIds)) return null;
+    const groupViewIds: WorkbenchViewId[] = [];
+    for (const viewId of candidate.group.viewIds) {
+      if (typeof viewId !== "string" || !viewIds.has(viewId as WorkbenchViewId)
+        || seenViews.has(viewId as WorkbenchViewId)) return null;
+      seenViews.add(viewId as WorkbenchViewId);
+      groupViewIds.push(viewId as WorkbenchViewId);
+    }
+    if (groupViewIds.length === 0 || typeof candidate.group.activeViewId !== "string"
+      || !groupViewIds.includes(candidate.group.activeViewId as WorkbenchViewId)) return null;
+    groupIds.add(candidate.group.id);
+    groups.push({
+      containerId: candidate.containerId as WorkbenchContainerId,
+      group: {
+        id: candidate.group.id,
+        viewIds: groupViewIds,
+        activeViewId: candidate.group.activeViewId as WorkbenchViewId,
+      },
+    });
   }
-  if (groupViewIds.length === 0 || typeof value.group.activeViewId !== "string"
-    || !groupViewIds.includes(value.group.activeViewId as WorkbenchViewId)
+  const orderedGroupIds: string[] = [];
+  const parseTree = (candidate: unknown, seen: Set<object>): ViewGroupLayoutNode | null => {
+    if (!isRecord(candidate) || seen.has(candidate)) return null;
+    seen.add(candidate);
+    if (candidate.type === "group") {
+      if (!hasOnlyKeys(candidate, ["type", "groupId"]) || typeof candidate.groupId !== "string"
+        || !groupIds.has(candidate.groupId) || orderedGroupIds.includes(candidate.groupId)) return null;
+      orderedGroupIds.push(candidate.groupId);
+      return { type: "group", groupId: candidate.groupId };
+    }
+    if (candidate.type !== "split" || !hasOnlyKeys(candidate, ["type", "direction", "children", "ratios"])
+      || (candidate.direction !== "row" && candidate.direction !== "column") || !Array.isArray(candidate.children)
+      || candidate.children.length < 2 || !Array.isArray(candidate.ratios) || candidate.ratios.length !== candidate.children.length
+      || !candidate.ratios.every((ratio) => typeof ratio === "number" && Number.isFinite(ratio) && ratio > 0)) return null;
+    const children: ViewGroupLayoutNode[] = [];
+    for (const child of candidate.children) {
+      const parsed = parseTree(child, seen);
+      if (!parsed) return null;
+      children.push(parsed);
+    }
+    return { type: "split", direction: candidate.direction, children, ratios: [...candidate.ratios] as number[] };
+  };
+  const root = parseTree(value.root, new Set());
+  if (!root || orderedGroupIds.length !== groups.length
+    || orderedGroupIds.some((id, index) => id !== groups[index].group.id)
+    || !groupIds.has(value.activeGroupId)
     || (value.presentation.theme !== "light" && value.presentation.theme !== "dark")
     || typeof value.presentation.uiScale !== "number" || !Number.isFinite(value.presentation.uiScale)
     || value.presentation.uiScale < 0.75 || value.presentation.uiScale > 2
     || !locales.has(value.presentation.locale as Locale)) return null;
 
   return {
-    version: 1,
+    version: 2,
     transferId: value.transferId,
     sourceWindowLabel: value.sourceWindowLabel,
     targetWindowLabel: value.targetWindowLabel,
-    sourceContainerId: value.sourceContainerId as WorkbenchContainerId,
-    group: {
-      id: value.group.id,
-      viewIds: groupViewIds,
-      activeViewId: value.group.activeViewId as WorkbenchViewId,
-    },
+    groups,
+    root,
+    activeGroupId: value.activeGroupId,
     presentation: {
       theme: value.presentation.theme,
       uiScale: value.presentation.uiScale,

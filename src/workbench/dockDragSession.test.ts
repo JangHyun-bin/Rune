@@ -13,7 +13,7 @@ function workspace(): DockWorkspaceSnapshot {
   return {
     revision: 3,
     workbench: structuredClone(DEFAULT_WORKBENCH_LAYOUT),
-    viewWindows: { version: 1, sessionState: "running", windows: [] },
+    viewWindows: { version: 2, sessionState: "running", windows: [] },
   };
 }
 

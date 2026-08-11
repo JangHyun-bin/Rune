@@ -69,6 +69,7 @@ export interface ViewWindowHostOptions {
 }
 
 interface DetachedWindow {
+  /** Active group convenience fields; ownership is authoritative in transfer.groups. */
   containerId: WorkbenchContainerId;
   groupId: string;
   handle: ViewWindowHandle;
@@ -173,20 +174,57 @@ export function createViewWindowHost(options: ViewWindowHostOptions) {
   };
 
   const layoutSnapshot = (): ViewWindowLayoutSnapshot => ({
-    version: 1,
+    version: 2,
     sessionState,
-    windows: [...windows.values()].flatMap((window) => window.persisted ? [window.persisted] : []),
+    windows: [...windows.values()].flatMap((window) => window.persisted ? [structuredClone(window.persisted)] : []),
   });
+  const setDetachedProjection = (detached: DetachedWindow, value: boolean): void => {
+    for (const projected of detached.transfer.groups) {
+      options.setViewGroupDetached(projected.containerId, projected.group.id, value);
+    }
+  };
+  const transferFor = (
+    label: string,
+    saved: PersistedViewWindow,
+    snapshot = options.snapshot(),
+  ): ViewWindowTransfer | null => {
+    const groups: ViewWindowTransfer["groups"] = [];
+    for (const reference of saved.groups) {
+      const group = snapshot.viewGroups[reference.containerId]?.groups[reference.groupId];
+      if (!group?.activeViewId || group.viewIds.length === 0) return null;
+      groups.push({
+        containerId: reference.containerId,
+        group: {
+          ...structuredClone(group),
+          activeViewId: reference.groupId === saved.activeGroupId ? saved.activeViewId : group.activeViewId,
+        },
+      });
+    }
+    return {
+      version: 2,
+      transferId: `${options.sourceWindowLabel}:${label}`,
+      sourceWindowLabel: options.sourceWindowLabel,
+      targetWindowLabel: label,
+      groups,
+      root: structuredClone(saved.root),
+      activeGroupId: saved.activeGroupId,
+      presentation: options.presentation(),
+    };
+  };
   const changed = (): void => options.onLayoutChange?.(layoutSnapshot());
   const capture = async (label: string): Promise<void> => {
     const detached = windows.get(label);
     if (!detached?.handle.capture) return;
     const placement = await detached.handle.capture();
     if (windows.get(label) !== detached) return;
+    const active = detached.transfer.groups.find((group) => group.group.id === detached.transfer.activeGroupId)
+      ?? detached.transfer.groups[0];
     detached.persisted = {
-      containerId: detached.containerId,
-      groupId: detached.groupId,
-      activeViewId: detached.transfer.group.activeViewId!,
+      label,
+      groups: detached.transfer.groups.map((group) => ({ containerId: group.containerId, groupId: group.group.id })),
+      root: structuredClone(detached.transfer.root),
+      activeGroupId: active.group.id,
+      activeViewId: active.group.activeViewId!,
       ...placement,
     };
     changed();
@@ -201,7 +239,7 @@ export function createViewWindowHost(options: ViewWindowHostOptions) {
       || session.surfaces.has(label))) void finishDockSession(session, "window-loss");
     windows.delete(label);
     detached.stopGeometry?.();
-    options.setViewGroupDetached(detached.containerId, detached.groupId, false);
+    setDetachedProjection(detached, false);
     if (!shuttingDown) changed();
     return detached;
   };
@@ -211,22 +249,24 @@ export function createViewWindowHost(options: ViewWindowHostOptions) {
     if (detached) await detached.handle.close();
   };
   const redockAll = (): Promise<void> => Promise.all([...windows.keys()].map(redock)).then(() => undefined);
-  const sendInit = (label: string, detached: DetachedWindow): Promise<void> =>
-    options.adapter.emitTo(label, "rune:view-window-init", {
+  const sendInit = async (label: string, detached: DetachedWindow): Promise<void> => {
+    await options.adapter.emitTo(label, "rune:view-window-init", {
       transfer: detached.transfer,
-      context: options.context(),
       revision: options.dockSnapshot?.().revision ?? 0,
     });
+    await options.adapter.emitTo(label, "rune:view-window-context", options.context());
+  };
 
   const sourceMatchesSnapshot = (snapshot: DockWorkspaceSnapshot, payload: DockPayload): boolean => {
     const group = snapshot.workbench.viewGroups[payload.source.containerId]?.groups[payload.source.groupId];
     if (!group) return false;
-    const index = snapshot.windowLabels?.indexOf(payload.source.windowLabel) ?? -1;
     if (payload.source.windowLabel === options.sourceWindowLabel) {
-      if (snapshot.viewWindows.windows.some((item) => item.containerId === payload.source.containerId && item.groupId === payload.source.groupId)) return false;
+      if (snapshot.viewWindows.windows.some((item) => item.groups.some((reference) =>
+        reference.containerId === payload.source.containerId && reference.groupId === payload.source.groupId))) return false;
     } else {
-      const saved = index >= 0 ? snapshot.viewWindows.windows[index] : null;
-      if (!saved || saved.containerId !== payload.source.containerId || saved.groupId !== payload.source.groupId) return false;
+      const saved = snapshot.viewWindows.windows.find((item) => item.label === payload.source.windowLabel);
+      if (!saved?.groups.some((reference) => reference.containerId === payload.source.containerId
+        && reference.groupId === payload.source.groupId)) return false;
     }
     if (payload.kind === "view") return group.viewIds.includes(payload.viewId)
       && snapshot.workbench.views[payload.viewId]?.containerId === payload.source.containerId;
@@ -337,29 +377,27 @@ export function createViewWindowHost(options: ViewWindowHostOptions) {
       detached.groupId = saved.groupId;
       detached.transfer = structuredClone(saved.transfer);
       detached.persisted = saved.persisted ? structuredClone(saved.persisted) : null;
-      options.setViewGroupDetached(saved.containerId, saved.groupId, true);
+      const active = detached.transfer.groups.find((group) => group.group.id === detached.transfer.activeGroupId)
+        ?? detached.transfer.groups[0];
+      detached.containerId = active.containerId;
+      detached.groupId = active.group.id;
+      setDetachedProjection(detached, true);
       await sendInit(label, detached).catch(() => {});
     }
   };
 
   const projectDetachedWindows = (snapshot: DockWorkspaceSnapshot): string[] => {
     const updated: string[] = [];
-    const labels = snapshot.windowLabels ?? snapshot.viewWindows.windows.map((_, index) => `view-${index + 1}`);
-    labels.forEach((label, index) => {
+    snapshot.viewWindows.windows.forEach((saved) => {
+      const label = saved.label;
       const detached = windows.get(label);
-      const saved = snapshot.viewWindows.windows[index];
-      const group = saved && snapshot.workbench.viewGroups[saved.containerId]?.groups[saved.groupId];
-      if (!detached || !saved || !group?.activeViewId) return;
-      detached.containerId = saved.containerId;
-      detached.groupId = saved.groupId;
+      const transfer = transferFor(label, saved, snapshot.workbench);
+      if (!detached || !transfer) return;
+      const active = transfer.groups.find((group) => group.group.id === transfer.activeGroupId) ?? transfer.groups[0];
+      detached.containerId = active.containerId;
+      detached.groupId = active.group.id;
       detached.persisted = structuredClone(saved);
-      detached.transfer = {
-        ...detached.transfer,
-        sourceWindowLabel: options.sourceWindowLabel,
-        targetWindowLabel: label,
-        sourceContainerId: saved.containerId,
-        group: { ...structuredClone(group), activeViewId: saved.activeViewId },
-      };
+      detached.transfer = transfer;
       updated.push(label);
     });
     return updated;
@@ -464,7 +502,7 @@ export function createViewWindowHost(options: ViewWindowHostOptions) {
           closingDockWindows.delete(effect.windowLabel);
         }
       }
-      for (const detached of windows.values()) options.setViewGroupDetached(detached.containerId, detached.groupId, true);
+      for (const detached of windows.values()) setDetachedProjection(detached, true);
       changed();
       await finishDockSession(session, "committed");
       return true;
@@ -576,10 +614,18 @@ export function createViewWindowHost(options: ViewWindowHostOptions) {
           if (!label || !windows.has(label)) return;
           const action = payload as Record<string, unknown>;
           const detached = windows.get(label)!;
-          if (action.type === "active-view" && typeof action.viewId === "string"
-            && detached.transfer.group.viewIds.includes(action.viewId as WorkbenchViewId)) {
-            detached.transfer.group.activeViewId = action.viewId as WorkbenchViewId;
-            if (detached.persisted) detached.persisted.activeViewId = action.viewId as WorkbenchViewId;
+          const activeProjection = action.type === "active-view" && typeof action.viewId === "string"
+            ? detached.transfer.groups.find((projected) => projected.group.viewIds.includes(action.viewId as WorkbenchViewId))
+            : null;
+          if (activeProjection && typeof action.viewId === "string") {
+            activeProjection.group.activeViewId = action.viewId as WorkbenchViewId;
+            detached.transfer.activeGroupId = activeProjection.group.id;
+            detached.containerId = activeProjection.containerId;
+            detached.groupId = activeProjection.group.id;
+            if (detached.persisted) {
+              detached.persisted.activeGroupId = activeProjection.group.id;
+              detached.persisted.activeViewId = action.viewId as WorkbenchViewId;
+            }
             changed();
             return;
           }
@@ -658,26 +704,36 @@ export function createViewWindowHost(options: ViewWindowHostOptions) {
       if (dockTransactionActive) return;
       const snapshot = options.snapshot();
       for (const [label, detached] of windows) {
-        const group = snapshot.viewGroups[detached.containerId].groups[detached.groupId];
-        if (!group || group.viewIds.length !== detached.transfer.group.viewIds.length
-          || group.viewIds.some((viewId, index) => viewId !== detached.transfer.group.viewIds[index])) void redock(label);
+        const stale = detached.transfer.groups.some((projected) => {
+          const group = snapshot.viewGroups[projected.containerId].groups[projected.group.id];
+          return !group || group.viewIds.length !== projected.group.viewIds.length
+            || group.viewIds.some((viewId, index) => viewId !== projected.group.viewIds[index]);
+        });
+        if (stale) void redock(label);
       }
     },
 
     async tearOff(containerId: WorkbenchContainerId, groupId: string, restored?: PersistedViewWindow, recoveredBounds?: WindowBounds): Promise<string> {
-      const group = options.snapshot().viewGroups[containerId].groups[groupId];
+      const snapshot = options.snapshot();
+      const group = snapshot.viewGroups[containerId].groups[groupId];
       if (!group || group.viewIds.length === 0 || !group.activeViewId) throw new Error("View group is not detachable");
-      const label = `view-${++nextWindow}`;
-      const transfer: ViewWindowTransfer = {
-        version: 1,
-        transferId: `${options.sourceWindowLabel}:${label}`,
-        sourceWindowLabel: options.sourceWindowLabel,
-        targetWindowLabel: label,
-        sourceContainerId: containerId,
-        group: { ...group, viewIds: [...group.viewIds], activeViewId: restored?.activeViewId ?? group.activeViewId },
-        presentation: options.presentation(),
+      const label = restored?.label ?? `view-${++nextWindow}`;
+      const restoredIndex = /^view-([1-9]\d*)$/.exec(label);
+      if (restoredIndex) nextWindow = Math.max(nextWindow, Number(restoredIndex[1]));
+      const saved: PersistedViewWindow = restored ?? {
+        label,
+        groups: [{ containerId, groupId }],
+        root: { type: "group", groupId },
+        activeGroupId: groupId,
+        activeViewId: group.activeViewId,
+        bounds: recoveredBounds ?? { x: 0, y: 0, width: 420, height: 640 },
+        monitor: { name: null, scaleFactor: 1, x: 0, y: 0, width: 420, height: 640 },
       };
+      const transfer = transferFor(label, saved, snapshot);
+      if (!transfer) throw new Error("View window projection is not restorable");
+      const active = transfer.groups.find((projected) => projected.group.id === transfer.activeGroupId) ?? transfer.groups[0];
       opening.add(label);
+      const readiness = restored ? waitUntilReady(label) : null;
       let handle: ViewWindowHandle;
       try {
         handle = await options.adapter.create(label, {
@@ -692,9 +748,20 @@ export function createViewWindowHost(options: ViewWindowHostOptions) {
       } catch (error) {
         opening.delete(label);
         ready.delete(label);
+        const waiter = readyWaiters.get(label);
+        if (waiter) {
+          clearTimeout(waiter.timer);
+          readyWaiters.delete(label);
+        }
         throw error;
       }
-      const detached: DetachedWindow = { containerId, groupId, handle, transfer, persisted: restored ?? null };
+      const detached: DetachedWindow = {
+        containerId: active.containerId,
+        groupId: active.group.id,
+        handle,
+        transfer,
+        persisted: structuredClone(saved),
+      };
       windows.set(label, detached);
       opening.delete(label);
       handle.onClosed(() => { restore(label); });
@@ -702,7 +769,24 @@ export function createViewWindowHost(options: ViewWindowHostOptions) {
         try { detached.stopGeometry = await handle.onGeometryChanged(() => onNativeWindowGeometryChanged(label)); }
         catch (error) { console.warn(error); }
       }
-      options.setViewGroupDetached(containerId, groupId, true);
+      if (readiness) {
+        try {
+          await readiness;
+          setDetachedProjection(detached, true);
+          await sendInit(label, detached);
+          await handle.focus();
+          await capture(label).catch((error) => console.warn(error));
+          changed();
+          return label;
+        } catch (error) {
+          windows.delete(label);
+          detached.stopGeometry?.();
+          setDetachedProjection(detached, false);
+          await handle.close().catch(() => {});
+          throw error;
+        }
+      }
+      setDetachedProjection(detached, true);
       if (ready.delete(label)) void sendInit(label, windows.get(label)!);
       void handle.focus().catch((error) => console.warn(error));
       await capture(label).catch((error) => console.warn(error));
@@ -739,28 +823,25 @@ export function createViewWindowHost(options: ViewWindowHostOptions) {
         if (!plan.ok) throw new Error(`Native tear-off DockPlan rejected: ${plan.reason}`);
         const applied = applyDockPlan(original, plan);
         if (!applied.ok) throw new Error(`Native tear-off DockPlan could not be applied: ${applied.reason}`);
-        const windowIndex = applied.snapshot.windowLabels?.indexOf(label) ?? -1;
-        const saved = windowIndex >= 0 ? applied.snapshot.viewWindows.windows[windowIndex] : null;
+        const saved = applied.snapshot.viewWindows.windows.find((window) => window.label === label) ?? null;
         const effect = applied.effects.find((candidate) => candidate.kind === "open-window" && candidate.windowLabel === label);
         if (!saved || effect?.kind !== "open-window") throw new Error("Native tear-off window label did not match its DockPlan");
         saved.monitor = placement.monitor;
-        const group = applied.snapshot.workbench.viewGroups[saved.containerId]?.groups[saved.groupId];
-        if (!group?.activeViewId) throw new Error("Native tear-off produced an invalid detached group");
-        const transfer: ViewWindowTransfer = {
-          version: 1,
-          transferId: `${options.sourceWindowLabel}:${label}`,
-          sourceWindowLabel: options.sourceWindowLabel,
-          targetWindowLabel: label,
-          sourceContainerId: saved.containerId,
-          group: { ...group, viewIds: [...group.viewIds], activeViewId: saved.activeViewId },
-          presentation: options.presentation(),
+        const transfer = transferFor(label, saved, applied.snapshot.workbench);
+        if (!transfer) throw new Error("Native tear-off produced an invalid detached group tree");
+        const active = transfer.groups.find((projected) => projected.group.id === transfer.activeGroupId) ?? transfer.groups[0];
+        detached = {
+          containerId: active.containerId,
+          groupId: active.group.id,
+          handle,
+          transfer,
+          persisted: structuredClone(saved),
         };
-        detached = { containerId: saved.containerId, groupId: saved.groupId, handle, transfer, persisted: structuredClone(saved) };
         windows.set(label, detached);
         handle.onClosed(() => { restore(label); });
         options.commitDockSnapshot(applied.snapshot);
         committed = true;
-        options.setViewGroupDetached(saved.containerId, saved.groupId, true);
+        setDetachedProjection(detached, true);
         hidden = true;
         await sendInit(label, detached);
         await handle.focus();
@@ -773,13 +854,13 @@ export function createViewWindowHost(options: ViewWindowHostOptions) {
           ? {
             kind: "view",
             viewId: payload.viewId,
-            source: { windowLabel: label, containerId: saved.containerId, groupId: saved.groupId },
+            source: { windowLabel: label, containerId: active.containerId, groupId: active.group.id },
           }
           : {
             kind: "group",
             viewIds: [...payload.viewIds],
             activeViewId: payload.activeViewId,
-            source: { windowLabel: label, containerId: saved.containerId, groupId: saved.groupId },
+            source: { windowLabel: label, containerId: active.containerId, groupId: active.group.id },
           };
         await beginDockSession({
           type: "dock:start",
@@ -797,7 +878,7 @@ export function createViewWindowHost(options: ViewWindowHostOptions) {
           windows.delete(label);
           detached.stopGeometry?.();
         }
-        if (hidden && detached) options.setViewGroupDetached(detached.containerId, detached.groupId, false);
+        if (hidden && detached) setDetachedProjection(detached, false);
         if (committed) options.commitDockSnapshot(original);
         if (handle) await handle.close().catch(() => {});
         throw error;
@@ -817,7 +898,9 @@ export function createViewWindowHost(options: ViewWindowHostOptions) {
       const screen = await options.adapter.screen?.();
       for (const saved of layout.windows) {
         const recovered = screen ? recoverWindowBounds(saved, screen.monitors, screen.primaryName) : saved.bounds;
-        await this.tearOff(saved.containerId, saved.groupId, saved, recovered).catch((error) => console.warn(error));
+        const first = saved.groups[0];
+        if (!first) continue;
+        await this.tearOff(first.containerId, first.groupId, saved, recovered).catch((error) => console.warn(error));
       }
       changed();
     },

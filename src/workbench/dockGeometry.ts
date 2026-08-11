@@ -122,6 +122,7 @@ export function measureDetachedDockSurface(options: {
   groupElement: HTMLElement;
   tabStrip: HTMLElement;
   tabElements: HTMLElement[];
+  includeSplitEdges?: boolean;
 }): DockSurface {
   const zones: DockZone[] = [];
   const groupRect = logicalRectForElement(options.groupElement);
@@ -130,7 +131,7 @@ export function measureDetachedDockSurface(options: {
     options.containerId,
     options.groupId,
     groupRect,
-    false,
+    options.includeSplitEdges ?? false,
   ));
   const stripRect = logicalRectForElement(options.tabStrip);
   if (stripRect) {
@@ -145,6 +146,32 @@ export function measureDetachedDockSurface(options: {
     revision: options.revision,
     metrics: options.metrics,
     zones,
+  };
+}
+
+export function measureDetachedDockTreeSurface(options: {
+  windowLabel: string;
+  revision: number;
+  metrics: NativeDockWindowMetrics;
+  groups: Array<{
+    containerId: WorkbenchContainerId;
+    groupId: string;
+    groupElement: HTMLElement;
+    tabStrip: HTMLElement;
+    tabElements: HTMLElement[];
+  }>;
+}): DockSurface {
+  return {
+    windowLabel: options.windowLabel,
+    revision: options.revision,
+    metrics: options.metrics,
+    zones: options.groups.flatMap((group) => measureDetachedDockSurface({
+      ...group,
+      windowLabel: options.windowLabel,
+      revision: options.revision,
+      metrics: options.metrics,
+      includeSplitEdges: true,
+    }).zones),
   };
 }
 

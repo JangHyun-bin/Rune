@@ -3,18 +3,22 @@ import { detachedDockPayload } from "./detachedDockPayload";
 import type { ViewWindowTransfer } from "./viewWindowTransfer";
 
 const transfer: ViewWindowTransfer = {
-  version: 1,
+  version: 2,
   transferId: "main:view-3",
   sourceWindowLabel: "main",
   targetWindowLabel: "view-3",
-  sourceContainerId: "explorer",
-  group: { id: "explorer:workspace", viewIds: ["workspace", "outline"], activeViewId: "outline" },
+  groups: [{
+    containerId: "explorer",
+    group: { id: "explorer:workspace", viewIds: ["workspace", "outline"], activeViewId: "outline" },
+  }],
+  root: { type: "group", groupId: "explorer:workspace" },
+  activeGroupId: "explorer:workspace",
   presentation: { theme: "dark", uiScale: 1, locale: "en" },
 };
 
 describe("detached dock payload", () => {
   it("emits only the dragged tab View", () => {
-    expect(detachedDockPayload(transfer, "view", "workspace")).toEqual({
+    expect(detachedDockPayload(transfer, "explorer:workspace", "view", "workspace")).toEqual({
       kind: "view",
       viewId: "workspace",
       source: { windowLabel: "view-3", containerId: "explorer", groupId: "explorer:workspace" },
@@ -22,7 +26,7 @@ describe("detached dock payload", () => {
   });
 
   it("emits the complete ordered group from the dedicated handle", () => {
-    expect(detachedDockPayload(transfer, "group")).toEqual({
+    expect(detachedDockPayload(transfer, "explorer:workspace", "group")).toEqual({
       kind: "group",
       viewIds: ["workspace", "outline"],
       activeViewId: "outline",
@@ -31,6 +35,7 @@ describe("detached dock payload", () => {
   });
 
   it("rejects a tab not owned by the detached group", () => {
-    expect(detachedDockPayload(transfer, "view", "search")).toBeNull();
+    expect(detachedDockPayload(transfer, "explorer:workspace", "view", "search")).toBeNull();
+    expect(detachedDockPayload(transfer, "missing", "group")).toBeNull();
   });
 });

@@ -130,9 +130,17 @@ mod tests {
                 "custom": { "future": ["shape", 42] }
             })),
             view_window_layout: Some(serde_json::json!({
-                "version": 1,
+                "version": 2,
                 "sessionState": "running",
-                "windows": []
+                "windows": [{
+                    "label": "view-3",
+                    "groups": [{ "containerId": "explorer", "groupId": "explorer:outline" }],
+                    "root": { "type": "group", "groupId": "explorer:outline" },
+                    "activeGroupId": "explorer:outline",
+                    "activeViewId": "outline",
+                    "bounds": { "x": -420, "y": 20, "width": 420, "height": 640 },
+                    "monitor": { "name": "Left", "scaleFactor": 1.25, "x": -1920, "y": 0, "width": 1920, "height": 1080 }
+                }]
             })),
             named_layouts: None,
             active_named_layout: None,
@@ -201,7 +209,8 @@ mod tests {
                 "custom": { "future": ["shape", 42] }
             }))
         );
-        assert_eq!(got.view_window_layout.as_ref().unwrap()["version"], 1);
+        assert_eq!(got.view_window_layout.as_ref().unwrap()["version"], 2);
+        assert_eq!(got.view_window_layout.as_ref().unwrap()["windows"][0]["label"], "view-3");
         let layout = got.layout.unwrap();
         assert_eq!(layout.sidebar_width, Some(330));
         assert_eq!(layout.outline_height, Some(180));

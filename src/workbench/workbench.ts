@@ -29,6 +29,7 @@ import { createDockDragCoordinator, type DockDragCoordinator, type DockDragPrevi
 import type { DockEffect, DockPayload, DockSurface, DockWorkspaceSnapshot } from "./dockTypes";
 import { logicalClientPointToPhysicalScreen, type NativeDockWindowMetrics } from "./tauriDockDragAdapter";
 import { EMPTY_VIEW_WINDOW_LAYOUT, type ViewWindowLayoutSnapshot } from "./viewWindowLayout";
+import { renderViewGroupTree as renderSharedViewGroupTree } from "./viewGroupTreeRenderer";
 
 export interface NativeDockingOptions {
   metrics(): Promise<NativeDockWindowMetrics>;
@@ -596,23 +597,15 @@ export function mountWorkbench(options: {
     return wrapper;
   };
 
-  const renderViewGroupTree = (
+  const renderWorkbenchViewGroupTree = (
     containerId: WorkbenchContainerId,
     node: ViewGroupLayoutNode,
     visible: boolean,
     panelStyle: boolean,
-  ): HTMLElement => {
-    if (node.type === "group") return renderViewGroup(containerId, node.groupId, visible, panelStyle);
-    const split = document.createElement("div");
-    split.className = "view-group-split";
-    split.dataset.direction = node.direction;
-    node.children.forEach((child, index) => {
-      const element = renderViewGroupTree(containerId, child, visible, panelStyle);
-      element.style.setProperty("--view-group-ratio", String(node.ratios[index] ?? 1));
-      split.appendChild(element);
-    });
-    return split;
-  };
+  ): HTMLElement => renderSharedViewGroupTree(
+    node,
+    (groupId) => renderViewGroup(containerId, groupId, visible, panelStyle),
+  );
 
   const renderActivityBar = (): void => {
     const primaryContainers = options.registry.containers()
@@ -673,7 +666,7 @@ export function mountWorkbench(options: {
     }
     const body = document.createElement("div");
     body.className = "view-container-body";
-    body.replaceChildren(renderViewGroupTree(contribution.id, state.viewGroups[contribution.id].root, true, false));
+    body.replaceChildren(renderWorkbenchViewGroupTree(contribution.id, state.viewGroups[contribution.id].root, true, false));
     renderedContainers.set(contribution.id, body);
     bindDropTarget(body, contribution.id, "y", () => views.filter((view) => state.views[view.id].visible));
     container.appendChild(titlebar);
@@ -711,7 +704,7 @@ export function mountWorkbench(options: {
     container.dataset.partId = partId;
     container.dataset.containerId = contribution.id;
     if (partId === "panel") {
-      container.appendChild(renderViewGroupTree(contribution.id, state.viewGroups[contribution.id].root, visible, true));
+      container.appendChild(renderWorkbenchViewGroupTree(contribution.id, state.viewGroups[contribution.id].root, visible, true));
       renderedContainers.set(contribution.id, container);
       host.replaceChildren(container);
       return;
@@ -730,7 +723,7 @@ export function mountWorkbench(options: {
     }
     const body = document.createElement("div");
     body.className = "view-container-body";
-    body.replaceChildren(renderViewGroupTree(contribution.id, state.viewGroups[contribution.id].root, visible, false));
+    body.replaceChildren(renderWorkbenchViewGroupTree(contribution.id, state.viewGroups[contribution.id].root, visible, false));
     renderedContainers.set(contribution.id, body);
     bindDropTarget(body, contribution.id, "y", () => views.filter((view) => state.views[view.id].visible));
     container.appendChild(titlebar);

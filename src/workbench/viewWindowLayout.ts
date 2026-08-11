@@ -1,16 +1,23 @@
+import type { ViewGroupLayoutNode } from "./viewGroupLayout";
 import type { WorkbenchContainerId, WorkbenchLayoutSnapshot, WorkbenchViewId } from "./workbenchLayout";
 
 export interface WindowBounds { x: number; y: number; width: number; height: number }
 export interface WindowMonitorSnapshot extends WindowBounds { name: string | null; scaleFactor: number }
-export interface PersistedViewWindow {
+export interface PersistedViewGroupReference {
   containerId: WorkbenchContainerId;
   groupId: string;
+}
+export interface PersistedViewWindow {
+  label: string;
+  groups: PersistedViewGroupReference[];
+  root: ViewGroupLayoutNode;
+  activeGroupId: string;
   activeViewId: WorkbenchViewId;
   bounds: WindowBounds;
   monitor: WindowMonitorSnapshot;
 }
 export interface ViewWindowLayoutSnapshot {
-  version: 1;
+  version: 2;
   sessionState: "clean" | "running";
   windows: PersistedViewWindow[];
 }
@@ -33,13 +40,14 @@ export function normalizeCapturedWindowBounds(
   };
 }
 
-export const EMPTY_VIEW_WINDOW_LAYOUT: ViewWindowLayoutSnapshot = { version: 1, sessionState: "clean", windows: [] };
+export const EMPTY_VIEW_WINDOW_LAYOUT: ViewWindowLayoutSnapshot = { version: 2, sessionState: "clean", windows: [] };
 const containers = new Set<WorkbenchContainerId>(["explorer", "search", "auxiliary", "panel"]);
+const windowLabelPattern = /^view-[1-9]\d*$/;
 
 function record(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : null;
 }
-function only(value: Record<string, unknown>, keys: string[]): boolean {
+function only(value: Record<string, unknown>, keys: readonly string[]): boolean {
   return Object.keys(value).length === keys.length && Object.keys(value).every((key) => keys.includes(key));
 }
 function finite(value: unknown): value is number {
@@ -61,32 +69,165 @@ function monitor(value: unknown): WindowMonitorSnapshot | null {
   return area ? { name: item.name as string | null, scaleFactor: item.scaleFactor, ...area } : null;
 }
 
-export function normalizeViewWindowLayout(value: unknown, workbench: WorkbenchLayoutSnapshot): ViewWindowLayoutSnapshot {
-  const root = record(value);
-  if (!root || !only(root, ["version", "sessionState", "windows"]) || root.version !== 1
-    || (root.sessionState !== "clean" && root.sessionState !== "running") || !Array.isArray(root.windows)) {
-    return { ...EMPTY_VIEW_WINDOW_LAYOUT, windows: [] };
-  }
-  const windows: PersistedViewWindow[] = [];
-  const seen = new Set<string>();
-  for (const candidate of root.windows.slice(0, 8)) {
-    const item = record(candidate);
-    if (!item || !only(item, ["containerId", "groupId", "activeViewId", "bounds", "monitor"])
-      || !containers.has(item.containerId as WorkbenchContainerId) || typeof item.groupId !== "string"
-      || typeof item.activeViewId !== "string") continue;
-    const containerId = item.containerId as WorkbenchContainerId;
-    const group = workbench.viewGroups[containerId].groups[item.groupId];
-    const key = `${containerId}\0${item.groupId}`;
-    const savedBounds = bounds(item.bounds);
-    const savedMonitor = monitor(item.monitor);
-    if (!group || !group.viewIds.includes(item.activeViewId as WorkbenchViewId) || seen.has(key) || !savedBounds || !savedMonitor) continue;
-    seen.add(key);
-    windows.push({ containerId, groupId: item.groupId, activeViewId: item.activeViewId as WorkbenchViewId, bounds: savedBounds, monitor: savedMonitor });
-  }
-  return { version: 1, sessionState: root.sessionState, windows };
+function groupKey(containerId: WorkbenchContainerId, groupId: string): string {
+  return `${containerId}\0${groupId}`;
 }
 
-export function recoverWindowBounds(saved: PersistedViewWindow, monitors: AvailableMonitor[], primaryName: string | null): WindowBounds {
+function duplicateViewGroups(workbench: WorkbenchLayoutSnapshot): Set<string> {
+  const owners = new Map<WorkbenchViewId, string>();
+  const duplicates = new Set<string>();
+  for (const [containerId, layout] of Object.entries(workbench.viewGroups) as Array<[WorkbenchContainerId, typeof workbench.viewGroups[WorkbenchContainerId]]>) {
+    for (const group of Object.values(layout.groups)) {
+      for (const viewId of group.viewIds) {
+        const key = groupKey(containerId, group.id);
+        const previous = owners.get(viewId);
+        if (previous) {
+          duplicates.add(previous);
+          duplicates.add(key);
+        } else owners.set(viewId, key);
+      }
+    }
+  }
+  return duplicates;
+}
+
+function parseGroupReferences(
+  value: unknown,
+  workbench: WorkbenchLayoutSnapshot,
+  invalidGroups: Set<string>,
+): PersistedViewGroupReference[] | null {
+  if (!Array.isArray(value) || value.length === 0 || value.length > 64) return null;
+  const result: PersistedViewGroupReference[] = [];
+  const seen = new Set<string>();
+  for (const candidate of value) {
+    const item = record(candidate);
+    if (!item || !only(item, ["containerId", "groupId"])
+      || !containers.has(item.containerId as WorkbenchContainerId)
+      || typeof item.groupId !== "string" || !item.groupId) return null;
+    const containerId = item.containerId as WorkbenchContainerId;
+    const key = groupKey(containerId, item.groupId);
+    if (seen.has(key) || invalidGroups.has(key) || !workbench.viewGroups[containerId].groups[item.groupId]) return null;
+    seen.add(key);
+    result.push({ containerId, groupId: item.groupId });
+  }
+  return result;
+}
+
+function parseGroupTree(
+  value: unknown,
+  groupIds: Set<string>,
+  seenObjects: Set<object>,
+  visitedGroups: string[],
+): ViewGroupLayoutNode | null {
+  const item = record(value);
+  if (!item || seenObjects.has(item)) return null;
+  seenObjects.add(item);
+  if (item.type === "group") {
+    if (!only(item, ["type", "groupId"]) || typeof item.groupId !== "string"
+      || !groupIds.has(item.groupId) || visitedGroups.includes(item.groupId)) return null;
+    visitedGroups.push(item.groupId);
+    return { type: "group", groupId: item.groupId };
+  }
+  if (item.type !== "split" || !only(item, ["type", "direction", "children", "ratios"])
+    || (item.direction !== "row" && item.direction !== "column") || !Array.isArray(item.children)
+    || item.children.length < 2 || !Array.isArray(item.ratios) || item.ratios.length !== item.children.length
+    || !item.ratios.every((ratio) => finite(ratio) && ratio > 0)) return null;
+  const children: ViewGroupLayoutNode[] = [];
+  for (const child of item.children) {
+    const parsed = parseGroupTree(child, groupIds, seenObjects, visitedGroups);
+    if (!parsed) return null;
+    children.push(parsed);
+  }
+  return { type: "split", direction: item.direction, children, ratios: [...item.ratios] as number[] };
+}
+
+function normalizeVersion2Window(
+  value: unknown,
+  workbench: WorkbenchLayoutSnapshot,
+  invalidGroups: Set<string>,
+): PersistedViewWindow | null {
+  const item = record(value);
+  if (!item || !only(item, ["label", "groups", "root", "activeGroupId", "activeViewId", "bounds", "monitor"])
+    || typeof item.label !== "string" || !windowLabelPattern.test(item.label)
+    || typeof item.activeGroupId !== "string" || typeof item.activeViewId !== "string") return null;
+  const groups = parseGroupReferences(item.groups, workbench, invalidGroups);
+  const savedBounds = bounds(item.bounds);
+  const savedMonitor = monitor(item.monitor);
+  if (!groups || !savedBounds || !savedMonitor) return null;
+  const groupIds = new Set(groups.map((group) => group.groupId));
+  if (groupIds.size !== groups.length || !groupIds.has(item.activeGroupId)) return null;
+  const visitedGroups: string[] = [];
+  const root = parseGroupTree(item.root, groupIds, new Set(), visitedGroups);
+  if (!root || visitedGroups.some((id, index) => id !== groups[index].groupId) || visitedGroups.length !== groups.length) return null;
+  const activeRef = groups.find((group) => group.groupId === item.activeGroupId)!;
+  const activeGroup = workbench.viewGroups[activeRef.containerId].groups[activeRef.groupId];
+  if (!activeGroup.viewIds.includes(item.activeViewId as WorkbenchViewId)) return null;
+  return {
+    label: item.label,
+    groups,
+    root,
+    activeGroupId: item.activeGroupId,
+    activeViewId: item.activeViewId as WorkbenchViewId,
+    bounds: savedBounds,
+    monitor: savedMonitor,
+  };
+}
+
+function normalizeVersion1Window(
+  value: unknown,
+  index: number,
+  workbench: WorkbenchLayoutSnapshot,
+  invalidGroups: Set<string>,
+): PersistedViewWindow | null {
+  const item = record(value);
+  if (!item || !only(item, ["containerId", "groupId", "activeViewId", "bounds", "monitor"])
+    || !containers.has(item.containerId as WorkbenchContainerId) || typeof item.groupId !== "string"
+    || typeof item.activeViewId !== "string") return null;
+  const containerId = item.containerId as WorkbenchContainerId;
+  const group = workbench.viewGroups[containerId].groups[item.groupId];
+  const savedBounds = bounds(item.bounds);
+  const savedMonitor = monitor(item.monitor);
+  if (!group || invalidGroups.has(groupKey(containerId, item.groupId))
+    || !group.viewIds.includes(item.activeViewId as WorkbenchViewId) || !savedBounds || !savedMonitor) return null;
+  return {
+    label: `view-${index + 1}`,
+    groups: [{ containerId, groupId: item.groupId }],
+    root: { type: "group", groupId: item.groupId },
+    activeGroupId: item.groupId,
+    activeViewId: item.activeViewId as WorkbenchViewId,
+    bounds: savedBounds,
+    monitor: savedMonitor,
+  };
+}
+
+export function normalizeViewWindowLayout(value: unknown, workbench: WorkbenchLayoutSnapshot): ViewWindowLayoutSnapshot {
+  const root = record(value);
+  const empty = (): ViewWindowLayoutSnapshot => ({ ...EMPTY_VIEW_WINDOW_LAYOUT, windows: [] });
+  if (!root || (root.version !== 1 && root.version !== 2)
+    || (root.sessionState !== "clean" && root.sessionState !== "running") || !Array.isArray(root.windows)) return empty();
+  const validRootKeys = root.version === 2
+    ? ["version", "sessionState", "windows", ...(Object.prototype.hasOwnProperty.call(root, "transaction") ? ["transaction"] : [])]
+    : ["version", "sessionState", "windows"];
+  if (!only(root, validRootKeys)) return empty();
+  const invalidGroups = duplicateViewGroups(workbench);
+  const windows: PersistedViewWindow[] = [];
+  const ownedGroups = new Set<string>();
+  const labels = new Set<string>();
+  for (const [index, candidate] of root.windows.slice(0, 8).entries()) {
+    const normalized = root.version === 2
+      ? normalizeVersion2Window(candidate, workbench, invalidGroups)
+      : normalizeVersion1Window(candidate, index, workbench, invalidGroups);
+    if (!normalized || labels.has(normalized.label)) continue;
+    const keys = normalized.groups.map((group) => groupKey(group.containerId, group.groupId));
+    if (keys.some((key) => ownedGroups.has(key))) continue;
+    labels.add(normalized.label);
+    keys.forEach((key) => ownedGroups.add(key));
+    windows.push(normalized);
+  }
+  return { version: 2, sessionState: root.sessionState, windows };
+}
+
+export function recoverWindowBounds(saved: Pick<PersistedViewWindow, "bounds" | "monitor">, monitors: AvailableMonitor[], primaryName: string | null): WindowBounds {
   const target = monitors.find((item) => item.name !== null && item.name === saved.monitor.name)
     ?? monitors.find((item) => item.name === primaryName)
     ?? monitors[0];

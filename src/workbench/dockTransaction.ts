@@ -9,7 +9,7 @@ import type {
   DockTarget,
   DockWorkspaceSnapshot,
 } from "./dockTypes";
-import { viewGroupIdForView } from "./viewGroupLayout";
+import { viewGroupIdForView, type ViewGroupLayoutNode } from "./viewGroupLayout";
 import {
   activateViewGroup,
   moveView,
@@ -29,14 +29,12 @@ function windowIndex(label: string): number | null {
 }
 
 function detachedIndex(snapshot: DockWorkspaceSnapshot, containerId: WorkbenchContainerId, groupId: string): number {
-  return snapshot.viewWindows.windows.findIndex((item) => item.containerId === containerId && item.groupId === groupId);
+  return snapshot.viewWindows.windows.findIndex((item) =>
+    item.groups.some((group) => group.containerId === containerId && group.groupId === groupId));
 }
 
 function nativeWindowLabels(snapshot: DockWorkspaceSnapshot): string[] {
-  if (snapshot.windowLabels?.length === snapshot.viewWindows.windows.length
-    && new Set(snapshot.windowLabels).size === snapshot.windowLabels.length
-    && snapshot.windowLabels.every((label) => windowIndex(label) !== null)) return [...snapshot.windowLabels];
-  return snapshot.viewWindows.windows.map((_, index) => `view-${index + 1}`);
+  return snapshot.viewWindows.windows.map((window) => window.label);
 }
 
 function locationMatchesWindow(snapshot: DockWorkspaceSnapshot, location: DockLocation): boolean {
@@ -171,28 +169,111 @@ function dockAtContainer(
 function reconcileWindows(
   original: DockWorkspaceSnapshot,
   workbench: WorkbenchLayoutSnapshot,
+  payload?: DockPayload,
+  target?: Exclude<DockTarget, { kind: "new-window" | "container" }>,
 ): { viewWindows: ViewWindowLayoutSnapshot; windowLabels: string[]; effects: DockEffect[] } {
   const effects: DockEffect[] = [];
   const windows: PersistedViewWindow[] = [];
   const labels = nativeWindowLabels(original);
   const windowLabels: string[] = [];
   original.viewWindows.windows.forEach((window, index) => {
-    const group = workbench.viewGroups[window.containerId]?.groups[window.groupId];
-    if (!group || group.viewIds.length === 0) {
+    const groups = window.groups.filter((reference) => {
+      const group = workbench.viewGroups[reference.containerId]?.groups[reference.groupId];
+      return Boolean(group?.viewIds.length);
+    });
+    const root = pruneGroupTree(window.root, new Set(groups.map((group) => group.groupId)));
+    if (!root || groups.length === 0) {
       effects.push({ kind: "close-window", windowLabel: labels[index] });
       return;
     }
+    const activeGroupReference = groups.find((group) => group.groupId === window.activeGroupId) ?? groups[0];
+    const activeGroup = workbench.viewGroups[activeGroupReference.containerId].groups[activeGroupReference.groupId];
     windowLabels.push(labels[index]);
     windows.push({
       ...structuredClone(window),
-      activeViewId: group.activeViewId ?? group.viewIds[0],
+      groups,
+      root,
+      activeGroupId: activeGroupReference.groupId,
+      activeViewId: activeGroup.activeViewId ?? activeGroup.viewIds[0],
     });
   });
+
+  if (payload && target && target.windowLabel !== "main" && target.kind === "split") {
+    const targetWindow = windows.find((window) => window.label === target.windowLabel);
+    const active = payload.kind === "group" ? payload.activeViewId : payload.viewId;
+    const newGroupId = viewGroupIdForView(workbench.viewGroups[target.containerId], active);
+    if (targetWindow && newGroupId && !targetWindow.groups.some((group) => group.groupId === newGroupId)) {
+      const nextRoot = splitDetachedGroupTree(
+        targetWindow.root,
+        target.groupId,
+        newGroupId,
+        target.direction,
+        target.side,
+      );
+      const references = new Map(targetWindow.groups.map((group) => [group.groupId, group]));
+      references.set(newGroupId, { containerId: target.containerId, groupId: newGroupId });
+      targetWindow.root = nextRoot;
+      targetWindow.groups = groupIdsInTree(nextRoot).map((groupId) => references.get(groupId)!);
+      targetWindow.activeGroupId = newGroupId;
+      targetWindow.activeViewId = active;
+    }
+  } else if (payload && target && target.windowLabel !== "main") {
+    const targetWindow = windows.find((window) => window.label === target.windowLabel);
+    if (targetWindow) {
+      const active = payload.kind === "group" ? payload.activeViewId : payload.viewId;
+      targetWindow.activeGroupId = target.groupId;
+      targetWindow.activeViewId = active;
+    }
+  }
   return {
-    viewWindows: { ...structuredClone(original.viewWindows), windows },
+    viewWindows: { version: 2, sessionState: original.viewWindows.sessionState, windows },
     windowLabels,
     effects,
   };
+}
+
+function pruneGroupTree(node: ViewGroupLayoutNode, groupIds: Set<string>): ViewGroupLayoutNode | null {
+  if (node.type === "group") return groupIds.has(node.groupId) ? { ...node } : null;
+  const children: ViewGroupLayoutNode[] = [];
+  const ratios: number[] = [];
+  node.children.forEach((child, index) => {
+    const next = pruneGroupTree(child, groupIds);
+    if (!next) return;
+    children.push(next);
+    ratios.push(node.ratios[index] ?? 1);
+  });
+  if (children.length === 0) return null;
+  if (children.length === 1) return children[0];
+  return { type: "split", direction: node.direction, children, ratios };
+}
+
+function splitDetachedGroupTree(
+  node: ViewGroupLayoutNode,
+  targetGroupId: string,
+  newGroupId: string,
+  direction: "row" | "column",
+  side: "before" | "after",
+): ViewGroupLayoutNode {
+  if (node.type === "group") {
+    if (node.groupId !== targetGroupId) return { ...node };
+    const next: ViewGroupLayoutNode = { type: "group", groupId: newGroupId };
+    return {
+      type: "split",
+      direction,
+      children: side === "before" ? [next, { ...node }] : [{ ...node }, next],
+      ratios: [0.5, 0.5],
+    };
+  }
+  return {
+    type: "split",
+    direction: node.direction,
+    children: node.children.map((child) => splitDetachedGroupTree(child, targetGroupId, newGroupId, direction, side)),
+    ratios: [...node.ratios],
+  };
+}
+
+function groupIdsInTree(node: ViewGroupLayoutNode): string[] {
+  return node.type === "group" ? [node.groupId] : node.children.flatMap(groupIdsInTree);
 }
 
 function nextWindowLabel(labels: string[]): string {
@@ -225,8 +306,10 @@ function extractToNewWindow(
   return {
     workbench: activateViewGroup(workbench, payload.source.containerId, groupId, active),
     window: {
-      containerId: payload.source.containerId,
-      groupId,
+      label: "view-1",
+      groups: [{ containerId: payload.source.containerId, groupId }],
+      root: { type: "group", groupId },
+      activeGroupId: groupId,
       activeViewId: active,
       bounds: structuredClone(bounds),
       monitor: { name: null, scaleFactor: 1, ...structuredClone(bounds) },
@@ -251,13 +334,14 @@ export function planDock(snapshot: DockWorkspaceSnapshot, payload: DockPayload, 
     workbench = extracted.workbench;
     reconciled = reconcileWindows(snapshot, workbench);
     const windowLabel = nextWindowLabel(reconciled.windowLabels);
+    extracted.window.label = windowLabel;
     reconciled.viewWindows.windows.push(extracted.window);
     reconciled.windowLabels.push(windowLabel);
     reconciled.effects.push({
       kind: "open-window",
       windowLabel,
-      containerId: extracted.window.containerId,
-      groupId: extracted.window.groupId,
+      containerId: extracted.window.groups[0].containerId,
+      groupId: extracted.window.groups[0].groupId,
       activeViewId: extracted.window.activeViewId,
       bounds: structuredClone(target.bounds),
     });
@@ -270,7 +354,7 @@ export function planDock(snapshot: DockWorkspaceSnapshot, payload: DockPayload, 
       && payload.source.containerId === target.containerId
       && payload.source.groupId === target.groupId) return failure("no-op");
     workbench = dockAtExistingTarget(snapshot.workbench, payload, target);
-    reconciled = reconcileWindows(snapshot, workbench);
+    reconciled = reconcileWindows(snapshot, workbench, payload, target);
   }
 
   const next: DockWorkspaceSnapshot = {

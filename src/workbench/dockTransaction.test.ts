@@ -3,12 +3,31 @@ import type { DockPayload, DockTarget, DockWorkspaceSnapshot } from "./dockTypes
 import { applyDockPlan, planDock } from "./dockTransaction";
 import { viewGroupIdForView } from "./viewGroupLayout";
 import { DEFAULT_WORKBENCH_LAYOUT, moveViewToWorkbenchGroup } from "./workbenchLayout";
+import type { PersistedViewWindow } from "./viewWindowLayout";
 
 function workspace(workbench = structuredClone(DEFAULT_WORKBENCH_LAYOUT)): DockWorkspaceSnapshot {
   return {
     revision: 4,
     workbench,
-    viewWindows: { version: 1, sessionState: "running", windows: [] },
+    viewWindows: { version: 2, sessionState: "running", windows: [] },
+  };
+}
+
+function detachedWindow(
+  label: string,
+  containerId: "explorer" | "auxiliary",
+  groupId: string,
+  activeViewId: "outline" | "backlinks",
+  x = 20,
+): PersistedViewWindow {
+  return {
+    label,
+    groups: [{ containerId, groupId }],
+    root: { type: "group", groupId },
+    activeGroupId: groupId,
+    activeViewId,
+    bounds: { x, y: 20, width: 420, height: 600 },
+    monitor: { name: null, scaleFactor: 1, x: 0, y: 0, width: 1920, height: 1080 },
   };
 }
 
@@ -118,8 +137,9 @@ describe("atomic dock transactions", () => {
 
     expect(next.viewWindows.windows).toHaveLength(1);
     expect(next.viewWindows.windows[0]).toMatchObject({
-      containerId: "explorer",
-      groupId: detachedGroupId,
+      label: "view-1",
+      groups: [{ containerId: "explorer", groupId: detachedGroupId }],
+      activeGroupId: detachedGroupId,
       activeViewId: "outline",
       bounds: { x: 40, y: 60, width: 480, height: 640 },
     });
@@ -128,13 +148,7 @@ describe("atomic dock transactions", () => {
   it("closes an emptied detached source window after redocking", () => {
     const initial = workspace();
     initial.windowLabels = ["view-7"];
-    initial.viewWindows.windows.push({
-      containerId: "explorer",
-      groupId: "explorer:outline",
-      activeViewId: "outline",
-      bounds: { x: 20, y: 20, width: 420, height: 600 },
-      monitor: { name: null, scaleFactor: 1, x: 0, y: 0, width: 1920, height: 1080 },
-    });
+    initial.viewWindows.windows.push(detachedWindow("view-7", "explorer", "explorer:outline", "outline"));
     const plan = planDock(
       initial,
       viewPayload("outline", "explorer:outline", "view-7"),
@@ -162,13 +176,7 @@ describe("atomic dock transactions", () => {
   ] as const)("docks a detached View into the main-window %s destination", (_name, target) => {
     const initial = workspace();
     initial.windowLabels = ["view-1"];
-    initial.viewWindows.windows.push({
-      containerId: "explorer",
-      groupId: "explorer:outline",
-      activeViewId: "outline",
-      bounds: { x: 20, y: 20, width: 420, height: 600 },
-      monitor: { name: null, scaleFactor: 1, x: 0, y: 0, width: 1920, height: 1080 },
-    });
+    initial.viewWindows.windows.push(detachedWindow("view-1", "explorer", "explorer:outline", "outline"));
 
     const next = commit(initial, viewPayload("outline", "explorer:outline", "view-1"), target);
 
@@ -181,20 +189,8 @@ describe("atomic dock transactions", () => {
     const initial = workspace();
     initial.windowLabels = ["view-1", "view-2"];
     initial.viewWindows.windows.push(
-      {
-        containerId: "explorer",
-        groupId: "explorer:outline",
-        activeViewId: "outline",
-        bounds: { x: 20, y: 20, width: 420, height: 600 },
-        monitor: { name: null, scaleFactor: 1, x: 0, y: 0, width: 1920, height: 1080 },
-      },
-      {
-        containerId: "auxiliary",
-        groupId: "auxiliary:backlinks",
-        activeViewId: "backlinks",
-        bounds: { x: 480, y: 20, width: 420, height: 600 },
-        monitor: { name: null, scaleFactor: 1, x: 0, y: 0, width: 1920, height: 1080 },
-      },
+      detachedWindow("view-1", "explorer", "explorer:outline", "outline"),
+      detachedWindow("view-2", "auxiliary", "auxiliary:backlinks", "backlinks", 480),
     );
 
     const plan = planDock(
@@ -214,15 +210,45 @@ describe("atomic dock transactions", () => {
     ]);
   });
 
+  it("persists a detached split as one ordered multi-group window tree", () => {
+    const initial = workspace();
+    initial.viewWindows.windows.push(detachedWindow("view-2", "auxiliary", "auxiliary:backlinks", "backlinks", 480));
+
+    const next = commit(
+      initial,
+      viewPayload("outline", "explorer:outline"),
+      {
+        kind: "split",
+        windowLabel: "view-2",
+        containerId: "auxiliary",
+        groupId: "auxiliary:backlinks",
+        direction: "row",
+        side: "after",
+      },
+    );
+
+    const window = next.viewWindows.windows[0];
+    const outlineGroupId = viewGroupIdForView(next.workbench.viewGroups.auxiliary, "outline")!;
+    expect(window.label).toBe("view-2");
+    expect(window.groups).toEqual([
+      { containerId: "auxiliary", groupId: "auxiliary:backlinks" },
+      { containerId: "auxiliary", groupId: outlineGroupId },
+    ]);
+    expect(window.root).toEqual({
+      type: "split",
+      direction: "row",
+      children: [
+        { type: "group", groupId: "auxiliary:backlinks" },
+        { type: "group", groupId: outlineGroupId },
+      ],
+      ratios: [0.5, 0.5],
+    });
+    expect(window).toMatchObject({ activeGroupId: outlineGroupId, activeViewId: "outline" });
+  });
+
   it("keeps a detached target projection aligned with its newly active view", () => {
     const initial = workspace();
-    initial.viewWindows.windows.push({
-      containerId: "auxiliary",
-      groupId: "auxiliary:backlinks",
-      activeViewId: "backlinks",
-      bounds: { x: 20, y: 20, width: 420, height: 600 },
-      monitor: { name: null, scaleFactor: 1, x: 0, y: 0, width: 1920, height: 1080 },
-    });
+    initial.viewWindows.windows.push(detachedWindow("view-1", "auxiliary", "auxiliary:backlinks", "backlinks"));
 
     const next = commit(
       initial,
