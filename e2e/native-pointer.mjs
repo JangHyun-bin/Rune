@@ -77,6 +77,21 @@ post(2, ex, ey)
   if (!/^\d+$/.test(activeWindow)) throw new Error(`xdotool returned an invalid active window: ${activeWindow}`);
   checkedSpawn("xdotool", ["windowactivate", "--sync", activeWindow]);
   checkedSpawn("xdotool", ["mousemove", "--sync", String(Math.round(start.x)), String(Math.round(start.y))]);
+  const location = checkedSpawn("xdotool", ["getmouselocation", "--shell"]).stdout;
+  const pointerWindow = /^WINDOW=(\d+)$/m.exec(location)?.[1] ?? "";
+  const pointerWindowName = pointerWindow
+    ? checkedSpawn("xdotool", ["getwindowname", pointerWindow]).stdout.trim()
+    : "";
+  const pointerWindowGeometry = pointerWindow
+    ? checkedSpawn("xdotool", ["getwindowgeometry", "--shell", pointerWindow]).stdout.trim()
+    : "";
+  console.log(`LINUX_POINTER_SOURCE ${JSON.stringify({
+    activeWindow,
+    location: location.trim(),
+    pointerWindow,
+    pointerWindowName,
+    pointerWindowGeometry,
+  })}`);
   wait(250);
   checkedSpawn("xdotool", ["mousedown", "1"]);
   wait(350);

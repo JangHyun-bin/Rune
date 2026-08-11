@@ -61,8 +61,17 @@ let nextDockSession = 0;
 let observedDockSession: Extract<DockProtocolMessage, { type: "dock:start" }> | null = null;
 let pendingDockCommit: Extract<DockProtocolMessage, { type: "dock:commit" }> | null = null;
 let dockOverlay: HTMLElement | null = null;
+const pointerEvidence = { down: 0, move: 0, up: 0, lastTarget: null as string | null };
 
 if (import.meta.env.VITE_WDIO === "1") {
+  const recordPointer = (key: "down" | "move" | "up") => (event: PointerEvent): void => {
+    pointerEvidence[key] += 1;
+    const target = event.target as HTMLElement | null;
+    pointerEvidence.lastTarget = target?.dataset.viewId ?? target?.className ?? target?.tagName ?? null;
+  };
+  document.addEventListener("pointerdown", recordPointer("down"), { capture: true });
+  document.addEventListener("pointermove", recordPointer("move"), { capture: true });
+  document.addEventListener("pointerup", recordPointer("up"), { capture: true });
   Object.assign(window, {
     __RUNE_DOCKING_RELEASE_GATE__: {
       metrics: dockDragAdapter.metrics,
@@ -77,6 +86,7 @@ if (import.meta.env.VITE_WDIO === "1") {
         startedSessions: nextDockSession,
         observedSession: structuredClone(observedDockSession),
         hasOverlay: dockOverlay !== null,
+        pointerEvidence: structuredClone(pointerEvidence),
       }),
     },
   });
