@@ -64,6 +64,7 @@ let dockOverlay: HTMLElement | null = null;
 const pointerEvidence = { down: 0, move: 0, up: 0, lastTarget: null as string | null };
 
 if (import.meta.env.VITE_WDIO === "1") {
+  void currentWindow.setTitle(`Rune WDIO ${currentWindow.label}`);
   const recordPointer = (key: "down" | "move" | "up") => (event: PointerEvent): void => {
     pointerEvidence[key] += 1;
     const target = event.target as HTMLElement | null;
@@ -77,7 +78,6 @@ if (import.meta.env.VITE_WDIO === "1") {
       metrics: dockDragAdapter.metrics,
       focus: () => currentWindow.setFocus(),
       normalizeWindow: async () => {
-        await currentWindow.setTitle(`Rune WDIO ${currentWindow.label}`);
         await currentWindow.setPosition(new PhysicalPosition(850, 60));
         await currentWindow.setFocus();
       },
