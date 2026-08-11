@@ -12,6 +12,7 @@ const checkedSpawn = (command, args) => {
   if (result.error || result.status !== 0) {
     throw result.error ?? new Error(`${command} failed: ${result.stderr || result.stdout}`);
   }
+  return result;
 };
 
 export const nativePointerDrag = (start, end, scaleFactor = 1) => {
@@ -72,6 +73,9 @@ post(2, ex, ey)
     return;
   }
 
+  const activeWindow = checkedSpawn("xdotool", ["getactivewindow"]).stdout.trim();
+  if (!/^\d+$/.test(activeWindow)) throw new Error(`xdotool returned an invalid active window: ${activeWindow}`);
+  checkedSpawn("xdotool", ["windowactivate", "--sync", activeWindow]);
   checkedSpawn("xdotool", ["mousemove", "--sync", String(Math.round(start.x)), String(Math.round(start.y))]);
   wait(250);
   checkedSpawn("xdotool", ["mousedown", "1"]);
