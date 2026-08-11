@@ -114,6 +114,7 @@ post(2, ex, ey)
     pointerWindowName,
     pointerWindowGeometry,
   })}`);
+  let linuxStart = start;
   if (options.linuxWindowPosition && pointerWindow) {
     checkedSpawn("xdotool", [
       "windowmove",
@@ -123,27 +124,39 @@ post(2, ex, ey)
       String(Math.round(options.linuxWindowPosition.y)),
     ]);
     wait(350);
-    checkedSpawn("xdotool", ["mousemove", "--sync", String(Math.round(start.x)), String(Math.round(start.y))]);
+    const frameGeometry = checkedSpawn("xdotool", ["getwindowgeometry", "--shell", pointerWindow]).stdout.trim();
+    if (options.linuxClientPoint && options.linuxFrameInset) {
+      const frameX = Number(/^X=(-?\d+)$/m.exec(frameGeometry)?.[1] ?? Number.NaN);
+      const frameY = Number(/^Y=(-?\d+)$/m.exec(frameGeometry)?.[1] ?? Number.NaN);
+      if (!Number.isFinite(frameX) || !Number.isFinite(frameY)) throw new Error("xdotool returned invalid frame coordinates");
+      linuxStart = {
+        x: frameX + options.linuxFrameInset.x + options.linuxClientPoint.x * scaleFactor,
+        y: frameY + options.linuxFrameInset.y + options.linuxClientPoint.y * scaleFactor,
+      };
+    }
+    checkedSpawn("xdotool", ["mousemove", "--sync", String(Math.round(linuxStart.x)), String(Math.round(linuxStart.y))]);
     console.log(`LINUX_POINTER_FRAME ${JSON.stringify({
       pointerWindow,
-      geometry: checkedSpawn("xdotool", ["getwindowgeometry", "--shell", pointerWindow]).stdout.trim(),
+      geometry: frameGeometry,
+      adjustedStart: linuxStart,
     })}`);
   }
   if (options.linuxFocusClick) {
     checkedSpawn("xdotool", ["click", "1"]);
     wait(350);
-    checkedSpawn("xdotool", ["mousemove", "--sync", String(Math.round(start.x)), String(Math.round(start.y))]);
+    checkedSpawn("xdotool", ["mousemove", "--sync", String(Math.round(linuxStart.x)), String(Math.round(linuxStart.y))]);
   }
   wait(250);
   checkedSpawn("xdotool", ["mousedown", "1"]);
   wait(350);
+  const linuxDelta = { x: end.x - linuxStart.x, y: end.y - linuxStart.y };
   for (let step = 1; step <= 32; step += 1) {
     const ratio = step / 32;
     checkedSpawn("xdotool", [
       "mousemove",
       "--sync",
-      String(Math.round(start.x + delta.x * ratio)),
-      String(Math.round(start.y + delta.y * ratio)),
+      String(Math.round(linuxStart.x + linuxDelta.x * ratio)),
+      String(Math.round(linuxStart.y + linuxDelta.y * ratio)),
     ]);
     wait(75);
   }

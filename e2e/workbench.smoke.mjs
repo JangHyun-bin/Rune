@@ -124,6 +124,14 @@ describe("native Workbench release smoke", () => {
         linuxWindowTitle: "^Rune",
         linuxWindowMaxWidth: 600,
         linuxWindowPosition: { x: 850, y: 60 },
+        linuxClientPoint: {
+          x: (source.point.x - source.metrics.innerOrigin.x) / source.metrics.scaleFactor,
+          y: (source.point.y - source.metrics.innerOrigin.y) / source.metrics.scaleFactor,
+        },
+        linuxFrameInset: {
+          x: source.metrics.innerOrigin.x - 850,
+          y: source.metrics.innerOrigin.y - 60,
+        },
         linuxFocusClick: true,
       });
       await browser.pause(2_000);
