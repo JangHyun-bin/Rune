@@ -87,13 +87,14 @@ post(2, ex, ey)
   if (!/^\d+$/.test(activeWindow)) throw new Error(`xdotool returned an invalid active window: ${activeWindow}`);
   checkedSpawn("xdotool", ["windowactivate", "--sync", activeWindow]);
   if (options.linuxWindowPosition) {
-    checkedSpawn("xdotool", [
-      "windowmove",
-      "--sync",
-      activeWindow,
-      String(Math.round(options.linuxWindowPosition.x)),
-      String(Math.round(options.linuxWindowPosition.y)),
+    checkedSpawn("wmctrl", [
+      "-i",
+      "-r",
+      `0x${Number(activeWindow).toString(16)}`,
+      "-e",
+      `0,${Math.round(options.linuxWindowPosition.x)},${Math.round(options.linuxWindowPosition.y)},-1,-1`,
     ]);
+    wait(350);
   }
   checkedSpawn("xdotool", ["mousemove", "--sync", String(Math.round(start.x)), String(Math.round(start.y))]);
   const location = checkedSpawn("xdotool", ["getmouselocation", "--shell"]).stdout;

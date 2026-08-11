@@ -61,6 +61,7 @@ jobs:
             librsvg2-dev \
             webkit2gtk-driver \
             openbox \
+            wmctrl \
             xdotool \
             patchelf \
             build-essential \

@@ -89,6 +89,7 @@ jobs:
             patchelf \
             build-essential \
             openbox \
+            wmctrl \
             xdotool \
             xvfb
 
