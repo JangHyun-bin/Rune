@@ -68,6 +68,11 @@ if (import.meta.env.VITE_WDIO === "1") {
       focus: () => currentWindow.setFocus(),
       toPhysical: logicalClientPointToPhysicalScreen,
       transfer: () => structuredClone(transfer),
+      dockState: () => ({
+        startedSessions: nextDockSession,
+        observedSession: structuredClone(observedDockSession),
+        hasOverlay: dockOverlay !== null,
+      }),
     },
   });
   document.documentElement.dataset.wdioDockingReleaseGateReady = "true";

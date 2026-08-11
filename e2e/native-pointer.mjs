@@ -76,17 +76,17 @@ post(2, ex, ey)
   wait(250);
   checkedSpawn("xdotool", ["mousedown", "1"]);
   wait(350);
-  for (let step = 1; step <= 18; step += 1) {
-    const ratio = step / 18;
+  for (let step = 1; step <= 32; step += 1) {
+    const ratio = step / 32;
     checkedSpawn("xdotool", [
       "mousemove",
       "--sync",
       String(Math.round(start.x + delta.x * ratio)),
       String(Math.round(start.y + delta.y * ratio)),
     ]);
-    wait(55);
+    wait(75);
   }
-  wait(250);
+  wait(800);
   checkedSpawn("xdotool", ["mouseup", "1"]);
 };
 

@@ -117,6 +117,17 @@ describe("native Workbench release smoke", () => {
       const source = await physicalPoint('.detached-view-tabs [data-view-id="outline"]');
       console.log(`CROSS_WINDOW_POINTER ${JSON.stringify({ source, target })}`);
       nativePointerDrag(source.point, target.point, source.metrics.scaleFactor);
+      await browser.pause(2_000);
+      if ((await browser.getWindowHandles()).length !== 1) {
+        await browser.switchToWindow(main);
+        const mainState = await browser.execute(() => ({
+          workspace: window.__RUNE_DOCKING_RELEASE_GATE__.workspace(),
+          overlay: document.querySelector(".dock-target-overlay")?.className ?? null,
+        }));
+        await browser.switchToWindow(detachedHandle);
+        const detachedState = await browser.execute(() => window.__RUNE_DOCKING_RELEASE_GATE__.dockState());
+        console.log(`CROSS_WINDOW_PENDING ${JSON.stringify({ mainState, detachedState })}`);
+      }
       await waitForWindowCount(1);
       await browser.switchToWindow(main);
       const after = await browser.execute(() => window.__RUNE_DOCKING_RELEASE_GATE__.workspace());
