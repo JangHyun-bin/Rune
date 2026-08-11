@@ -40,6 +40,7 @@ export interface DockSurface {
   windowLabel: string;
   revision: number;
   metrics: NativeDockWindowMetrics;
+  viewport?: LogicalRect;
   zones: DockZone[];
 }
 

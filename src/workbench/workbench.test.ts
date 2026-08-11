@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { setLocale, type Locale } from "../i18n/i18n";
 import { DEFAULT_WORKBENCH_LAYOUT } from "./workbenchLayout";
 import { createViewRegistry } from "./viewRegistry";
-import { mountWorkbench } from "./workbench";
+import { mountWorkbench, type NativeDockingOptions } from "./workbench";
 import { VIEW_DRAG_TYPE } from "./viewDrop";
 import type { NativeDockWindowMetrics } from "./tauriDockDragAdapter";
 
@@ -190,7 +190,17 @@ function viewById(root: TestElement, id: string): TestElement {
   return element;
 }
 
-function setup({ rootWidth = 1024, sidebarHeight = 820, onViewMenu = vi.fn() } = {}) {
+function setup({
+  rootWidth = 1024,
+  sidebarHeight = 820,
+  onViewMenu = vi.fn(),
+  nativeDocking,
+}: {
+  rootWidth?: number;
+  sidebarHeight?: number;
+  onViewMenu?: ReturnType<typeof vi.fn>;
+  nativeDocking?: NativeDockingOptions;
+} = {}) {
   const registry = createViewRegistry();
   const focusWorkspace = vi.fn();
   const focusOutline = vi.fn();
@@ -245,6 +255,7 @@ function setup({ rootWidth = 1024, sidebarHeight = 820, onViewMenu = vi.fn() } =
     initialState: DEFAULT_WORKBENCH_LAYOUT,
     focusEditor,
     onViewMenu,
+    nativeDocking,
   });
   workbench.onDidChange(onDidChange);
 
@@ -266,6 +277,11 @@ function setup({ rootWidth = 1024, sidebarHeight = 820, onViewMenu = vi.fn() } =
     focusBacklinks,
     relabel,
   };
+}
+
+async function flushDockDrag(): Promise<void> {
+  await Promise.resolve();
+  await Promise.resolve();
 }
 
 beforeEach(() => {
@@ -457,7 +473,12 @@ describe("workbench", () => {
     const surface = workbench.dockSurface(nativeMetrics, 19);
     const targets = surface.zones.map((zone) => zone.target);
 
-    expect(surface).toMatchObject({ windowLabel: "main", revision: 19, metrics: nativeMetrics });
+    expect(surface).toMatchObject({
+      windowLabel: "main",
+      revision: 19,
+      metrics: nativeMetrics,
+      viewport: { left: 0, top: 0, width: 1024, height: 820 },
+    });
     expect(targets).toEqual(expect.arrayContaining([
       { kind: "tabs", windowLabel: "main", containerId: "explorer", groupId: "explorer:workspace", index: 0 },
       { kind: "tabs", windowLabel: "main", containerId: "explorer", groupId: "explorer:workspace", index: 1 },
@@ -470,6 +491,148 @@ describe("workbench", () => {
       { kind: "container", windowLabel: "main", containerId: "explorer", index: 3 },
     ]));
     expect(workbench.snapshot()).toEqual(before);
+  });
+
+  it("commits one native pointer dock and renders one exact-target preview", async () => {
+    const metrics: NativeDockWindowMetrics = {
+      windowLabel: "main",
+      windowInnerOrigin: { x: 0, y: 0 },
+      webviewOffset: { x: 0, y: 0 },
+      innerOrigin: { x: 0, y: 0 },
+      scaleFactor: 1,
+    };
+    const requestNewWindow = vi.fn();
+    const { primarySidebar, workbench, onDidChange } = setup({
+      nativeDocking: { metrics: async () => metrics, requestNewWindow },
+    });
+    const root = primarySidebar as unknown as TestElement;
+    const outlineHeader = byClass(viewById(root, "outline"), "workbench-view-header")[0];
+    const workspaceGroup = byData(root, "groupId", "explorer:workspace");
+    workspaceGroup.rectLeft = 100;
+    workspaceGroup.rectTop = 100;
+    workspaceGroup.rectWidth = 200;
+    workspaceGroup.rectHeight = 200;
+
+    expect((outlineHeader as unknown as { draggable: boolean }).draggable).toBe(false);
+    outlineHeader.dispatch("pointerdown", { button: 0, pointerId: 7, clientX: 10, clientY: 10 });
+    await flushDockDrag();
+    testWindow.dispatch("pointermove", { pointerId: 7, clientX: 200, clientY: 200, preventDefault() {} });
+
+    expect(byClass(testDocument.body, "dock-drag-ghost")).toHaveLength(1);
+    const overlays = byClass(testDocument.body, "dock-target-overlay");
+    expect(overlays).toHaveLength(1);
+    expect(overlays[0].classList.contains("dock-target-combine")).toBe(true);
+    expect(workbench.snapshot().viewGroups.explorer.groups["explorer:workspace"].viewIds).toEqual(["workspace"]);
+
+    testWindow.dispatch("pointerup", { pointerId: 7, clientX: 200, clientY: 200, preventDefault() {} });
+    await flushDockDrag();
+    testWindow.dispatch("pointerup", { pointerId: 7, clientX: 200, clientY: 200, preventDefault() {} });
+    await flushDockDrag();
+
+    expect(workbench.snapshot().viewGroups.explorer.groups["explorer:workspace"].viewIds).toEqual(["workspace", "outline"]);
+    expect(onDidChange).toHaveBeenCalledTimes(1);
+    expect(requestNewWindow).not.toHaveBeenCalled();
+    expect(byClass(testDocument.body, "dock-drag-ghost")).toHaveLength(0);
+    expect(byClass(testDocument.body, "dock-target-overlay")).toHaveLength(0);
+  });
+
+  it("cancels native pointer docking on Escape or an unzoned point inside Rune", async () => {
+    const metrics: NativeDockWindowMetrics = {
+      windowLabel: "main",
+      windowInnerOrigin: { x: -400, y: 60 },
+      webviewOffset: { x: 0, y: 0 },
+      innerOrigin: { x: -400, y: 60 },
+      scaleFactor: 1.25,
+    };
+    const requestNewWindow = vi.fn();
+    const { primarySidebar, workbench } = setup({
+      nativeDocking: { metrics: async () => metrics, requestNewWindow },
+    });
+    const header = byClass(viewById(primarySidebar as unknown as TestElement, "outline"), "workbench-view-header")[0];
+    const before = workbench.snapshot();
+
+    header.dispatch("pointerdown", { button: 0, pointerId: 1, clientX: 10, clientY: 10 });
+    await flushDockDrag();
+    testWindow.dispatch("pointermove", { pointerId: 1, clientX: 25, clientY: 25, preventDefault() {} });
+    expect(byClass(testDocument.body, "dock-target-invalid")).toHaveLength(1);
+    testWindow.dispatch("keydown", { key: "Escape", preventDefault() {} });
+
+    expect(workbench.snapshot()).toEqual(before);
+    expect(byClass(testDocument.body, "dock-drag-ghost")).toHaveLength(0);
+
+    header.dispatch("pointerdown", { button: 0, pointerId: 2, clientX: 10, clientY: 10 });
+    await flushDockDrag();
+    testWindow.dispatch("pointermove", { pointerId: 2, clientX: 500, clientY: 400, preventDefault() {} });
+    testWindow.dispatch("pointerup", { pointerId: 2, clientX: 500, clientY: 400, preventDefault() {} });
+    await flushDockDrag();
+
+    expect(workbench.snapshot()).toEqual(before);
+    expect(requestNewWindow).not.toHaveBeenCalled();
+  });
+
+  it("uses the dedicated native group handle to request the whole group outside Rune", async () => {
+    const metrics: NativeDockWindowMetrics = {
+      windowLabel: "main",
+      windowInnerOrigin: { x: 0, y: 0 },
+      webviewOffset: { x: 0, y: 0 },
+      innerOrigin: { x: 0, y: 0 },
+      scaleFactor: 1,
+    };
+    const requestNewWindow = vi.fn();
+    const { primarySidebar, workbench } = setup({
+      nativeDocking: { metrics: async () => metrics, requestNewWindow },
+    });
+    workbench.moveViewToGroup("outline", "explorer", "explorer:workspace");
+    const handle = byClass(primarySidebar as unknown as TestElement, "view-group-drag-handle")[0];
+    expect(handle).toBeTruthy();
+
+    handle.dispatch("pointerdown", { button: 0, pointerId: 3, clientX: 10, clientY: 10 });
+    await flushDockDrag();
+    testWindow.dispatch("pointermove", { pointerId: 3, clientX: 1200, clientY: 900, preventDefault() {} });
+    testWindow.dispatch("pointerup", { pointerId: 3, clientX: 1200, clientY: 900, preventDefault() {} });
+    await flushDockDrag();
+
+    expect(requestNewWindow).toHaveBeenCalledTimes(1);
+    expect(requestNewWindow).toHaveBeenCalledWith({
+      kind: "group",
+      viewIds: ["workspace", "outline"],
+      activeViewId: "outline",
+      source: { windowLabel: "main", containerId: "explorer", groupId: "explorer:workspace" },
+    }, { x: 1200, y: 900 });
+  });
+
+  it("preserves tab click, context menu, collapse, and close behavior with native docking enabled", async () => {
+    const metrics: NativeDockWindowMetrics = {
+      windowLabel: "main",
+      windowInnerOrigin: { x: 0, y: 0 },
+      webviewOffset: { x: 0, y: 0 },
+      innerOrigin: { x: 0, y: 0 },
+      scaleFactor: 1,
+    };
+    const onViewMenu = vi.fn();
+    const { primarySidebar, workbench } = setup({
+      onViewMenu,
+      nativeDocking: { metrics: async () => metrics, requestNewWindow: vi.fn() },
+    });
+    const root = primarySidebar as unknown as TestElement;
+    byClass(viewById(root, "outline"), "view-collapse")[0].dispatch("click");
+    expect(workbench.snapshot().views.outline.collapsed).toBe(true);
+    workbench.toggleViewCollapsed("outline");
+    workbench.moveViewToGroup("outline", "explorer", "explorer:workspace");
+    const workspaceTab = byClass(root, "view-group-tab").find((tab) => tab.dataset.viewId === "workspace")!;
+
+    workspaceTab.dispatch("pointerdown", { button: 0, pointerId: 9, clientX: 10, clientY: 10 });
+    await flushDockDrag();
+    testWindow.dispatch("pointerup", { pointerId: 9, clientX: 10, clientY: 10, preventDefault() {} });
+    await flushDockDrag();
+    workspaceTab.dispatch("click");
+    workspaceTab.dispatch("contextmenu", { clientX: 20, clientY: 30, preventDefault() {} });
+
+    expect(workbench.snapshot().viewGroups.explorer.groups["explorer:workspace"].activeViewId).toBe("workspace");
+    expect(onViewMenu).toHaveBeenCalledWith("workspace", 20, 30);
+    const outlineClose = byClass(root, "view-group-tab-close")[1];
+    outlineClose.dispatch("click");
+    expect(workbench.snapshot().views.outline.visible).toBe(false);
   });
 
   it("splits a view group when a dragged header is dropped on its edge", () => {

@@ -63,10 +63,11 @@ import { createNativeFileOpenQueue, handleNativeFileDrop, type ResolvedDropTarge
 import { createViewRegistry } from "./workbench/viewRegistry";
 import { createCommandRegistry } from "./workbench/commandRegistry";
 import { mountWorkbench } from "./workbench/workbench";
+import { createTauriDockDragAdapter } from "./workbench/tauriDockDragAdapter";
 import { createViewWindowHost } from "./workbench/viewWindowHost";
 import { tauriViewWindowAdapter } from "./workbench/tauriViewWindowAdapter";
 import { viewGroupIdForView } from "./workbench/viewGroupLayout";
-import { normalizeViewWindowLayout } from "./workbench/viewWindowLayout";
+import { EMPTY_VIEW_WINDOW_LAYOUT, normalizeViewWindowLayout } from "./workbench/viewWindowLayout";
 import {
   DEFAULT_WORKBENCH_LAYOUT,
   type WorkbenchContainerId,
@@ -340,6 +341,7 @@ viewRegistry.registerView({
 });
 viewRegistry.resolveView("workspace");
 viewRegistry.resolveView("outline");
+const nativeDockDrag = import.meta.env.VITE_NATIVE_DOCKING === "1" ? createTauriDockDragAdapter() : null;
 const workbench = mountWorkbench({
   activityBar: document.getElementById("activitybar")!,
   primarySidebar: document.getElementById("primary-sidebar")!,
@@ -351,6 +353,18 @@ const workbench = mountWorkbench({
   registry: viewRegistry,
   initialState: DEFAULT_WORKBENCH_LAYOUT,
   focusEditor: () => { if (typeof paneWorkspace !== "undefined") activeView().focus(); },
+  nativeDocking: nativeDockDrag ? {
+    metrics: nativeDockDrag.metrics,
+    workspace: () => ({
+      viewWindows: viewWindowHost?.layoutSnapshot() ?? EMPTY_VIEW_WINDOW_LAYOUT,
+      windowLabels: viewWindowHost?.detachedWindows() ?? [],
+    }),
+    requestNewWindow: (payload, point) => {
+      window.dispatchEvent(new CustomEvent("rune:native-dock-new-window-request", {
+        detail: { payload, point },
+      }));
+    },
+  } : undefined,
   onViewMenu: (id, x, y) => {
     const snapshot = workbench.snapshot();
     const current = snapshot.views[id].containerId;

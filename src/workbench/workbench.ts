@@ -20,13 +20,23 @@ import {
   type PanelPosition,
   type SidebarPosition,
 } from "./workbenchLayout";
-import type { ViewGroupLayoutNode, ViewGroupSplitDirection } from "./viewGroupLayout";
+import { viewGroupIdForView, type ViewGroupLayoutNode, type ViewGroupSplitDirection } from "./viewGroupLayout";
 import type { ViewContribution, ViewRegistry } from "./viewRegistry";
 import { decodeViewDrag, encodeViewDrag, insertionIndex, VIEW_DRAG_TYPE } from "./viewDrop";
 import { t } from "../i18n/i18n";
 import { containerDockZone, groupDockZones, logicalRectForElement, tabDockZones } from "./dockGeometry";
-import type { DockSurface } from "./dockTypes";
-import type { NativeDockWindowMetrics } from "./tauriDockDragAdapter";
+import { createDockDragCoordinator, type DockDragCoordinator, type DockDragPreview } from "./dockDragSession";
+import type { DockEffect, DockPayload, DockSurface, DockWorkspaceSnapshot } from "./dockTypes";
+import { logicalClientPointToPhysicalScreen, type NativeDockWindowMetrics } from "./tauriDockDragAdapter";
+import { EMPTY_VIEW_WINDOW_LAYOUT, type ViewWindowLayoutSnapshot } from "./viewWindowLayout";
+
+export interface NativeDockingOptions {
+  metrics(): Promise<NativeDockWindowMetrics>;
+  registeredSurfaces?(): DockSurface[];
+  workspace?(): { viewWindows: ViewWindowLayoutSnapshot; windowLabels?: string[] };
+  requestNewWindow(payload: DockPayload, point: { x: number; y: number }): void | Promise<void>;
+  commitEffects?(effects: DockEffect[], snapshot: DockWorkspaceSnapshot): void | Promise<void>;
+}
 
 export interface Workbench {
   snapshot(): WorkbenchLayoutSnapshot;
@@ -82,6 +92,7 @@ export function mountWorkbench(options: {
   initialState: WorkbenchLayoutSnapshot;
   focusEditor: () => void;
   onViewMenu?: (viewId: WorkbenchViewId, x: number, y: number) => void;
+  nativeDocking?: NativeDockingOptions;
 }): Workbench {
   let state = normalizeWorkbenchLayout(options.initialState);
   let destroyed = false;
@@ -97,6 +108,12 @@ export function mountWorkbench(options: {
   const renderedGroups = new Map<string, { containerId: WorkbenchContainerId; groupId: string; element: HTMLElement }>();
   const renderedTabs = new Map<string, { containerId: WorkbenchContainerId; groupId: string; strip: HTMLElement; tabs: HTMLElement[] }>();
   const renderedContainers = new Map<WorkbenchContainerId, HTMLElement>();
+  let dockRevision = 0;
+  let dockMetrics: NativeDockWindowMetrics | null = null;
+  let dockMetricsRequest: Promise<NativeDockWindowMetrics> | null = null;
+  let dockDragCoordinator: DockDragCoordinator | null = null;
+  let dockGhost: HTMLElement | null = null;
+  let dockOverlay: HTMLElement | null = null;
   const OUTLINE_DEFAULT_SIZE = 220;
   const MIN_EDITOR_WIDTH = 220;
   const MIN_WORKSPACE_HEIGHT = 120;
@@ -247,6 +264,55 @@ export function mountWorkbench(options: {
   };
   const finishViewDrag = (): void => clearViewDropIndicators();
 
+  const viewDockPayload = (viewId: WorkbenchViewId): DockPayload | null => {
+    const containerId = state.views[viewId]?.containerId;
+    if (!containerId) return null;
+    const groupId = viewGroupIdForView(state.viewGroups[containerId], viewId);
+    return groupId ? {
+      kind: "view",
+      viewId,
+      source: { windowLabel: "main", containerId, groupId },
+    } : null;
+  };
+
+  const groupDockPayload = (containerId: WorkbenchContainerId, groupId: string): DockPayload | null => {
+    const group = state.viewGroups[containerId]?.groups[groupId];
+    if (!group?.activeViewId || group.viewIds.length === 0) return null;
+    return {
+      kind: "group",
+      viewIds: [...group.viewIds],
+      activeViewId: group.activeViewId,
+      source: { windowLabel: "main", containerId, groupId },
+    };
+  };
+
+  const loadDockMetrics = (): Promise<NativeDockWindowMetrics> | null => {
+    if (!options.nativeDocking) return null;
+    if (!dockMetricsRequest) {
+      dockMetricsRequest = options.nativeDocking.metrics().then((metrics) => {
+        dockMetrics = metrics;
+        return metrics;
+      }).finally(() => { dockMetricsRequest = null; });
+    }
+    return dockMetricsRequest;
+  };
+
+  const bindDockPointer = (element: HTMLElement, payload: () => DockPayload | null): void => {
+    element.draggable = false;
+    element.addEventListener("pointerdown", (event) => {
+      if (event.button !== 0) return;
+      const target = event.target as HTMLElement | null;
+      if (target !== element && target?.closest?.("button, [role=button], input, select, textarea, a")) return;
+      const nextPayload = payload();
+      if (!nextPayload || !dockDragCoordinator?.begin({
+        pointerId: event.pointerId,
+        payload: nextPayload,
+        client: { x: event.clientX, y: event.clientY },
+      })) return;
+      void loadDockMetrics()?.catch(() => { dockDragCoordinator?.cancel(); });
+    });
+  };
+
   const viewIdFromEvent = (event: DragEvent): WorkbenchViewId | null =>
     decodeViewDrag(event.dataTransfer?.getData(VIEW_DRAG_TYPE) ?? "");
 
@@ -256,6 +322,10 @@ export function mountWorkbench(options: {
   };
 
   const bindViewDrag = (element: HTMLElement, viewId: WorkbenchViewId): void => {
+    if (options.nativeDocking) {
+      bindDockPointer(element, () => viewDockPayload(viewId));
+      return;
+    }
     element.draggable = decodeViewDrag(encodeViewDrag(viewId)) !== null;
     element.addEventListener("dragstart", (event) => {
       event.dataTransfer?.setData(VIEW_DRAG_TYPE, encodeViewDrag(viewId));
@@ -464,6 +534,16 @@ export function mountWorkbench(options: {
     const tabs = document.createElement("div");
     tabs.className = panelStyle ? "panel-tabs" : "view-group-tabs";
     tabs.dataset.groupId = groupId;
+    if (options.nativeDocking) {
+      const groupHandle = createButton(
+        `${panelStyle ? "panel" : "view-group"}-drag-handle view-group-drag-handle`,
+        `${t("workbench.moveView")}: ${views.map((view) => t(view.titleKey)).join(", ")}`,
+        "⠿",
+      );
+      groupHandle.dataset.groupId = groupId;
+      bindDockPointer(groupHandle, () => groupDockPayload(containerId, groupId));
+      tabs.appendChild(groupHandle);
+    }
     const tabsByViewId = new Map<WorkbenchViewId, HTMLElement>();
     for (const view of visibleViews) {
       const item = document.createElement("div");
@@ -693,6 +773,7 @@ export function mountWorkbench(options: {
 
   const commit = (nextState: WorkbenchLayoutSnapshot, emitChange = true): void => {
     state = boundState(nextState);
+    dockRevision += 1;
     render();
     if (!emitChange) return;
     const snapshot = normalizeWorkbenchLayout(state);
@@ -725,7 +806,13 @@ export function mountWorkbench(options: {
         });
         zones.push(...tabDockZones(metrics.windowLabel, containerId, groupId, stripRect, tabRects));
       }
-      return { windowLabel: metrics.windowLabel, revision, metrics, zones };
+      return {
+        windowLabel: metrics.windowLabel,
+        revision,
+        metrics,
+        viewport: { left: 0, top: 0, width: window.innerWidth, height: window.innerHeight },
+        zones,
+      };
     },
     restore: (snapshot, restoreOptions) => commit(normalizeWorkbenchLayout(snapshot), restoreOptions?.emitChange !== false),
     onDidChange: (listener) => {
@@ -822,7 +909,17 @@ export function mountWorkbench(options: {
       window.removeEventListener("pointerup", finishOutlineResize);
       window.removeEventListener("pointercancel", finishOutlineResize);
       window.removeEventListener("blur", finishOutlineResize);
-      window.removeEventListener("blur", finishViewDrag);
+      if (options.nativeDocking) {
+        window.removeEventListener("pointermove", onDockPointerMove);
+        window.removeEventListener("pointerup", onDockPointerUp);
+        window.removeEventListener("pointercancel", onDockPointerCancel);
+        window.removeEventListener("keydown", onDockKeyDown);
+        window.removeEventListener("blur", onDockPointerCancel);
+        dockDragCoordinator?.cancel();
+        clearDockPreview();
+      } else {
+        window.removeEventListener("blur", finishViewDrag);
+      }
       finishViewDrag();
       window.removeEventListener("resize", onWindowResize);
       options.activityBar.replaceChildren();
@@ -831,6 +928,98 @@ export function mountWorkbench(options: {
       options.panel.replaceChildren();
       options.registry.dispose();
     },
+  };
+
+  const clearDockPreview = (): void => {
+    dockGhost?.remove();
+    dockOverlay?.remove();
+    dockGhost = null;
+    dockOverlay = null;
+    document.body.classList.remove("dock-drag-active");
+  };
+
+  const renderDockPreview = (preview: DockDragPreview | null): void => {
+    clearDockPreview();
+    if (!preview || !dockMetrics) return;
+    const clientX = (preview.point.x - dockMetrics.innerOrigin.x) / dockMetrics.scaleFactor;
+    const clientY = (preview.point.y - dockMetrics.innerOrigin.y) / dockMetrics.scaleFactor;
+    dockGhost = document.createElement("div");
+    dockGhost.className = "dock-drag-ghost";
+    dockGhost.setAttribute("aria-hidden", "true");
+    dockGhost.textContent = preview.payload.kind === "view"
+      ? preview.payload.viewId
+      : `${preview.payload.viewIds.length} views`;
+    dockGhost.style.setProperty("--dock-drag-x", `${clientX}px`);
+    dockGhost.style.setProperty("--dock-drag-y", `${clientY}px`);
+    dockOverlay = document.createElement("div");
+    dockOverlay.className = `dock-target-overlay dock-target-${preview.zone?.target.kind ?? "invalid"}`;
+    dockOverlay.setAttribute("aria-hidden", "true");
+    const targetIsLocal = preview.zone?.target.kind !== "new-window"
+      && preview.zone?.target.windowLabel === dockMetrics.windowLabel;
+    const rect = targetIsLocal && preview.zone
+      ? preview.zone.rect
+      : { left: clientX - 9, top: clientY - 9, width: 18, height: 18 };
+    dockOverlay.style.setProperty("--dock-target-left", `${rect.left}px`);
+    dockOverlay.style.setProperty("--dock-target-top", `${rect.top}px`);
+    dockOverlay.style.setProperty("--dock-target-width", `${rect.width}px`);
+    dockOverlay.style.setProperty("--dock-target-height", `${rect.height}px`);
+    document.body.appendChild(dockGhost);
+    document.body.appendChild(dockOverlay);
+    document.body.classList.add("dock-drag-active");
+  };
+
+  if (options.nativeDocking) {
+    dockDragCoordinator = createDockDragCoordinator({
+      snapshot: () => {
+        const workspace = options.nativeDocking?.workspace?.();
+        return {
+          revision: dockRevision,
+          workbench: normalizeWorkbenchLayout(state),
+          viewWindows: structuredClone(workspace?.viewWindows ?? EMPTY_VIEW_WINDOW_LAYOUT),
+          ...(workspace?.windowLabels ? { windowLabels: [...workspace.windowLabels] } : {}),
+        };
+      },
+      surfaces: () => dockMetrics ? [
+        workbench.dockSurface(dockMetrics, dockRevision),
+        ...(options.nativeDocking?.registeredSurfaces?.() ?? []),
+      ] : [],
+      preview: renderDockPreview,
+      commit: async ({ snapshot, effects }) => {
+        if (effects.length > 0 && !options.nativeDocking?.commitEffects) {
+          throw new Error("Cross-window dock effects require the Task 6 transport");
+        }
+        await options.nativeDocking?.commitEffects?.(effects, snapshot);
+        commit(snapshot.workbench);
+      },
+      requestNewWindow: options.nativeDocking.requestNewWindow,
+    });
+  }
+
+  const dockScreenPoint = (event: PointerEvent): { x: number; y: number } | null =>
+    dockMetrics ? logicalClientPointToPhysicalScreen(dockMetrics, { x: event.clientX, y: event.clientY }) : null;
+  const onDockPointerMove = (event: PointerEvent): void => {
+    if (!dockDragCoordinator || !dockMetrics) return;
+    dockDragCoordinator.move({
+      pointerId: event.pointerId,
+      client: { x: event.clientX, y: event.clientY },
+      screen: dockScreenPoint(event)!,
+    });
+    if (dockDragCoordinator.state() === "dragging") event.preventDefault();
+  };
+  const onDockPointerUp = (event: PointerEvent): void => {
+    if (!dockDragCoordinator) return;
+    const point = dockScreenPoint(event);
+    if (!point) {
+      dockDragCoordinator.cancel();
+      return;
+    }
+    const wasDragging = dockDragCoordinator.state() === "dragging";
+    void dockDragCoordinator.drop({ pointerId: event.pointerId, screen: point });
+    if (wasDragging) event.preventDefault();
+  };
+  const onDockPointerCancel = (): void => { dockDragCoordinator?.cancel(); };
+  const onDockKeyDown = (event: KeyboardEvent): void => {
+    if (event.key === "Escape" && dockDragCoordinator?.cancel()) event.preventDefault();
   };
 
   let resizing = false;
@@ -1014,7 +1203,15 @@ export function mountWorkbench(options: {
   window.addEventListener("pointerup", finishOutlineResize);
   window.addEventListener("pointercancel", finishOutlineResize);
   window.addEventListener("blur", finishOutlineResize);
-  window.addEventListener("blur", finishViewDrag);
+  if (options.nativeDocking) {
+    window.addEventListener("pointermove", onDockPointerMove);
+    window.addEventListener("pointerup", onDockPointerUp);
+    window.addEventListener("pointercancel", onDockPointerCancel);
+    window.addEventListener("keydown", onDockKeyDown);
+    window.addEventListener("blur", onDockPointerCancel);
+  } else {
+    window.addEventListener("blur", finishViewDrag);
+  }
   window.addEventListener("resize", onWindowResize);
   render();
   return workbench;
