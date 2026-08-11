@@ -12,12 +12,22 @@ const findWindows = async () => {
   let main = null;
   let detached = null;
   await browser.waitUntil(async () => {
-    for (const handle of await browser.getWindowHandles()) {
-      await browser.switchToWindow(handle);
-      if (await $("#editor").isExisting()) main = handle;
-      if (await $(".detached-view-shell").isExisting()) detached = handle;
+    let nextMain = null;
+    let nextDetached = null;
+    const handles = await browser.getWindowHandles();
+    for (const handle of handles) {
+      try {
+        await browser.switchToWindow(handle);
+        if (await $("#editor").isExisting()) nextMain = handle;
+        if (await $(".detached-view-shell").isExisting()) nextDetached = handle;
+      } catch (error) {
+        if (!String(error).includes("no such window")) throw error;
+      }
     }
-    return Boolean(main && detached);
+    if (!nextMain || !nextDetached) return false;
+    main = nextMain;
+    detached = nextDetached;
+    return true;
   }, { timeout: 15_000, timeoutMsg: "Expected restored main and detached Rune windows" });
   return { main, detached };
 };

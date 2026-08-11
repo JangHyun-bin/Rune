@@ -38,6 +38,8 @@ const tearOffOutline = async () => {
   await $('html[data-wdio-docking-release-gate-ready="true"]').waitForExist();
   const drag = await browser.execute(async () => {
     const gate = window.__RUNE_DOCKING_RELEASE_GATE__;
+    await gate.normalizeWindow();
+    await new Promise((resolve) => setTimeout(resolve, 300));
     const element = [
       document.querySelector('.panel-tab[data-view-id="outline"]'),
       document.querySelector('.view-group-tab[data-view-id="outline"]'),
@@ -53,6 +55,7 @@ const tearOffOutline = async () => {
       scaleFactor: metrics.scaleFactor,
     };
   });
+  console.log(`TEAR_OFF_POINTER ${JSON.stringify(drag)}`);
   nativePointerDrag(drag.start, drag.end, drag.scaleFactor);
   return waitForWindowCount(2);
 };

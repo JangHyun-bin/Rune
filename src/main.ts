@@ -26,6 +26,7 @@ import { parentDir } from "./workspace/paths";
 import { listen, type Event } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
+import { PhysicalPosition, PhysicalSize } from "@tauri-apps/api/window";
 import { mountConflictBanner } from "./workspace/conflictBanner";
 import { mountErrorBanner } from "./workspace/errorBanner";
 import {
@@ -433,6 +434,12 @@ if (import.meta.env.VITE_WDIO === "1" && nativeDockDrag) {
     __RUNE_DOCKING_RELEASE_GATE__: {
       metrics: nativeDockDrag.metrics,
       focus: () => getCurrentWebviewWindow().setFocus(),
+      normalizeWindow: async () => {
+        const window = getCurrentWebviewWindow();
+        await window.setSize(new PhysicalSize(800, 600));
+        await window.setPosition(new PhysicalPosition(40, 40));
+        await window.setFocus();
+      },
       toPhysical: logicalClientPointToPhysicalScreen,
       workspace: () => structuredClone(workbench.dockWorkspaceSnapshot(
         viewWindowHost?.layoutSnapshot() ?? EMPTY_VIEW_WINDOW_LAYOUT,
