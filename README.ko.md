@@ -41,7 +41,7 @@ Rune은 **입력하는 즉시** 서식이 적용되는 크로스플랫폼 마크
 - 🖼️ **이미지** — 붙여넣기/드롭 → 문서 옆 `assets/`에 저장 → 인라인 표시
 - 🗂️ **워크스페이스** — 폴더 열기 + 파일 트리 + 디바운스 자동저장
 - 🧩 **멀티탭** — 크롬 같은 탭; 탭별 내용·커서·undo 기록 보존
-- 🪟 **도킹 가능한 뷰** — 뷰를 네이티브 창으로 떼어낸 뒤 정확한 탭·그룹·분할·사이드바·패널 위치에 다시 도킹; 메뉴 동작은 보조 수단으로 유지
+- 🪟 **도킹 가능한 뷰(v1.0.1 프리뷰)** — 남은 Linux 데스크톱 릴리스 게이트가 통과할 때까지 네이티브 tear-off와 정확 위치 re-dock은 `VITE_NATIVE_DOCKING=1` 뒤에 유지; 메뉴 동작은 보조 수단으로 제공
 - ⌘ **커맨드 팔레트** (Ctrl/Cmd-K) **· 전문 검색 · 외부 변경 감시**
 - 📤 **내보내기** — 자기완결 HTML/PDF, 설치된 [Pandoc](https://pandoc.org/)을 이용한 DOCX/EPUB
 - 🌐 **4개 언어** — English · 한국어 · 日本語 · 简体中文
@@ -84,7 +84,7 @@ cd src-tauri && cargo test   # Rust 코어 테스트
 npm run tauri build          # 현재 OS용 설치본 빌드
 ```
 
-네이티브 뷰 도킹은 브라우저 스크립트 테스트와 분리된 릴리스 게이트로 검증합니다. `npm run test:e2e:workbench`는 실제 운영체제 포인터 입력으로 요청한 저장 위치, dirty editor 보존, 두 번의 앱 재시작 이후 상태를 확인합니다. 도킹 대상은 Workbench View이며, editor tab이나 문서 본문은 도킹 프로토콜로 전송하지 않습니다.
+네이티브 뷰 도킹은 브라우저 스크립트 테스트와 분리된 릴리스 게이트로 검증합니다. `npm run test:e2e:workbench`는 실제 운영체제 포인터 입력으로 요청한 저장 위치, dirty editor 보존, 두 번의 앱 재시작 이후 상태를 확인합니다. Hosted Windows와 macOS는 이 게이트를 통과했고, hosted Linux는 native pointer boundary까지만 검증합니다. Xvfb/Openbox와 `tauri-driver`가 입력 surface를 별도로 reparent하므로 전체 cross-window 증거는 일반 Linux 데스크톱에서 확인해야 합니다. 도킹 대상은 Workbench View이며, editor tab이나 문서 본문은 도킹 프로토콜로 전송하지 않습니다.
 
 `v*` 태그를 푸시하면 GitHub Actions가 Windows/macOS/Linux 설치본을 빌드해 릴리스를 발행합니다 ([`.github/workflows/release.yml`](.github/workflows/release.yml)).
 

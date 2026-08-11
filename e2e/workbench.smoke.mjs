@@ -71,7 +71,6 @@ const physicalPoint = async (selector, xRatio = 0.5, yRatio = 0.5) => browser.ex
   const metrics = await gate.metrics();
   return {
     point: gate.toPhysical(metrics, { x: rect.left + rect.width * x, y: rect.top + rect.height * y }),
-    clientPoint: { x: rect.left + rect.width * x, y: rect.top + rect.height * y },
     metrics,
   };
 }, selector, xRatio, yRatio);
@@ -120,11 +119,6 @@ describe("native Workbench release smoke", () => {
       nativePointerDrag(source.point, target.point, source.metrics.scaleFactor, {
         linuxWindowTitle: "^Rune",
         linuxWindowMaxWidth: 600,
-        linuxWindowPosition: {
-          x: source.point.x - 80,
-          y: source.point.y - 40,
-        },
-        linuxFocusClick: true,
       });
       await browser.pause(2_000);
       if ((await browser.getWindowHandles()).length !== 1) {

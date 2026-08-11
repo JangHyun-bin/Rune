@@ -15,55 +15,6 @@ const checkedSpawn = (command, args) => {
   return result;
 };
 
-export const calibrateScreenPoint = ({
-  calibrationScreen,
-  observedClient,
-  desiredClient,
-  scaleFactor,
-}) => ({
-  x: calibrationScreen.x + (desiredClient.x - observedClient.x) * scaleFactor,
-  y: calibrationScreen.y + (desiredClient.y - observedClient.y) * scaleFactor,
-});
-
-export const nativePointerClick = (point, options = {}) => {
-  if (process.platform !== "linux") throw new Error("Native pointer calibration is Linux-only");
-  const matchingWindows = options.linuxWindowTitle
-    ? checkedSpawn("xdotool", ["search", "--onlyvisible", "--name", options.linuxWindowTitle]).stdout.trim().split(/\s+/)
-    : [];
-  const activeWindow = matchingWindows.filter((value) => /^\d+$/.test(value)).find((id) => {
-    if (!options.linuxWindowMaxWidth) return true;
-    const geometry = checkedSpawn("xdotool", ["getwindowgeometry", "--shell", id]).stdout;
-    const width = Number(/^WIDTH=(\d+)$/m.exec(geometry)?.[1] ?? Number.NaN);
-    return width <= options.linuxWindowMaxWidth;
-  }) ?? checkedSpawn("xdotool", ["getactivewindow"]).stdout.trim();
-  if (!/^\d+$/.test(activeWindow)) throw new Error(`xdotool returned an invalid active window: ${activeWindow}`);
-  const clicked = { x: Math.round(point.x), y: Math.round(point.y) };
-  checkedSpawn("xdotool", ["windowactivate", "--sync", activeWindow]);
-  checkedSpawn("xdotool", ["mousemove", "--sync", String(clicked.x), String(clicked.y)]);
-  const location = checkedSpawn("xdotool", ["getmouselocation", "--shell"]).stdout;
-  const pointerWindow = /^WINDOW=(\d+)$/m.exec(location)?.[1] ?? "";
-  const pointerWindowName = pointerWindow
-    ? checkedSpawn("xdotool", ["getwindowname", pointerWindow]).stdout.trim()
-    : "";
-  const pointerWindowGeometry = pointerWindow
-    ? checkedSpawn("xdotool", ["getwindowgeometry", "--shell", pointerWindow]).stdout.trim()
-    : "";
-  console.log(`LINUX_POINTER_CALIBRATION_PROBE ${JSON.stringify({
-    activeWindow,
-    clicked,
-    location: location.trim(),
-    pointerWindow,
-    pointerWindowName,
-    pointerWindowGeometry,
-  })}`);
-  wait(250);
-  checkedSpawn("xdotool", ["mousedown", "1"]);
-  wait(250);
-  checkedSpawn("xdotool", ["mouseup", "1"]);
-  wait(350);
-  return clicked;
-};
-
 export const nativePointerDrag = (start, end, scaleFactor = 1, options = {}) => {
   const delta = { x: end.x - start.x, y: end.y - start.y };
   if (process.platform === "win32") {
@@ -135,16 +86,6 @@ post(2, ex, ey)
     ?? checkedSpawn("xdotool", ["getactivewindow"]).stdout.trim();
   if (!/^\d+$/.test(activeWindow)) throw new Error(`xdotool returned an invalid active window: ${activeWindow}`);
   checkedSpawn("xdotool", ["windowactivate", "--sync", activeWindow]);
-  if (options.linuxWindowPosition) {
-    checkedSpawn("wmctrl", [
-      "-i",
-      "-r",
-      `0x${Number(activeWindow).toString(16)}`,
-      "-e",
-      `0,${Math.round(options.linuxWindowPosition.x)},${Math.round(options.linuxWindowPosition.y)},-1,-1`,
-    ]);
-    wait(350);
-  }
   checkedSpawn("xdotool", ["mousemove", "--sync", String(Math.round(start.x)), String(Math.round(start.y))]);
   const location = checkedSpawn("xdotool", ["getmouselocation", "--shell"]).stdout;
   const pointerWindow = /^WINDOW=(\d+)$/m.exec(location)?.[1] ?? "";
@@ -163,49 +104,16 @@ post(2, ex, ey)
     pointerWindowName,
     pointerWindowGeometry,
   })}`);
-  let linuxStart = start;
-  if (options.linuxWindowPosition && pointerWindow) {
-    checkedSpawn("xdotool", [
-      "windowmove",
-      "--sync",
-      pointerWindow,
-      String(Math.round(options.linuxWindowPosition.x)),
-      String(Math.round(options.linuxWindowPosition.y)),
-    ]);
-    wait(350);
-    const frameGeometry = checkedSpawn("xdotool", ["getwindowgeometry", "--shell", pointerWindow]).stdout.trim();
-    if (options.linuxClientPoint && options.linuxFrameInset) {
-      const frameX = Number(/^X=(-?\d+)$/m.exec(frameGeometry)?.[1] ?? Number.NaN);
-      const frameY = Number(/^Y=(-?\d+)$/m.exec(frameGeometry)?.[1] ?? Number.NaN);
-      if (!Number.isFinite(frameX) || !Number.isFinite(frameY)) throw new Error("xdotool returned invalid frame coordinates");
-      linuxStart = {
-        x: frameX + options.linuxFrameInset.x + options.linuxClientPoint.x * scaleFactor,
-        y: frameY + options.linuxFrameInset.y + options.linuxClientPoint.y * scaleFactor,
-      };
-    }
-    checkedSpawn("xdotool", ["mousemove", "--sync", String(Math.round(linuxStart.x)), String(Math.round(linuxStart.y))]);
-    console.log(`LINUX_POINTER_FRAME ${JSON.stringify({
-      pointerWindow,
-      geometry: frameGeometry,
-      adjustedStart: linuxStart,
-    })}`);
-  }
-  if (options.linuxFocusClick) {
-    checkedSpawn("xdotool", ["click", "1"]);
-    wait(350);
-    checkedSpawn("xdotool", ["mousemove", "--sync", String(Math.round(linuxStart.x)), String(Math.round(linuxStart.y))]);
-  }
   wait(250);
   checkedSpawn("xdotool", ["mousedown", "1"]);
   wait(350);
-  const linuxDelta = { x: end.x - linuxStart.x, y: end.y - linuxStart.y };
   for (let step = 1; step <= 32; step += 1) {
     const ratio = step / 32;
     checkedSpawn("xdotool", [
       "mousemove",
       "--sync",
-      String(Math.round(linuxStart.x + linuxDelta.x * ratio)),
-      String(Math.round(linuxStart.y + linuxDelta.y * ratio)),
+      String(Math.round(start.x + delta.x * ratio)),
+      String(Math.round(start.y + delta.y * ratio)),
     ]);
     wait(75);
   }

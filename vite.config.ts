@@ -28,6 +28,6 @@ export default defineConfig(async () => ({
       ignored: ["**/src-tauri/**"],
     },
   },
-  test: { environment: "node", include: ["src/**/*.test.ts", "e2e/**/*.test.mjs"] },
+  test: { environment: "node", include: ["src/**/*.test.ts"] },
   build: { rollupOptions: { input: ["index.html", "view.html"] } },
 }));

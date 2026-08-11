@@ -41,7 +41,7 @@ Rune is a cross-platform markdown writer that formats **as you type** — code, 
 - 🖼️ **Images** — paste or drop; saved beside your doc in `assets/` and shown inline
 - 🗂️ **Workspace** — open a folder, browse the file tree, debounced autosave
 - 🧩 **Multi-tab** — Chrome-like tabs; each keeps its own content, cursor, and undo history
-- 🪟 **Dockable Views** — drag a View into a native window, then re-dock it at an exact tab, group, split, Sidebar, or Panel target; menu actions remain available as fallbacks
+- 🪟 **Dockable Views (v1.0.1 preview)** — native tear-off and exact-target re-docking are behind `VITE_NATIVE_DOCKING=1` until the remaining Linux desktop release gate passes; menu actions remain available as fallbacks
 - ⌘ **Command palette** (Ctrl/Cmd-K) **· full-text search · external-change watch**
 - 📤 **Export** — self-contained HTML/PDF, plus DOCX/EPUB with an installed [Pandoc](https://pandoc.org/)
 - 🌐 **Four languages** — English · 한국어 · 日本語 · 简体中文
@@ -84,7 +84,7 @@ cd src-tauri && cargo test   # Rust core tests
 npm run tauri build          # build installers for the current OS
 ```
 
-Native View docking is release-gated separately from browser-scripted tests. `npm run test:e2e:workbench` performs real operating-system pointer input, verifies the requested persisted destination, preserves a dirty editor, and checks the result after two application restarts. Docking moves Workbench Views only; editor tabs and document bodies are not transferred through the docking protocol.
+Native View docking is release-gated separately from browser-scripted tests. `npm run test:e2e:workbench` performs real operating-system pointer input, verifies the requested persisted destination, preserves a dirty editor, and checks the result after two application restarts. Hosted Windows and macOS pass this gate; hosted Linux verifies the native pointer boundary, while complete cross-window evidence still requires a normal Linux desktop because Xvfb/Openbox and `tauri-driver` reparent the input surface separately. Docking moves Workbench Views only; editor tabs and document bodies are not transferred through the docking protocol.
 
 Pushing a `v*` tag triggers GitHub Actions to build Windows/macOS/Linux installers and publish a release ([`.github/workflows/release.yml`](.github/workflows/release.yml)).
 
