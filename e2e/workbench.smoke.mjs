@@ -122,7 +122,10 @@ describe("native Workbench release smoke", () => {
       const source = await physicalPoint('.detached-view-tabs [data-view-id="outline"]', 0.5, 0.9);
       console.log(`CROSS_WINDOW_POINTER ${JSON.stringify({ source, target })}`);
       const linuxWindow = { linuxWindowTitle: "^Rune", linuxWindowMaxWidth: 600 };
-      const calibrationScreen = nativePointerClick(source.point, linuxWindow);
+      const calibrationScreen = nativePointerClick({
+        x: source.point.x,
+        y: source.point.y + 80 * source.metrics.scaleFactor,
+      }, linuxWindow);
       const observedClient = await browser.execute(() => (
         window.__RUNE_DOCKING_RELEASE_GATE__.dockState().pointerEvidence.downPoint
       ));
