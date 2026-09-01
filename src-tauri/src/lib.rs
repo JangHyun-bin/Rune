@@ -1,6 +1,7 @@
 mod fs_ops;
 mod hot_exit;
 mod native_drag;
+mod menu;
 mod commands;
 mod publishing;
 mod settings;
