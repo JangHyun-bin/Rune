@@ -47,6 +47,7 @@ import { mountOutlinePanel, type OutlinePanel } from "./workspace/outlinePanel";
 import { showLanguagePicker } from "./workspace/languagePicker";
 import { mountHelpPanel } from "./workspace/helpPanel";
 import { t as tr, setLocale, getLocale, detectLocale, LOCALES, type Locale } from "./i18n/i18n";
+import { menuLabels } from "./chrome/menuLabels";
 import { showContextMenu, type MenuItem } from "./workspace/contextMenu";
 import { promptModal } from "./workspace/promptModal";
 import { runPathChange } from "./workspace/pathChangeFlow";
@@ -795,6 +796,7 @@ function applyLocale(l: Locale): void {
   chrome.relabel();
   workbench.relabel();
   layoutModeControl?.relabel();
+  void commands.setMenuLabels(menuLabels());
   syncActiveUI();
   settingsPanel.refresh();
   broadcastViewWindowPresentation();
@@ -1518,6 +1520,7 @@ async function restore(): Promise<void> {
   chrome.relabel();
   workbench.relabel();
   layoutModeControl?.relabel();
+  void commands.setMenuLabels(menuLabels());
 
   if (s.lastFolder) { await loadFolder(s.lastFolder).catch(() => {}); }
   await paneWorkspace.restore(normalizePaneWorkspaceSnapshot(s.paneLayout, s.openTabs));
@@ -1705,6 +1708,24 @@ function safeListen<T>(event: string, handler: (event: Event<T>) => void): Promi
 void safeListen<string[]>("fs-change", (e) => onFsChange(e.payload));
 // A .md opened via file association while Rune is already running (single-instance / macOS).
 const openFileListenerReady = safeListen<string>("open-file", (e) => { void nativeFileOpenQueue.openLiveFile(e.payload); });
+function menuAction(id: string): void {
+  switch (id) {
+    case "file.newTab": newDoc(); break;
+    case "file.open": void openFile(); break;
+    case "file.openFolder": void openFolder(); break;
+    case "file.save": void doSave(); break;
+    case "file.saveAs": void doSaveAs(); break;
+    case "file.exportHtml": void exportHtml(activeView().state.doc.toString(), exportTitle()); break;
+    case "file.exportPdf": void exportPdf(activeView().state.doc.toString(), exportTitle()); break;
+    case "app.quit": void getCurrentWebviewWindow().close(); break;
+    case "view.toggleSidebar": commandRegistry.execute(togglePartCommandId("primarySidebar")); break;
+    case "view.togglePanel": commandRegistry.execute(togglePartCommandId("panel")); break;
+    case "view.toggleTheme": flipTheme(); break;
+    case "view.toggleFocusMode": applyFocusMode(!focusMode); break;
+    case "help.help": helpPanel.open(); break;
+  }
+}
+void safeListen<string>("menu-action", (e) => menuAction(e.payload));
 function bindNativeFileDrop(): void {
   if (!isTauri()) return;
   try {
