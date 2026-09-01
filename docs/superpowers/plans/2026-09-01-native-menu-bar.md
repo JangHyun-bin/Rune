@@ -12,11 +12,13 @@
 
 ## Global Constraints
 
-- No `.accelerator(...)` call anywhere, on any menu item, on any platform — the DOM `keydown` listener in `src/main.ts` stays the only thing that reacts to keystrokes. Shortcut hints are plain text baked into the label string.
-- No Edit menu, no `PredefinedMenuItem::undo()/redo()/cut()/copy()/paste()`.
-- Menu bar applies to the **main window only** — never touch `view-*` detached windows or their capability file.
+- No `.accelerator(...)` call anywhere, on any menu item, on any platform — the DOM `keydown` listener in `src/main.ts` stays the only thing that reacts to keystrokes. Shortcut hints are plain text baked into the label string. **One exception (added post-implementation, final whole-branch review finding C1):** the macOS app-menu Quit item gets `.accelerator("CmdOrCtrl+Q")`, because `main.ts`'s `keydown` listener has no Quit/`q` branch on any platform to race against, and replacing macOS's default app menu (required to route Quit through graceful shutdown) otherwise silently drops the OS's own Cmd+Q handling. Scoped to Quit only.
+- No *custom* Edit menu with `PredefinedMenuItem::undo()/redo()`. **Clarification (finding C1):** this does not forbid restoring the macOS app menu's native `cut()/copy()/paste()/select_all()`/window/hide/services items that `app.set_menu` silently removes when it replaces the OS default app menu — that removal was an unintended regression this branch introduced, not a deliberate scope cut.
+- Menu bar applies to the **main window only** — never touch `view-*` detached windows or their capability file. (Finding I2: `app.set_menu` is app-wide by default and must be scoped explicitly on Windows/Linux; the `menu-action` forwarder must target the main window specifically, not broadcast.)
 - Quit is **always** a custom `app.quit` action (never `PredefinedMenuItem::quit()`, on any platform) so it always routes through the window's existing `close-requested` graceful-shutdown path.
-- `PredefinedMenuItem::about()` is the one exception allowed to stay native/unsynced (it only opens an OS info panel — no app state involved).
+- `PredefinedMenuItem::about()` is the one exception allowed to stay native/unsynced (it only opens an OS info panel — no app state involved). **Correction (finding I3):** it must be built with `Some(AboutMetadata{..})`, not `None` — muda's Windows/GTK handlers silently no-op on `None`; only macOS's OS-deferred About tolerates it.
+- Menu construction must never crash app startup (finding I5) — this feature has no feature flag, so `.setup()` must log and continue on a menu-build failure rather than propagate it into `.expect(...)`.
+- Shortcut hint text (`"Save As…    Ctrl+Shift+S"`) must actually be baked into labels by `menuLabels()` (finding I4) — this was specified from the start (spec §3/§5.4) but never implemented in Tasks 1-4.
 
 ---
 

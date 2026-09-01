@@ -21,8 +21,8 @@ Root cause of both, confirmed via `superpowers:systematic-debugging`:
 - Quit (wherever it lives — File menu on Win/Linux, app menu on macOS) goes through the existing graceful-shutdown path (settings flush, hot-exit discard), not an abrupt process exit.
 
 **Non-goals (this spec)**
-- No Edit menu. CodeMirror 6 owns Undo/Redo via its own `historyKeymap`; native `PredefinedMenuItem::undo()/redo()` send OS-level `execCommand`, which does not touch CM6's internal history and risks state divergence. Cut/Copy/Paste are already served by the webview's default context menu.
-- No native OS accelerators on the custom menu items (see §5.4) — the existing `main.ts` `keydown` listener remains the single source of truth for keyboard shortcuts.
+- No *custom* Edit menu with Undo/Redo. CodeMirror 6 owns Undo/Redo via its own `historyKeymap`; native `PredefinedMenuItem::undo()/redo()` send OS-level `execCommand`, which does not touch CM6's internal history and risks state divergence. This is unrelated to the macOS app menu's native Cut/Copy/Paste/Select All/Window/Hide/Services items (§3, "macOS app menu" row) — those are OS-default items that exist for free until `app.set_menu` replaces the default menu, and restoring them is a regression fix, not new scope. (Added post-implementation, final review finding C1: the first implementation replaced the whole macOS app menu and silently lost these along with Cmd+Q.)
+- No native OS accelerators on the custom menu items (see §5.4), with one exception: macOS Quit gets `CmdOrCtrl+Q` (§5.4, added post-implementation per finding C1) because there is no competing `keydown` branch for Quit on any platform.
 - No menu on detached view windows (`view-*`) — those are workbench utility panels; scope stays on the main window to avoid touching the just-stabilized native-docking multi-window code.
 - No per-item enabled/disabled state tracking (e.g. graying out Save when clean). Matches how the Command Palette already behaves — every item is always clickable, and the target function is already a safe no-op when there's nothing to do.
 
@@ -34,7 +34,7 @@ Root cause of both, confirmed via `superpowers:systematic-debugging`:
 | Accelerators | None on custom items. Labels show the shortcut as static hint text (e.g. `Save As…    Ctrl+Shift+S`); the real key handling stays in `main.ts`'s `keydown` listener. |
 | i18n ownership | JS (`i18n.ts`) stays the single source of translated strings. A new Tauri command `set_menu_labels(labels: HashMap<String, String>)` pushes translated text into the already-built menu items via `set_text()`; Rust never embeds a copy of the 4-locale table. |
 | Quit | Custom `menu-action: "app.quit"` item (not `PredefinedMenuItem::quit()`), handled in JS by calling `getCurrentWebviewWindow().close()` — same path as clicking the OS close button, so the existing `close-requested` save/hot-exit flush still runs. |
-| macOS app menu | Minimal `Submenu` named after the app containing `PredefinedMenuItem::about()` and `PredefinedMenuItem::quit()` (macOS convention; safe because both are OS-handled panels/exit, not app logic — the Quit-bypasses-shutdown concern above is about the *File-menu* Quit item on Win/Linux, where Tauri doesn't supply a conventional predefined app-menu Quit at all). |
+| macOS app menu | `Submenu` named after the app containing `PredefinedMenuItem::about()`, then a custom `app.quit` item (same as Win/Linux File→Quit — **not** `PredefinedMenuItem::quit()`, so it still routes through the graceful-shutdown path) with `.accelerator("CmdOrCtrl+Q")` set (the one accelerator exception — see §5.4). **Added post-implementation (final review finding C1):** `app.set_menu` replaces the OS's entire default app menu, which is where macOS actually gets Cmd+Q and the Cut/Copy/Paste/Select All keyboard shortcuts from — so the macOS app menu must also include `PredefinedMenuItem::cut/copy/paste/select_all()` (an Edit-role group, no id, no label sync needed — OS-supplied text) plus `minimize`/`close_window` and `hide`/`hide_others`/`services` to avoid silently regressing window management and clipboard shortcuts that worked before this feature touched the app menu. |
 | Scope | Main window only. |
 | Rust testability | Item definitions (id, label key, target platform) built as a pure function separate from the `tauri::menu::Menu` construction call, so the item list is unit-testable without an OS window — same separation `native_drag.rs` already uses between coordinate math and platform API calls. |
 
@@ -58,9 +58,12 @@ Root cause of both, confirmed via `superpowers:systematic-debugging`:
 | | Toggle Theme | `flipTheme()` |
 | | Toggle Focus Mode | `applyFocusMode(!focusMode)` |
 | **Help** | Help | `helpPanel.open()` |
-| | About Rune *(Win/Linux only — macOS uses the app menu's About)* | `PredefinedMenuItem::about()` (native, no JS round-trip) |
+| | About Rune *(Win/Linux only — macOS uses the app menu's About)* | `PredefinedMenuItem::about(app, Some("About Rune"), Some(metadata))` — **must** pass `Some` metadata (name/version), not `None` (added post-implementation, finding I3: muda's Windows/GTK handlers no-op silently when metadata is `None`; only macOS's OS-deferred About works with `None`) |
 | **macOS app menu** *(prepended, macOS only)* | About Rune | `PredefinedMenuItem::about()` |
-| | Quit Rune | `PredefinedMenuItem::quit()` |
+| | Cut / Copy / Paste / Select All *(added post-implementation, finding C1)* | `PredefinedMenuItem::cut/copy/paste/select_all()` — restores OS-default clipboard shortcuts `app.set_menu` would otherwise silently remove |
+| | Hide / Hide Others / Services *(added post-implementation, finding C1)* | `PredefinedMenuItem::hide/hide_others/services()` |
+| | Minimize / Close Window *(added post-implementation, finding C1)* | `PredefinedMenuItem::minimize/close_window()` |
+| | Quit Rune *(`CmdOrCtrl+Q` accelerator — the one exception, see §5.4)* | custom `app.quit` (not `PredefinedMenuItem::quit()`) |
 
 ## 5. Detailed design
 
@@ -90,11 +93,14 @@ Root cause of both, confirmed via `superpowers:systematic-debugging`:
 
 This removes the platform-uncertainty this section used to carry: with no `.accelerator()` call anywhere, there is exactly one path for a keystroke (DOM `keydown`) and exactly one path for a menu click (`on_menu_event → emit → JS dispatch`), and they never overlap.
 
+**Amendment (post-implementation, final review finding C1):** the macOS app-menu Quit item is the one exception to "never call `.accelerator()`" — it gets `.accelerator("CmdOrCtrl+Q")`. Reasoning: the "no accelerator" rule exists to prevent an OS-registered key binding from double-dispatching against `main.ts`'s DOM `keydown` listener. `main.ts` has no `q`/Quit branch on any platform — Quit was only ever reachable via the menu — so there is no competing path this exception could race against. Without it, replacing macOS's default app menu (required to add the custom, graceful-shutdown-routed `app.quit` item at all) silently drops the OS's own Cmd+Q handling, which every native macOS app is expected to support. This exception is scoped to Quit only; it is not a general license to add accelerators to other items.
+
 ## 6. Risks, dependencies, open items
 
 1. **`tauri::menu` API surface** — Tauri 2's menu module ships in the base `tauri` crate already depended on (`Cargo.toml:25`, no extra feature flag needed); confirm exact builder API (`MenuBuilder`/`SubmenuBuilder`/`PredefinedMenuItem`) against the pinned Tauri version during implementation.
 2. **i18n keys** — new `menu.quit` / `menu.about` (and any label not already covered by an existing `cmd.*` key) need entries in all 4 locale blocks plus a `parity.test.ts` pass, following the pattern already used for `cmd.saveAs` in this session.
 3. **`PredefinedMenuItem::about()` title text** — the item label itself ("About Rune") is set once at build time in whatever locale is active then; unlike custom items it is not re-synced by `set_menu_labels` (its *content*, the native About panel, is OS-drawn either way). Low-impact — acceptable for v1, notable if a future pass wants full label localization there too.
+4. **Menu construction must not crash app startup** (added post-implementation, final review finding I5) — this feature ships with no feature flag (unlike `VITE_NATIVE_DOCKING`), so a menu-building failure (e.g. flaky GTK init on some Linux desktop) must not prevent the app from launching. Log and continue without a menu bar rather than propagating the error out of `.setup()`.
 
 ## 7. Testing strategy
 
