@@ -1,6 +1,9 @@
 use std::collections::HashMap;
 use std::sync::Mutex;
-use tauri::menu::{IsMenuItem, Menu, MenuBuilder, MenuItem, MenuItemBuilder, PredefinedMenuItem, Submenu, SubmenuBuilder};
+use tauri::menu::{
+    AboutMetadata, AboutMetadataBuilder, IsMenuItem, Menu, MenuBuilder, MenuItem, MenuItemBuilder,
+    PredefinedMenuItem, Submenu, SubmenuBuilder,
+};
 use tauri::{AppHandle, Wry};
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -100,19 +103,61 @@ impl SyncableItem {
 
 pub struct MenuState(pub Mutex<HashMap<String, SyncableItem>>);
 
+/// Shared About-panel content for both the macOS app-menu About and the
+/// Windows/Linux Help-menu About. Must be `Some(..)`, not `None` — muda's
+/// Windows/GTK handlers silently no-op on `None` (finding I3); only macOS's
+/// OS-deferred About tolerates it, but there's no reason to special-case
+/// that platform when the same metadata works everywhere.
+fn about_metadata() -> AboutMetadata<'static> {
+    AboutMetadataBuilder::new()
+        .name(Some("Rune"))
+        .version(Some(env!("CARGO_PKG_VERSION")))
+        .build()
+}
+
 /// Builds the native menu for `target_os` and a lookup of every syncable
 /// (id -> handle) so `set_menu_labels` can retext items after startup.
-/// macOS gets a prepended app submenu (About + custom Quit); Win/Linux
-/// fold Quit into File and get a native About row appended to Help.
+/// macOS gets a prepended app submenu (About, native Cut/Copy/Paste/Select
+/// All, Minimize/Close Window, Hide/Hide Others/Services, and a custom Quit
+/// with `CmdOrCtrl+Q` — finding C1: `app.set_menu` replaces the OS default
+/// app menu, so these have to be restored explicitly or the OS loses its
+/// own Cmd+Q and clipboard shortcuts). Win/Linux fold Quit into File and
+/// get a native About row appended to Help.
 pub fn build_menu(app: &AppHandle, target_os: TargetOs) -> tauri::Result<(Menu<Wry>, HashMap<String, SyncableItem>)> {
     let mut lookup: HashMap<String, SyncableItem> = HashMap::new();
     let mut top_level: Vec<Submenu<Wry>> = Vec::new();
 
     if target_os == TargetOs::MacOs {
-        let about = PredefinedMenuItem::about(app, Some("About Rune"), None)?;
-        let quit = MenuItemBuilder::with_id("app.quit", "Quit Rune").build(app)?;
+        let about = PredefinedMenuItem::about(app, Some("About Rune"), Some(about_metadata()))?;
+        let cut = PredefinedMenuItem::cut(app, None)?;
+        let copy = PredefinedMenuItem::copy(app, None)?;
+        let paste = PredefinedMenuItem::paste(app, None)?;
+        let select_all = PredefinedMenuItem::select_all(app, None)?;
+        let minimize = PredefinedMenuItem::minimize(app, None)?;
+        let close_window = PredefinedMenuItem::close_window(app, None)?;
+        let hide = PredefinedMenuItem::hide(app, None)?;
+        let hide_others = PredefinedMenuItem::hide_others(app, None)?;
+        let services = PredefinedMenuItem::services(app, None)?;
+        // The one `.accelerator()` exception in the whole codebase (spec §5.4 amendment,
+        // finding C1): main.ts's keydown listener has no Quit branch on any platform, so
+        // there is no DOM keystroke this could double-dispatch against.
+        let quit = MenuItemBuilder::with_id("app.quit", "Quit Rune")
+            .accelerator("CmdOrCtrl+Q")
+            .build(app)?;
         let app_menu = SubmenuBuilder::new(app, "Rune")
             .item(&about)
+            .separator()
+            .item(&cut)
+            .item(&copy)
+            .item(&paste)
+            .item(&select_all)
+            .separator()
+            .item(&minimize)
+            .item(&close_window)
+            .separator()
+            .item(&hide)
+            .item(&hide_others)
+            .item(&services)
             .separator()
             .item(&quit)
             .build()?;
@@ -135,7 +180,7 @@ pub fn build_menu(app: &AppHandle, target_os: TargetOs) -> tauri::Result<(Menu<W
             }
         }
         if def.id == "menu.help" && target_os != TargetOs::MacOs {
-            let about = PredefinedMenuItem::about(app, Some("About Rune"), None)?;
+            let about = PredefinedMenuItem::about(app, Some("About Rune"), Some(about_metadata()))?;
             builder = builder.separator().item(&about);
         }
         let submenu = builder.build()?;

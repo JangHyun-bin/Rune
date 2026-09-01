@@ -8,7 +8,7 @@ mod settings;
 mod search;
 mod workspace_index;
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicBool, Ordering};
 #[cfg(any(
@@ -124,15 +124,51 @@ pub fn run() {
         .manage(LaunchFile(Mutex::new(initial.into_iter().collect())))
         .manage(AppReady(AtomicBool::new(false)))
         .setup(|app| {
+            // Menu construction/installation is cosmetic, always-on chrome with no feature
+            // flag — a failure here (e.g. flaky GTK init on some Linux desktop) must not
+            // take the whole app down with it (finding I5). Log and continue without a
+            // menu bar; `MenuState` is always managed (with an empty lookup on failure) so
+            // a later `set_menu_labels` call from the frontend is a harmless no-op rather
+            // than a "state not managed" panic.
             let target_os = menu::TargetOs::current();
             let handle = app.app_handle();
-            let (built_menu, lookup) = menu::build_menu(handle, target_os)?;
-            app.set_menu(built_menu)?;
+            let lookup = match menu::build_menu(handle, target_os) {
+                Ok((built_menu, lookup)) => {
+                    // Windows/Linux: scope the menu to the main window only, so it never
+                    // leaks onto detached `view-*` windows (finding I2 — `app.set_menu` is
+                    // app-wide and would otherwise attach to every window with no menu of
+                    // its own). macOS menus are inherently app-global; there is no
+                    // per-window menu API there.
+                    let set_result = if target_os == menu::TargetOs::MacOs {
+                        app.set_menu(built_menu).map(|_| ())
+                    } else {
+                        match app.get_webview_window("main") {
+                            Some(main_window) => main_window.set_menu(built_menu).map(|_| ()),
+                            None => Err(tauri::Error::WindowNotFound),
+                        }
+                    };
+                    match set_result {
+                        Ok(()) => {
+                            let emit_handle = handle.clone();
+                            app.on_menu_event(move |_app, event| {
+                                // Always target the main window (finding I2) so a click in
+                                // any window can only ever affect the main document/state.
+                                let _ = emit_handle.emit_to("main", "menu-action", event.id().0.clone());
+                            });
+                            lookup
+                        }
+                        Err(e) => {
+                            eprintln!("menu: failed to install native menu bar, continuing without one: {e}");
+                            HashMap::new()
+                        }
+                    }
+                }
+                Err(e) => {
+                    eprintln!("menu: failed to build native menu bar, continuing without one: {e}");
+                    HashMap::new()
+                }
+            };
             app.manage(menu::MenuState(Mutex::new(lookup)));
-            let emit_handle = handle.clone();
-            app.on_menu_event(move |_app, event| {
-                let _ = emit_handle.emit("menu-action", event.id().0.clone());
-            });
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
