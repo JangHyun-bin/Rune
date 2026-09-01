@@ -1365,18 +1365,20 @@ async function doSave(): Promise<void> {
   if (!activeId) return;
   const t = pane.tabInfo(activeId);
   if (!t) return;
-  let path = t.path;
-  if (path) {
+  if (t.path) {
     await pane.saveActive();
     syncActiveUI();
     return;
   }
-  if (!path) {
-    const chosen = await save({ filters: [{ name: "Markdown", extensions: ["md"] }] });
-    if (typeof chosen !== "string") return;
-    path = chosen;
-  }
-  const res = await pane.saveActiveAs(path);
+  await doSaveAs();
+}
+
+async function doSaveAs(): Promise<void> {
+  const pane = activePane();
+  if (!pane.activeTabId()) return;
+  const chosen = await save({ filters: [{ name: "Markdown", extensions: ["md"] }] });
+  if (typeof chosen !== "string") return;
+  const res = await pane.saveActiveAs(chosen);
   if (!res) return;
   if (res.status === "error") { console.error(res.error); errorBanner.show(tr("error.save", { msg: res.error })); return; }
   syncActiveUI();
@@ -1397,6 +1399,7 @@ function paletteItems(): PaletteItem[] {
     { label: tr("menu.newFile"), run: () => { if (currentFolder) void newFileIn(currentFolder); } },
     { label: tr("menu.newFolder"), run: () => { if (currentFolder) void newFolderIn(currentFolder); } },
     { label: tr("cmd.save"), run: () => void doSave() },
+    { label: tr("cmd.saveAs"), run: () => void doSaveAs() },
     { label: tr("cmd.toggleTheme"), run: () => flipTheme() },
     { label: tr("cmd.toggleWidth"), run: () => flipEditorWidth() },
     { label: tr("cmd.toggleSourceMode"), run: () => flipEditorMode() },
@@ -1826,7 +1829,8 @@ window.addEventListener("keydown", (e) => {
   if (mod && e.key === "Tab") { e.preventDefault(); const id = e.shiftKey ? activePane().prevTabId() : activePane().nextTabId(); if (id) activePane().switchTo(id); return; }
   if (mod && !e.shiftKey && /^[1-9]$/.test(e.key)) { e.preventDefault(); const id = activePane().nthTabId(Number(e.key)); if (id) activePane().switchTo(id); return; }
   if (mod && e.key.toLowerCase() === "o") { e.preventDefault(); void openFile(); return; }
-  if (mod && e.key.toLowerCase() === "s") { e.preventDefault(); void doSave(); return; }
+  if (mod && e.shiftKey && e.key.toLowerCase() === "s") { e.preventDefault(); void doSaveAs(); return; }
+  if (mod && !e.shiftKey && e.key.toLowerCase() === "s") { e.preventDefault(); void doSave(); return; }
   if (mod && e.key.toLowerCase() === "n") { e.preventDefault(); newDoc(); return; }
   if (mod && e.key.toLowerCase() === "w") { e.preventDefault(); const id = activePane().activeTabId(); if (id) requestClose(id); return; }
   if (mod && e.key.toLowerCase() === "e") { e.preventDefault(); void exportHtml(activeView().state.doc.toString(), exportTitle()); return; }
