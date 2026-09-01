@@ -46,6 +46,9 @@ Thumbs.db
 .superpowers/
 _icon-mockups/
 
+# Isolated implementation worktrees (superpowers:using-git-worktrees)
+.worktrees/
+
 # Secrets — Apple notarization / signing keys (NEVER commit; this repo is public)
 api/
 *.p8
