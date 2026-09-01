@@ -79,6 +79,7 @@ export const commands = {
     call<WorkspaceIndexStats>("apply_path_change", { root, source, destination, expectedPlanId }),
   takeLaunchFile: () => call<string[]>("take_launch_file", {}),
   openDefaultAppsSettings: () => call<null>("open_default_apps_settings", {}),
+  setMenuLabels: (labels: Record<string, string>) => call<null>("set_menu_labels", { labels }),
   deletePath: (path: string) => call<null>("delete_path", { path }),
   createFile: (dir: string, name: string) =>
     call<string>("create_file", { dir, name }),
