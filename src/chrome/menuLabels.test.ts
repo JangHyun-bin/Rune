@@ -24,8 +24,8 @@ describe("menuLabels", () => {
     expect(labels["file.openFolder"]).toBe("Open folder…    Ctrl+Shift+O");
     expect(labels["file.exportHtml"]).toBe("Export to HTML    Ctrl+E");
     expect(labels["view.toggleFocusMode"]).toBe("Toggle focus mode    F8");
+    expect(labels["file.newTab"]).toBe("New tab    Ctrl+N");
     // No real shortcut for these — no hint appended.
-    expect(labels["file.newTab"]).toBe("New tab");
     expect(labels["file.exportPdf"]).toBe("Export to PDF");
     expect(labels["app.quit"]).toBe("Quit");
     expect(labels["view.toggleSidebar"]).toBe("Toggle Primary Sidebar");

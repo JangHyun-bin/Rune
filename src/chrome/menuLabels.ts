@@ -36,6 +36,7 @@ const IS_MACOS = typeof navigator !== "undefined" && /mac/i.test(navigator.platf
  * menu id has no real shortcut and gets no hint.
  */
 const SHORTCUT_HINTS: Record<string, string> = {
+  "file.newTab": IS_MACOS ? "Cmd+N" : "Ctrl+N",
   "file.open": IS_MACOS ? "Cmd+O" : "Ctrl+O",
   "file.openFolder": IS_MACOS ? "Cmd+Shift+O" : "Ctrl+Shift+O",
   "file.save": IS_MACOS ? "Cmd+S" : "Ctrl+S",
