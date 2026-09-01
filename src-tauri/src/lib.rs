@@ -123,6 +123,18 @@ pub fn run() {
         .manage(WorkspaceIndexState(Mutex::new(None)))
         .manage(LaunchFile(Mutex::new(initial.into_iter().collect())))
         .manage(AppReady(AtomicBool::new(false)))
+        .setup(|app| {
+            let target_os = menu::TargetOs::current();
+            let handle = app.app_handle();
+            let (built_menu, lookup) = menu::build_menu(handle, target_os)?;
+            app.set_menu(built_menu)?;
+            app.manage(menu::MenuState(Mutex::new(lookup)));
+            let emit_handle = handle.clone();
+            app.on_menu_event(move |_app, event| {
+                let _ = emit_handle.emit("menu-action", event.id().0.clone());
+            });
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             commands::path_exists,
             commands::read_file,
@@ -155,7 +167,8 @@ pub fn run() {
             commands::delete_path,
             commands::create_file,
             commands::create_dir,
-            native_drag::native_webview_origin
+            native_drag::native_webview_origin,
+            menu::set_menu_labels
         ])
         .build(tauri::generate_context!())
         .expect("error while running tauri application")

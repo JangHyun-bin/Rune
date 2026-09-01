@@ -1,3 +1,8 @@
+use std::collections::HashMap;
+use std::sync::Mutex;
+use tauri::menu::{IsMenuItem, Menu, MenuBuilder, MenuItem, MenuItemBuilder, PredefinedMenuItem, Submenu, SubmenuBuilder};
+use tauri::{AppHandle, Wry};
+
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum TargetOs {
     Windows,
@@ -74,6 +79,87 @@ pub fn submenu_defs(target_os: TargetOs) -> Vec<SubmenuDef> {
             entries: vec![Entry::Action(ActionDef { id: "help.help", fallback_text: "Help" })],
         },
     ]
+}
+
+/// A menu handle whose text can be re-set after construction. `MenuItem`
+/// and `Submenu` both expose `set_text`, but there is no shared trait for
+/// it in `tauri::menu`, so this wraps whichever one a given id refers to.
+pub enum SyncableItem {
+    Item(MenuItem<Wry>),
+    Submenu(Submenu<Wry>),
+}
+
+impl SyncableItem {
+    fn set_text(&self, text: &str) -> tauri::Result<()> {
+        match self {
+            SyncableItem::Item(item) => item.set_text(text),
+            SyncableItem::Submenu(submenu) => submenu.set_text(text),
+        }
+    }
+}
+
+pub struct MenuState(pub Mutex<HashMap<String, SyncableItem>>);
+
+/// Builds the native menu for `target_os` and a lookup of every syncable
+/// (id -> handle) so `set_menu_labels` can retext items after startup.
+/// macOS gets a prepended app submenu (About + custom Quit); Win/Linux
+/// fold Quit into File and get a native About row appended to Help.
+pub fn build_menu(app: &AppHandle, target_os: TargetOs) -> tauri::Result<(Menu<Wry>, HashMap<String, SyncableItem>)> {
+    let mut lookup: HashMap<String, SyncableItem> = HashMap::new();
+    let mut top_level: Vec<Submenu<Wry>> = Vec::new();
+
+    if target_os == TargetOs::MacOs {
+        let about = PredefinedMenuItem::about(app, Some("About Rune"), None)?;
+        let quit = MenuItemBuilder::with_id("app.quit", "Quit Rune").build(app)?;
+        let app_menu = SubmenuBuilder::new(app, "Rune")
+            .item(&about)
+            .separator()
+            .item(&quit)
+            .build()?;
+        lookup.insert("app.quit".to_string(), SyncableItem::Item(quit));
+        top_level.push(app_menu);
+    }
+
+    for def in submenu_defs(target_os) {
+        let mut builder = SubmenuBuilder::with_id(app, def.id, def.fallback_text);
+        for entry in &def.entries {
+            match entry {
+                Entry::Action(action) => {
+                    let item = MenuItemBuilder::with_id(action.id, action.fallback_text).build(app)?;
+                    builder = builder.item(&item);
+                    lookup.insert(action.id.to_string(), SyncableItem::Item(item));
+                }
+                Entry::Separator => {
+                    builder = builder.separator();
+                }
+            }
+        }
+        if def.id == "menu.help" && target_os != TargetOs::MacOs {
+            let about = PredefinedMenuItem::about(app, Some("About Rune"), None)?;
+            builder = builder.separator().item(&about);
+        }
+        let submenu = builder.build()?;
+        top_level.push(submenu.clone());
+        lookup.insert(def.id.to_string(), SyncableItem::Submenu(submenu));
+    }
+
+    let refs: Vec<&dyn IsMenuItem<Wry>> = top_level.iter().map(|s| s as &dyn IsMenuItem<Wry>).collect();
+    let menu = MenuBuilder::new(app).items(&refs).build()?;
+    Ok((menu, lookup))
+}
+
+/// Pushes already-translated text (from the frontend's i18n table) into
+/// the menu built by `build_menu`. Rust never holds its own copy of the
+/// 4-locale strings. Unknown ids in `labels` are silently skipped.
+#[tauri::command]
+pub fn set_menu_labels(state: tauri::State<MenuState>, labels: HashMap<String, String>) -> Result<(), String> {
+    let lookup = state.0.lock().map_err(|e| e.to_string())?;
+    for (id, text) in labels {
+        if let Some(item) = lookup.get(&id) {
+            item.set_text(&text).map_err(|e| e.to_string())?;
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]
