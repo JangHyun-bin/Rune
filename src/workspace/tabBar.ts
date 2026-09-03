@@ -9,6 +9,8 @@ export interface TabDragPayload {
   tabId: string;
   path: string | null;
   duplicate: boolean;
+  startX: number;
+  startY: number;
 }
 
 export interface TabBarHandlers {
@@ -37,8 +39,6 @@ export function mountTabBar(
       for (const tabItem of s.tabs) {
         const tab = document.createElement("div");
         tab.className = "tab" + (tabItem.id === s.activeId ? " active" : "");
-        tab.draggable = true;
-        tab.setAttribute("draggable", "true");
         tab.addEventListener("click", (e) => {
           if (!(e.target as HTMLElement).closest(".close")) handlers.onSelect(tabItem.id);
         });
@@ -46,18 +46,21 @@ export function mountTabBar(
           e.preventDefault();
           handlers.onContextMenu(tabItem.id, e.clientX, e.clientY);
         });
-        tab.addEventListener("dragstart", (event) => {
-          // A drag session needs at least one setData call to actually start in
-          // every browser (Firefox in particular silently cancels otherwise) —
-          // the payload itself travels via onTabDragStart's synchronous callback,
-          // not through dataTransfer, so the MIME payload here is just a label.
-          event.dataTransfer?.setData("text/plain", tabItem.path ?? title(tabItem));
-          if (event.dataTransfer) event.dataTransfer.effectAllowed = "copyMove";
+        // Mouse-based, not HTML5 draggable: Windows requires dragDropEnabled:false
+        // in tauri.conf.json for native HTML5 drag-and-drop to fire at all, and this
+        // app can't set that without breaking OS file drag-in (see fileDrop.ts). See
+        // main.ts's mousemove/mouseup handling for the rest of the drag session.
+        tab.addEventListener("mousedown", (event) => {
+          const mouseEvent = event as MouseEvent;
+          if (mouseEvent.button !== 0) return;
+          if ((event.target as HTMLElement).closest(".close")) return;
           handlers.onTabDragStart?.({
             paneId,
             tabId: tabItem.id,
             path: tabItem.path,
-            duplicate: event.ctrlKey || event.metaKey,
+            duplicate: mouseEvent.ctrlKey || mouseEvent.metaKey,
+            startX: mouseEvent.clientX,
+            startY: mouseEvent.clientY,
           });
         });
         if (tabDirty(tabItem)) {

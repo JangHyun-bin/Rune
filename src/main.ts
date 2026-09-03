@@ -1631,6 +1631,8 @@ const pendingFsPaths = new Set<string>();
 let nativeDragHasMarkdown = false;
 let nativeDragPreviousTarget: ResolvedDropTarget | null = null;
 let internalTabDrag: TabDragPayload | null = null;
+let internalTabDragActive = false;
+const INTERNAL_DRAG_THRESHOLD_PX = 6;
 function onFsChange(paths: string[]): void {
   paths.forEach((path) => pendingFsPaths.add(path));
   if (fsTimer !== undefined) clearTimeout(fsTimer);
@@ -1775,36 +1777,42 @@ function bindNativeFileDrop(): void {
   }
 }
 // Dragging an already-open tab (VSCode-style split/move), as opposed to a file
-// dragged in from the OS above — same drop-zone hit-testing and overlay, driven
-// by the browser's own dragover/drop instead of Tauri's native drag event.
+// dragged in from the OS above. Deliberately NOT HTML5 draggable/dragover/drop:
+// Windows requires dragDropEnabled:false in tauri.conf.json for those events to
+// fire at all, and this app can't set that without breaking OS file drag-in
+// (bindNativeFileDrop, above, depends on it). So this reuses the same drop-zone
+// hit-testing and overlay but drives it from plain mousemove/mouseup, gated by
+// a small movement threshold so an ordinary tab click never triggers it.
 function bindInternalTabDrop(): void {
-  window.addEventListener("dragover", (event) => {
+  window.addEventListener("mousemove", (event) => {
     if (!internalTabDrag) return;
-    event.preventDefault();
+    if (!internalTabDragActive) {
+      const dx = event.clientX - internalTabDrag.startX;
+      const dy = event.clientY - internalTabDrag.startY;
+      if (Math.hypot(dx, dy) < INTERNAL_DRAG_THRESHOLD_PX) return;
+      internalTabDragActive = true;
+    }
     const target = resolveDropTarget({ x: event.clientX, y: event.clientY });
     nativeDragPreviousTarget = target;
     showDropOverlay(target);
   });
-  window.addEventListener("drop", (event) => {
+  window.addEventListener("mouseup", (event) => {
     if (!internalTabDrag) return;
-    event.preventDefault();
     const payload = internalTabDrag;
-    const target = resolveDropTarget({ x: event.clientX, y: event.clientY });
+    const wasActive = internalTabDragActive;
     internalTabDrag = null;
+    internalTabDragActive = false;
     nativeDragPreviousTarget = null;
     hideDropOverlay();
+    if (!wasActive) return;
+    const target = resolveDropTarget({ x: event.clientX, y: event.clientY });
     void handleInternalTabDrop({
-      payload,
+      payload: { ...payload, duplicate: event.ctrlKey || event.metaKey },
       target,
       openInPane: openDroppedPathInPane,
       splitInPane: splitDroppedPathInPane,
       closeTab: (paneId, tabId) => paneWorkspace.closeTabInPane(paneId, tabId),
     });
-  });
-  window.addEventListener("dragend", () => {
-    internalTabDrag = null;
-    nativeDragPreviousTarget = null;
-    hideDropOverlay();
   });
 }
 
@@ -1825,7 +1833,7 @@ paneWorkspace = createPaneWorkspace({
   onSaveError: (msg) => errorBanner.show(tr("error.save", { msg })),
   onSplitRatioChange: (ratio) => applySplitRatio(ratio),
   onTabContextMenu: tabMenu,
-  onTabDragStart: (payload) => { internalTabDrag = payload; },
+  onTabDragStart: (payload) => { internalTabDrag = payload; internalTabDragActive = false; },
   canCloseDirtyTab: () => confirm(tr("confirm.closeDirty")),
 });
 bindNativeFileDrop();

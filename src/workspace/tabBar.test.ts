@@ -107,7 +107,11 @@ describe("tab bar", () => {
     vi.unstubAllGlobals();
   });
 
-  it("writes the supplied pane id to the host and renders draggable tabs", () => {
+  it("writes the supplied pane id to the host and does not mark tabs HTML5-draggable", () => {
+    // Windows requires dragDropEnabled:false (tauri.conf.json) for native HTML5
+    // drag-and-drop to fire at all, which this app can't set without breaking
+    // OS file drag-in (see fileDrop.ts). Tab dragging is mouse-event-based
+    // instead (mousedown here; see main.ts's mousemove/mouseup handling).
     vi.stubGlobal("document", createTestDocument());
     const host = document.createElement("div");
     const state = openOrFocus(emptyTabs(), "/w/a.md", "A");
@@ -122,11 +126,11 @@ describe("tab bar", () => {
 
     const tab = host.querySelector(".tab") as unknown as TestNode;
     expect(host.dataset.paneId).toBe("pane-2");
-    expect(tab.draggable).toBe(true);
-    expect(tab.getAttribute("draggable")).toBe("true");
+    expect(tab.draggable).toBe(false);
+    expect(tab.getAttribute("draggable")).toBeNull();
   });
 
-  it("sends pane id, tab id, path, and duplicate false on normal dragstart", () => {
+  it("sends pane id, tab id, path, start position, and duplicate false on a left mousedown", () => {
     vi.stubGlobal("document", createTestDocument());
     const host = document.createElement("div");
     const state = openOrFocus(emptyTabs(), "/w/a.md", "A");
@@ -141,17 +145,19 @@ describe("tab bar", () => {
     }).render(state);
 
     const tab = host.querySelector(".tab") as unknown as TestNode;
-    tab.dispatch("dragstart");
+    tab.dispatch("mousedown", { button: 0, clientX: 120, clientY: 40 } as Partial<MouseEvent>);
 
     expect(onTabDragStart).toHaveBeenCalledWith({
       paneId: "pane-3",
       tabId: state.tabs[0].id,
       path: "/w/a.md",
       duplicate: false,
+      startX: 120,
+      startY: 40,
     });
   });
 
-  it("marks ctrl or meta drags as duplicate", () => {
+  it("marks ctrl or meta mousedown as duplicate", () => {
     vi.stubGlobal("document", createTestDocument());
     const host = document.createElement("div");
     const state = openOrFocus(emptyTabs(), "/w/a.md", "A");
@@ -166,9 +172,29 @@ describe("tab bar", () => {
     }).render(state);
 
     const tab = host.querySelector(".tab") as unknown as TestNode;
-    tab.dispatch("dragstart", { ctrlKey: true });
+    tab.dispatch("mousedown", { button: 0, ctrlKey: true } as Partial<MouseEvent>);
 
     expect(onTabDragStart).toHaveBeenCalledWith(expect.objectContaining({ duplicate: true }));
+  });
+
+  it("ignores non-left-button mousedown", () => {
+    vi.stubGlobal("document", createTestDocument());
+    const host = document.createElement("div");
+    const state = openOrFocus(emptyTabs(), "/w/a.md", "A");
+    const onTabDragStart = vi.fn();
+
+    mountTabBar(host, {
+      paneId: "pane-5",
+      onSelect: vi.fn(),
+      onClose: vi.fn(),
+      onContextMenu: vi.fn(),
+      onTabDragStart,
+    }).render(state);
+
+    const tab = host.querySelector(".tab") as unknown as TestNode;
+    tab.dispatch("mousedown", { button: 2 } as Partial<MouseEvent>);
+
+    expect(onTabDragStart).not.toHaveBeenCalled();
   });
 
   it("defaults to pane-1 when pane id is omitted", () => {
@@ -185,7 +211,7 @@ describe("tab bar", () => {
     }).render(state);
 
     const tab = host.querySelector(".tab") as unknown as TestNode;
-    tab.dispatch("dragstart", { metaKey: true });
+    tab.dispatch("mousedown", { button: 0, metaKey: true } as Partial<MouseEvent>);
 
     expect(host.dataset.paneId).toBe("pane-1");
     expect(onTabDragStart).toHaveBeenCalledWith(expect.objectContaining({

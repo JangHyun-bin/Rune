@@ -107,7 +107,7 @@ describe("internal tab drop", () => {
     const closeTab = vi.fn();
 
     await expect(handleInternalTabDrop({
-      payload: { paneId: "pane-1", tabId: "tab-a", path: "C:/w/a.md", duplicate: false },
+      payload: { paneId: "pane-1", tabId: "tab-a", path: "C:/w/a.md", duplicate: false, startX: 0, startY: 0 },
       target: { kind: "pane-edge", paneId: "pane-1", direction: "row", side: "after" },
       openInPane: vi.fn(),
       splitInPane,
@@ -122,7 +122,7 @@ describe("internal tab drop", () => {
     const closeTab = vi.fn();
 
     await handleInternalTabDrop({
-      payload: { paneId: "pane-1", tabId: "tab-a", path: "C:/w/a.md", duplicate: true },
+      payload: { paneId: "pane-1", tabId: "tab-a", path: "C:/w/a.md", duplicate: true, startX: 0, startY: 0 },
       target: { kind: "pane-edge", paneId: "pane-1", direction: "column", side: "before" },
       openInPane: vi.fn(),
       splitInPane: vi.fn(async () => "pane-2"),
@@ -137,7 +137,7 @@ describe("internal tab drop", () => {
     const closeTab = vi.fn();
 
     await expect(handleInternalTabDrop({
-      payload: { paneId: "pane-1", tabId: "tab-a", path: "C:/w/a.md", duplicate: false },
+      payload: { paneId: "pane-1", tabId: "tab-a", path: "C:/w/a.md", duplicate: false, startX: 0, startY: 0 },
       target: { kind: "pane-center", paneId: "pane-2" },
       openInPane,
       splitInPane: vi.fn(),
@@ -153,7 +153,7 @@ describe("internal tab drop", () => {
     const closeTab = vi.fn();
 
     await expect(handleInternalTabDrop({
-      payload: { paneId: "pane-1", tabId: "tab-a", path: "C:/w/a.md", duplicate: false },
+      payload: { paneId: "pane-1", tabId: "tab-a", path: "C:/w/a.md", duplicate: false, startX: 0, startY: 0 },
       target: { kind: "pane-center", paneId: "pane-1" },
       openInPane,
       splitInPane: vi.fn(),
@@ -169,7 +169,7 @@ describe("internal tab drop", () => {
     const closeTab = vi.fn();
 
     await expect(handleInternalTabDrop({
-      payload: { paneId: "pane-1", tabId: "tab-a", path: null, duplicate: false },
+      payload: { paneId: "pane-1", tabId: "tab-a", path: null, duplicate: false, startX: 0, startY: 0 },
       target: { kind: "pane-edge", paneId: "pane-1", direction: "row", side: "after" },
       openInPane: vi.fn(),
       splitInPane,
@@ -184,7 +184,7 @@ describe("internal tab drop", () => {
     const closeTab = vi.fn();
 
     await expect(handleInternalTabDrop({
-      payload: { paneId: "pane-1", tabId: "tab-a", path: "C:/w/a.md", duplicate: false },
+      payload: { paneId: "pane-1", tabId: "tab-a", path: "C:/w/a.md", duplicate: false, startX: 0, startY: 0 },
       target: { kind: "pane-edge", paneId: "pane-1", direction: "row", side: "after" },
       openInPane: vi.fn(),
       splitInPane: vi.fn(async () => null),
