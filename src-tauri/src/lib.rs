@@ -200,6 +200,7 @@ pub fn run() {
             commands::apply_path_change,
             commands::take_launch_file,
             commands::open_default_apps_settings,
+            commands::set_window_theme,
             commands::delete_path,
             commands::create_file,
             commands::create_dir,

@@ -2,7 +2,7 @@ use crate::fs_ops;
 use notify::{RecursiveMode, Watcher};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use tauri::{AppHandle, Emitter, Manager};
+use tauri::{AppHandle, Emitter, Manager, Theme, WebviewWindow};
 
 #[tauri::command]
 pub fn path_exists(path: String) -> Result<bool, String> {
@@ -404,4 +404,43 @@ pub fn open_default_apps_settings() -> Result<(), String> {
             .spawn();
     }
     Ok(())
+}
+
+/// Maps the frontend's theme string to Tauri's `Theme` enum. `None` clears
+/// any override (falls back to the OS theme) — not currently reachable from
+/// the frontend, which always sends "light" or "dark", but kept total rather
+/// than panicking on an unexpected value.
+fn parse_theme(theme: &str) -> Option<Theme> {
+    match theme {
+        "dark" => Some(Theme::Dark),
+        "light" => Some(Theme::Light),
+        _ => None,
+    }
+}
+
+/// Syncs the native window chrome (title bar, and on Windows the menu bar)
+/// to Rune's own light/dark theme, instead of letting it default to the OS
+/// theme. Without this, an OS in dark mode renders the native menu bar dark
+/// regardless of which theme the user picked inside Rune, clashing with the
+/// app's own light/dark-themed custom titlebar strip directly below it.
+#[tauri::command]
+pub fn set_window_theme(window: WebviewWindow, theme: String) -> Result<(), String> {
+    window.set_theme(parse_theme(&theme)).map_err(|e| e.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_theme_maps_known_values() {
+        assert_eq!(parse_theme("dark"), Some(Theme::Dark));
+        assert_eq!(parse_theme("light"), Some(Theme::Light));
+    }
+
+    #[test]
+    fn parse_theme_falls_back_to_none_for_unknown_values() {
+        assert_eq!(parse_theme("sepia"), None);
+        assert_eq!(parse_theme(""), None);
+    }
 }

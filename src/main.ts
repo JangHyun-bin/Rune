@@ -524,6 +524,7 @@ function settingsSnapshot() {
 }
 function applyTheme(theme: "light" | "dark"): void {
   document.documentElement.setAttribute("data-theme", theme);
+  void commands.setWindowTheme(theme).then((r) => { if (r.status === "error") console.warn(r.error); });
   broadcastViewWindowPresentation();
   scheduleSaveSettings();
 }
@@ -1390,6 +1391,7 @@ async function doSaveAs(): Promise<void> {
 function flipTheme(): void {
   const next = document.documentElement.getAttribute("data-theme") === "dark" ? "light" : "dark";
   document.documentElement.setAttribute("data-theme", next);
+  void commands.setWindowTheme(next).then((r) => { if (r.status === "error") console.warn(r.error); });
   scheduleSaveSettings();
 }
 function paletteItems(): PaletteItem[] {
@@ -1490,7 +1492,9 @@ async function restore(): Promise<void> {
   ]);
   const recovery = recoveryResult.status === "ok" ? parseHotExitSnapshot(recoveryResult.data) : null;
   const s = res.status === "ok" ? res.data : { theme: null, lastFolder: null, openTabs: [], locale: null, editorWidth: null, editorMode: null, sidebarWidth: null, layout: null, workbenchLayout: null, viewWindowLayout: null, namedLayouts: null, activeNamedLayout: null, focusMode: null, typewriterMode: null, paneLayout: null, uiScale: null, editorFontScale: null };
-  document.documentElement.setAttribute("data-theme", s.theme === "light" || s.theme === "dark" ? s.theme : (prefersDark() ? "dark" : "light"));
+  const startupTheme = s.theme === "light" || s.theme === "dark" ? s.theme : (prefersDark() ? "dark" : "light");
+  document.documentElement.setAttribute("data-theme", startupTheme);
+  void commands.setWindowTheme(startupTheme).then((r) => { if (r.status === "error") console.warn(r.error); });
   document.documentElement.setAttribute("data-editor-width", s.editorWidth === "wide" ? "wide" : "readable");
   editorMode = normalizeEditorMode(s.editorMode);
   document.documentElement.setAttribute("data-editor-mode", editorMode);
