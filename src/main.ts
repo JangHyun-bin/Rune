@@ -61,7 +61,8 @@ import { normalizePaneWorkspaceSnapshot } from "./workspace/panePersistence";
 import { parseHotExitSnapshot } from "./workspace/hotExit";
 import { createHotExitStore } from "./workspace/hotExitStore";
 import { dropZoneRect, firstMarkdownPath, hitPaneDropZone, physicalToCssPoint } from "./workspace/dropTargets";
-import { createNativeFileOpenQueue, handleNativeFileDrop, type ResolvedDropTarget } from "./workspace/fileDrop";
+import { createNativeFileOpenQueue, handleInternalTabDrop, handleNativeFileDrop, type ResolvedDropTarget } from "./workspace/fileDrop";
+import type { TabDragPayload } from "./workspace/tabBar";
 import { createViewRegistry } from "./workbench/viewRegistry";
 import { createCommandRegistry } from "./workbench/commandRegistry";
 import { mountWorkbench } from "./workbench/workbench";
@@ -1629,6 +1630,7 @@ let fsTimer: number | undefined;
 const pendingFsPaths = new Set<string>();
 let nativeDragHasMarkdown = false;
 let nativeDragPreviousTarget: ResolvedDropTarget | null = null;
+let internalTabDrag: TabDragPayload | null = null;
 function onFsChange(paths: string[]): void {
   paths.forEach((path) => pendingFsPaths.add(path));
   if (fsTimer !== undefined) clearTimeout(fsTimer);
@@ -1772,6 +1774,39 @@ function bindNativeFileDrop(): void {
     console.warn(error);
   }
 }
+// Dragging an already-open tab (VSCode-style split/move), as opposed to a file
+// dragged in from the OS above — same drop-zone hit-testing and overlay, driven
+// by the browser's own dragover/drop instead of Tauri's native drag event.
+function bindInternalTabDrop(): void {
+  window.addEventListener("dragover", (event) => {
+    if (!internalTabDrag) return;
+    event.preventDefault();
+    const target = resolveDropTarget({ x: event.clientX, y: event.clientY });
+    nativeDragPreviousTarget = target;
+    showDropOverlay(target);
+  });
+  window.addEventListener("drop", (event) => {
+    if (!internalTabDrag) return;
+    event.preventDefault();
+    const payload = internalTabDrag;
+    const target = resolveDropTarget({ x: event.clientX, y: event.clientY });
+    internalTabDrag = null;
+    nativeDragPreviousTarget = null;
+    hideDropOverlay();
+    void handleInternalTabDrop({
+      payload,
+      target,
+      openInPane: openDroppedPathInPane,
+      splitInPane: splitDroppedPathInPane,
+      closeTab: (paneId, tabId) => paneWorkspace.closeTabInPane(paneId, tabId),
+    });
+  });
+  window.addEventListener("dragend", () => {
+    internalTabDrag = null;
+    nativeDragPreviousTarget = null;
+    hideDropOverlay();
+  });
+}
 
 paneWorkspace = createPaneWorkspace({
   host: editorRoot,
@@ -1790,9 +1825,11 @@ paneWorkspace = createPaneWorkspace({
   onSaveError: (msg) => errorBanner.show(tr("error.save", { msg })),
   onSplitRatioChange: (ratio) => applySplitRatio(ratio),
   onTabContextMenu: tabMenu,
+  onTabDragStart: (payload) => { internalTabDrag = payload; },
   canCloseDirtyTab: () => confirm(tr("confirm.closeDirty")),
 });
 bindNativeFileDrop();
+bindInternalTabDrop();
 void restore().then(
   () => {
     settingsSaveScheduler.enable();

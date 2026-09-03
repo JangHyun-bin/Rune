@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { createNativeFileOpenQueue, handleNativeFileDrop } from "./fileDrop";
+import { createNativeFileOpenQueue, handleInternalTabDrop, handleNativeFileDrop } from "./fileDrop";
 
 describe("native file open queue", () => {
   it("keeps drained startup paths ahead of a live open-file event", async () => {
@@ -98,5 +98,99 @@ describe("native file drop", () => {
 
     expect(openInPane).not.toHaveBeenCalled();
     expect(splitInPane).not.toHaveBeenCalled();
+  });
+});
+
+describe("internal tab drop", () => {
+  it("splits a pane from an edge target and moves the source tab (closes it)", async () => {
+    const splitInPane = vi.fn(async () => "pane-2");
+    const closeTab = vi.fn();
+
+    await expect(handleInternalTabDrop({
+      payload: { paneId: "pane-1", tabId: "tab-a", path: "C:/w/a.md", duplicate: false },
+      target: { kind: "pane-edge", paneId: "pane-1", direction: "row", side: "after" },
+      openInPane: vi.fn(),
+      splitInPane,
+      closeTab,
+    })).resolves.toBe(true);
+
+    expect(splitInPane).toHaveBeenCalledWith("pane-1", "C:/w/a.md", "row", "after");
+    expect(closeTab).toHaveBeenCalledWith("pane-1", "tab-a");
+  });
+
+  it("keeps the source tab open when duplicating (Ctrl/Cmd drag)", async () => {
+    const closeTab = vi.fn();
+
+    await handleInternalTabDrop({
+      payload: { paneId: "pane-1", tabId: "tab-a", path: "C:/w/a.md", duplicate: true },
+      target: { kind: "pane-edge", paneId: "pane-1", direction: "column", side: "before" },
+      openInPane: vi.fn(),
+      splitInPane: vi.fn(async () => "pane-2"),
+      closeTab,
+    });
+
+    expect(closeTab).not.toHaveBeenCalled();
+  });
+
+  it("moves the tab to a different pane's center", async () => {
+    const openInPane = vi.fn(async () => true);
+    const closeTab = vi.fn();
+
+    await expect(handleInternalTabDrop({
+      payload: { paneId: "pane-1", tabId: "tab-a", path: "C:/w/a.md", duplicate: false },
+      target: { kind: "pane-center", paneId: "pane-2" },
+      openInPane,
+      splitInPane: vi.fn(),
+      closeTab,
+    })).resolves.toBe(true);
+
+    expect(openInPane).toHaveBeenCalledWith("pane-2", "C:/w/a.md");
+    expect(closeTab).toHaveBeenCalledWith("pane-1", "tab-a");
+  });
+
+  it("does nothing when dropped back on its own pane's center", async () => {
+    const openInPane = vi.fn();
+    const closeTab = vi.fn();
+
+    await expect(handleInternalTabDrop({
+      payload: { paneId: "pane-1", tabId: "tab-a", path: "C:/w/a.md", duplicate: false },
+      target: { kind: "pane-center", paneId: "pane-1" },
+      openInPane,
+      splitInPane: vi.fn(),
+      closeTab,
+    })).resolves.toBe(false);
+
+    expect(openInPane).not.toHaveBeenCalled();
+    expect(closeTab).not.toHaveBeenCalled();
+  });
+
+  it("does nothing for an untitled tab with no path", async () => {
+    const splitInPane = vi.fn();
+    const closeTab = vi.fn();
+
+    await expect(handleInternalTabDrop({
+      payload: { paneId: "pane-1", tabId: "tab-a", path: null, duplicate: false },
+      target: { kind: "pane-edge", paneId: "pane-1", direction: "row", side: "after" },
+      openInPane: vi.fn(),
+      splitInPane,
+      closeTab,
+    })).resolves.toBe(false);
+
+    expect(splitInPane).not.toHaveBeenCalled();
+    expect(closeTab).not.toHaveBeenCalled();
+  });
+
+  it("does not close the source tab when the split fails", async () => {
+    const closeTab = vi.fn();
+
+    await expect(handleInternalTabDrop({
+      payload: { paneId: "pane-1", tabId: "tab-a", path: "C:/w/a.md", duplicate: false },
+      target: { kind: "pane-edge", paneId: "pane-1", direction: "row", side: "after" },
+      openInPane: vi.fn(),
+      splitInPane: vi.fn(async () => null),
+      closeTab,
+    })).resolves.toBe(false);
+
+    expect(closeTab).not.toHaveBeenCalled();
   });
 });

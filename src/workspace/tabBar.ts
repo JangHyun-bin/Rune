@@ -47,6 +47,12 @@ export function mountTabBar(
           handlers.onContextMenu(tabItem.id, e.clientX, e.clientY);
         });
         tab.addEventListener("dragstart", (event) => {
+          // A drag session needs at least one setData call to actually start in
+          // every browser (Firefox in particular silently cancels otherwise) —
+          // the payload itself travels via onTabDragStart's synchronous callback,
+          // not through dataTransfer, so the MIME payload here is just a label.
+          event.dataTransfer?.setData("text/plain", tabItem.path ?? title(tabItem));
+          if (event.dataTransfer) event.dataTransfer.effectAllowed = "copyMove";
           handlers.onTabDragStart?.({
             paneId,
             tabId: tabItem.id,

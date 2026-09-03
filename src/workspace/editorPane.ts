@@ -4,7 +4,7 @@ import type { PathChangePlan } from "../ipc/bindings";
 import { editorState, createEditorView, type EditorMode } from "../editor/editor";
 import { mountSplitPreview, type SplitPreview } from "../editor/splitPreview";
 import { samePath } from "./paths";
-import { mountTabBar } from "./tabBar";
+import { mountTabBar, type TabDragPayload } from "./tabBar";
 import { resolveHotExitTab, type HotExitPaneSnapshot } from "./hotExit";
 import {
   activeTab,
@@ -46,6 +46,7 @@ export interface EditorPaneOptions {
   onSaveError?: (message: string) => void;
   onSplitRatioChange?: (ratio: number) => void;
   onTabContextMenu?: (paneId: string, tabId: string, x: number, y: number) => void;
+  onTabDragStart?: (payload: TabDragPayload) => void;
   canCloseDirtyTab?: (paneId: string, tabId: string) => boolean;
   onEmptyPane?: (paneId: string) => boolean;
 }
@@ -153,6 +154,7 @@ export function createEditorPane(options: EditorPaneOptions): EditorPane {
     onSelect: switchTo,
     onClose: closeTab,
     onContextMenu: (tabId, x, y) => options.onTabContextMenu?.(id, tabId, x, y),
+    onTabDragStart: (payload) => options.onTabDragStart?.(payload),
   });
 
   root.addEventListener("mousedown", () => options.onActiveChange(id));

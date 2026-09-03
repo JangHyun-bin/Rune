@@ -12,6 +12,7 @@ import {
 import type { PaneWorkspaceSnapshot } from "./panePersistence";
 import type { HotExitSnapshot } from "./hotExit";
 import type { PathChangePlan } from "../ipc/bindings";
+import type { TabDragPayload } from "./tabBar";
 
 export interface PaneWorkspaceOptions {
   host: HTMLElement;
@@ -27,6 +28,7 @@ export interface PaneWorkspaceOptions {
   onSaveError?: (message: string) => void;
   onSplitRatioChange?: (ratio: number) => void;
   onTabContextMenu?: (paneId: PaneId, tabId: string, x: number, y: number) => void;
+  onTabDragStart?: (payload: TabDragPayload) => void;
   canCloseDirtyTab?: (paneId: PaneId, tabId: string) => boolean;
 }
 
@@ -34,6 +36,7 @@ export interface PaneWorkspace {
   activePane(): EditorPane;
   openPathInActivePane(path: string): Promise<boolean>;
   openPathInPane(paneId: PaneId, path: string): Promise<boolean>;
+  closeTabInPane(paneId: PaneId, tabId: string): void;
   splitActivePaneAndOpen(
     path: string,
     direction: SplitDirection,
@@ -149,6 +152,7 @@ export function createPaneWorkspace(options: PaneWorkspaceOptions): PaneWorkspac
       onSaveError: options.onSaveError,
       onSplitRatioChange: options.onSplitRatioChange,
       onTabContextMenu: options.onTabContextMenu,
+      onTabDragStart: options.onTabDragStart,
       canCloseDirtyTab: options.canCloseDirtyTab,
       onEmptyPane: removePaneIfAllowed,
     });
@@ -330,6 +334,10 @@ export function createPaneWorkspace(options: PaneWorkspaceOptions): PaneWorkspac
     return true;
   }
 
+  function closeTabInPane(paneId: PaneId, tabId: string): void {
+    assertPane(panes, paneId).closeTab(tabId);
+  }
+
   async function splitPaneAndOpen(
     paneId: PaneId,
     path: string,
@@ -492,6 +500,7 @@ export function createPaneWorkspace(options: PaneWorkspaceOptions): PaneWorkspac
       return openPathInPane(activePaneId, path);
     },
     openPathInPane,
+    closeTabInPane,
     splitActivePaneAndOpen(path, direction, side) {
       return splitPaneAndOpen(activePaneId, path, direction, side);
     },
