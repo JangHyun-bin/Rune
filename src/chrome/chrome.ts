@@ -19,8 +19,6 @@ export function mountChrome(
     onOpenSettings?: () => void;
   },
 ): Chrome {
-  const spacer = document.createElement("span");
-  spacer.className = "tb-spacer";
   const sidebarBtn = document.createElement("button");
   sidebarBtn.className = "tb-toggle-sidebar";
   sidebarBtn.textContent = "◫";
@@ -47,7 +45,7 @@ export function mountChrome(
   const brand = document.createElement("span");
   brand.className = "tb-brand";
   brand.innerHTML = sparkleSvg(18);
-  titlebar.replaceChildren(brand, spacer, sidebarBtn, secondarySidebarBtn, panelBtn, settingsBtn);
+  titlebar.replaceChildren(brand, sidebarBtn, secondarySidebarBtn, panelBtn, settingsBtn);
 
   const left = document.createElement("span");
   const right = document.createElement("span");

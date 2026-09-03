@@ -38,7 +38,6 @@ body { background: var(--bg); color: var(--text); font-family: var(--sans); }
   border-bottom:1px solid var(--border); background:var(--faint); font-size:0.78125rem; color:var(--muted); user-select:none; }
 #titlebar .tb-brand { display:inline-flex; align-items:center; gap:0.375rem; color:var(--text); }
 #titlebar .tb-brand svg { display:block; }
-#titlebar .tb-spacer { flex:1; min-width:0; }
 #titlebar button { background:none; border:none; color:var(--muted); font-size:0.875rem; line-height:1; padding:0.25rem 0.5rem;
   border-radius:var(--radius-sm); cursor:pointer; transition:color var(--dur) var(--ease), background var(--dur) var(--ease); }
 #titlebar button:hover { color:var(--text); background:var(--accent-soft); }
