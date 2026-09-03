@@ -268,8 +268,9 @@ body.dock-drag-active { cursor:grabbing; user-select:none; }
 .pane-tabbar .close { width:1rem; height:1rem; border-radius:var(--radius-sm); display:inline-flex; align-items:center; justify-content:center; color:var(--muted); }
 .pane-tabbar .close:hover { background:var(--border); color:var(--text); }
 .drop-overlay { position:fixed; pointer-events:none; z-index:150; box-sizing:border-box; border:2px solid var(--accent);
-  background:rgba(17,74,219,0.08); border-radius:var(--radius-sm); box-shadow:0 0 0 1px var(--accent-soft) inset; }
-.drop-overlay.hidden { display:none; }
+  background:rgba(17,74,219,0.08); border-radius:var(--radius-sm); box-shadow:0 0 0 1px var(--accent-soft) inset;
+  opacity:1; transition:left var(--dur) var(--ease), top var(--dur) var(--ease), width var(--dur) var(--ease), height var(--dur) var(--ease), opacity var(--dur) var(--ease), background var(--dur) var(--ease); }
+.drop-overlay.hidden { opacity:0; }
 .drop-overlay[data-kind="tabbar"] { background:rgba(17,74,219,0.12); }
 .drop-overlay[data-kind="pane-edge"] { background:rgba(17,74,219,0.14); }
 #editor.editor-split { display:grid; grid-template-columns:minmax(96px, var(--split-source-width)) 6px minmax(96px, 1fr); }
