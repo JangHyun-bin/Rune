@@ -796,7 +796,7 @@ function applyLocale(l: Locale): void {
   chrome.relabel();
   workbench.relabel();
   layoutModeControl?.relabel();
-  void commands.setMenuLabels(menuLabels());
+  void commands.setMenuLabels(menuLabels()).then((r) => { if (r.status === "error") console.warn(r.error); });
   syncActiveUI();
   settingsPanel.refresh();
   broadcastViewWindowPresentation();
@@ -1520,7 +1520,7 @@ async function restore(): Promise<void> {
   chrome.relabel();
   workbench.relabel();
   layoutModeControl?.relabel();
-  void commands.setMenuLabels(menuLabels());
+  void commands.setMenuLabels(menuLabels()).then((r) => { if (r.status === "error") console.warn(r.error); });
 
   if (s.lastFolder) { await loadFolder(s.lastFolder).catch(() => {}); }
   await paneWorkspace.restore(normalizePaneWorkspaceSnapshot(s.paneLayout, s.openTabs));

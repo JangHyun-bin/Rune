@@ -6,7 +6,7 @@ import { t } from "../i18n/i18n";
  * i18n keys are reused from the command palette wherever the same
  * action already has one, so there is one string per concept, not two.
  */
-const MENU_LABEL_KEYS: Record<string, string> = {
+export const MENU_LABEL_KEYS: Record<string, string> = {
   "menu.file": "menu.file",
   "menu.view": "menu.view",
   "menu.help": "menu.help",

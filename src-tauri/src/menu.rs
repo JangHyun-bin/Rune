@@ -195,16 +195,26 @@ pub fn build_menu(app: &AppHandle, target_os: TargetOs) -> tauri::Result<(Menu<W
 
 /// Pushes already-translated text (from the frontend's i18n table) into
 /// the menu built by `build_menu`. Rust never holds its own copy of the
-/// 4-locale strings. Unknown ids in `labels` are silently skipped.
+/// 4-locale strings. Unknown ids in `labels` are silently skipped. A
+/// `set_text` failure on one item does not stop the rest — every item is
+/// attempted, and any failures are joined into the returned error so the
+/// menu ends up as fully translated as possible rather than half-applied.
 #[tauri::command]
 pub fn set_menu_labels(state: tauri::State<MenuState>, labels: HashMap<String, String>) -> Result<(), String> {
     let lookup = state.0.lock().map_err(|e| e.to_string())?;
+    let mut errors = Vec::new();
     for (id, text) in labels {
         if let Some(item) = lookup.get(&id) {
-            item.set_text(&text).map_err(|e| e.to_string())?;
+            if let Err(e) = item.set_text(&text) {
+                errors.push(format!("{id}: {e}"));
+            }
         }
     }
-    Ok(())
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(errors.join("; "))
+    }
 }
 
 #[cfg(test)]
@@ -254,5 +264,46 @@ mod tests {
             ids.dedup();
             assert_eq!(ids.len(), before, "{:?} has a duplicate menu item id", os);
         }
+    }
+
+    /// This is the mechanical half of the Rust<->TS id contract described in
+    /// `submenu_defs`'s doc comment. If this fails after you add/rename/remove
+    /// an id, update `MENU_LABEL_KEYS` in `src/chrome/menuLabels.ts` to match —
+    /// every id here must have exactly one entry there, and vice versa.
+    #[test]
+    fn action_and_submenu_ids_match_the_frontend_contract() {
+        let mut all_ids: Vec<&str> = [TargetOs::Windows, TargetOs::MacOs, TargetOs::Linux]
+            .into_iter()
+            .flat_map(|os| {
+                let defs = submenu_defs(os);
+                let mut ids: Vec<&str> = defs.iter().map(|s| s.id).collect();
+                ids.extend(action_ids(&defs));
+                ids
+            })
+            .collect();
+        all_ids.sort_unstable();
+        all_ids.dedup();
+        assert_eq!(
+            all_ids,
+            vec![
+                "app.quit",
+                "file.exportHtml",
+                "file.exportPdf",
+                "file.newTab",
+                "file.open",
+                "file.openFolder",
+                "file.save",
+                "file.saveAs",
+                "help.help",
+                "menu.file",
+                "menu.help",
+                "menu.view",
+                "view.toggleFocusMode",
+                "view.togglePanel",
+                "view.toggleSidebar",
+                "view.toggleTheme",
+            ],
+            "menu id set changed — update src/chrome/menuLabels.ts's MENU_LABEL_KEYS to match"
+        );
     }
 }

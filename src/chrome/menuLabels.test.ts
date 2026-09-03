@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { setLocale } from "../i18n/i18n";
-import { menuLabels } from "./menuLabels";
+import { DICT, setLocale } from "../i18n/i18n";
+import { menuLabels, MENU_LABEL_KEYS } from "./menuLabels";
 
 describe("menuLabels", () => {
   beforeEach(() => setLocale("en"));
@@ -48,6 +48,15 @@ describe("menuLabels", () => {
       for (const [id, text] of Object.entries(labels)) {
         expect(text.length, `${id} in ${locale}`).toBeGreaterThan(0);
       }
+    }
+  });
+
+  // Guards against a typo in MENU_LABEL_KEYS' i18n key: t() falls back to the
+  // raw key string on a miss (see i18n.ts), so a typo would otherwise render
+  // the key itself in the menu and pass every other test here silently.
+  it("maps every id to an i18n key that actually exists in the dictionary", () => {
+    for (const key of Object.values(MENU_LABEL_KEYS)) {
+      expect(DICT.en, `MENU_LABEL_KEYS value "${key}" is not a real i18n key`).toHaveProperty(key);
     }
   });
 });
