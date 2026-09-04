@@ -94,6 +94,13 @@ jobs:
       - name: Test frontend
         run: npm test -- --run
 
+      - name: Update npm
+        # setup-node's bundled npm (whatever ships with Node 20) still calls the
+        # registry's legacy "quick audit" endpoint, which npm is retiring and
+        # which now returns inconsistent 400/503s unrelated to this repo's own
+        # dependency tree. A current npm uses the bulk-advisory endpoint instead.
+        run: npm install -g npm@latest
+
       - name: Audit production frontend dependencies
         run: npm audit --omit=dev --audit-level=moderate
 
