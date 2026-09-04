@@ -11,10 +11,11 @@ mod workspace_index;
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicBool, Ordering};
-#[cfg(any(
-    target_os = "macos",
-    all(desktop, not(feature = "webdriver"))
-))]
+// desktop covers macOS/Windows/Linux; Manager/Emitter are needed unconditionally
+// there now (menu::build_menu's .setup() call uses app_handle/manage/emit on
+// every desktop build, webdriver feature or not — not just the narrower set
+// queue_open_file_until_ready alone would have needed).
+#[cfg(desktop)]
 use tauri::{Emitter, Manager};
 
 #[cfg(all(feature = "webdriver", target_os = "linux"))]
