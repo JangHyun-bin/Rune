@@ -258,8 +258,13 @@ body.dock-drag-active { cursor:grabbing; user-select:none; }
 .pane-split-resizer[data-direction="row"] { cursor:col-resize; border-left:1px solid var(--border); border-right:1px solid var(--border); }
 .pane-split-resizer[data-direction="column"] { cursor:row-resize; border-top:1px solid var(--border); border-bottom:1px solid var(--border); }
 .pane-split-resizer:hover, .pane-split-resizer.dragging { background:var(--accent-soft); border-color:var(--accent); }
+/* user-select/-webkit-user-drag:none — without these, WebKit (macOS) turns a
+   mousedown+drag over the tab's label text into an implicit native text
+   selection-drag, which hijacks the pointer session so bindInternalTabDrop's
+   window "mouseup" (main.ts) never fires. Chromium (Windows) doesn't do this
+   on a first press, which is why the mouse-based tab drag worked there. */
 .pane-tabbar .tab { display:flex; align-items:center; gap:0.375rem; padding:0 0.75rem; max-width:12.5rem; border-right:1px solid var(--border);
-  cursor:pointer; font-size:0.78125rem; color:var(--muted); white-space:nowrap;
+  cursor:pointer; font-size:0.78125rem; color:var(--muted); white-space:nowrap; user-select:none; -webkit-user-drag:none;
   border-top:2px solid transparent; transition:background var(--dur) var(--ease), color var(--dur) var(--ease); }
 .pane-tabbar .tab.active { background:var(--bg); color:var(--text); border-top-color:var(--accent); }
 .pane-tabbar .tab:hover { background:var(--bg); color:var(--text); }

@@ -54,6 +54,11 @@ export function mountTabBar(
           const mouseEvent = event as MouseEvent;
           if (mouseEvent.button !== 0) return;
           if ((event.target as HTMLElement).closest(".close")) return;
+          // Belt-and-suspenders alongside styles.css's user-select/-webkit-user-drag:
+          // none — without this, WebKit (macOS) can start an implicit native
+          // text-selection-drag on the label text that hijacks the pointer session
+          // before main.ts's window "mouseup" ever fires.
+          event.preventDefault();
           handlers.onTabDragStart?.({
             paneId,
             tabId: tabItem.id,
