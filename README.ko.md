@@ -54,10 +54,10 @@ Rune은 **입력하는 즉시** 서식이 적용되는 크로스플랫폼 마크
 
 | OS | 다운로드 |
 |----|----------|
-| **macOS** · Apple Silicon | [`Rune_1.0.2_aarch64.dmg`](https://github.com/JangHyun-bin/Rune/releases/download/v1.0.2/Rune_1.0.2_aarch64.dmg) |
-| **macOS** · Intel | [`Rune_1.0.2_x64.dmg`](https://github.com/JangHyun-bin/Rune/releases/download/v1.0.2/Rune_1.0.2_x64.dmg) |
-| **Windows** | [`.msi`](https://github.com/JangHyun-bin/Rune/releases/download/v1.0.2/Rune_1.0.2_x64_en-US.msi) · [`.exe`](https://github.com/JangHyun-bin/Rune/releases/download/v1.0.2/Rune_1.0.2_x64-setup.exe) |
-| **Linux** | [`.deb`](https://github.com/JangHyun-bin/Rune/releases/download/v1.0.2/Rune_1.0.2_amd64.deb) · [`.rpm`](https://github.com/JangHyun-bin/Rune/releases/download/v1.0.2/Rune-1.0.2-1.x86_64.rpm) · [`.AppImage`](https://github.com/JangHyun-bin/Rune/releases/download/v1.0.2/Rune_1.0.2_amd64.AppImage) |
+| **macOS** · Apple Silicon | [`Rune_1.0.3_aarch64.dmg`](https://github.com/JangHyun-bin/Rune/releases/download/v1.0.3/Rune_1.0.3_aarch64.dmg) |
+| **macOS** · Intel | [`Rune_1.0.3_x64.dmg`](https://github.com/JangHyun-bin/Rune/releases/download/v1.0.3/Rune_1.0.3_x64.dmg) |
+| **Windows** | [`.msi`](https://github.com/JangHyun-bin/Rune/releases/download/v1.0.3/Rune_1.0.3_x64_en-US.msi) · [`.exe`](https://github.com/JangHyun-bin/Rune/releases/download/v1.0.3/Rune_1.0.3_x64-setup.exe) |
+| **Linux** | [`.deb`](https://github.com/JangHyun-bin/Rune/releases/download/v1.0.3/Rune_1.0.3_amd64.deb) · [`.rpm`](https://github.com/JangHyun-bin/Rune/releases/download/v1.0.3/Rune-1.0.3-1.x86_64.rpm) · [`.AppImage`](https://github.com/JangHyun-bin/Rune/releases/download/v1.0.3/Rune_1.0.3_amd64.AppImage) |
 
 > **macOS:** CI에서 Apple Silicon·Intel DMG를 서명·공증·스테이플링하고 설치 검증까지 수행합니다.
 

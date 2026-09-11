@@ -139,6 +139,18 @@ const dropOverlay = document.createElement("div");
 dropOverlay.className = "drop-overlay hidden";
 document.body.appendChild(dropOverlay);
 
+// TEMPORARY diagnostic HUD for the macOS internal-tab-drag drop failure
+// (works even in a release build with no devtools access) — remove once
+// that's root-caused and fixed.
+const dragDebug = document.createElement("div");
+dragDebug.style.cssText =
+  "position:fixed;bottom:8px;right:8px;z-index:99999;max-width:70vw;background:#000;color:#0f0;" +
+  "font:11px/1.4 monospace;padding:6px 10px;border-radius:4px;white-space:pre-wrap;pointer-events:none;";
+document.body.appendChild(dragDebug);
+function setDragDebug(msg: string): void {
+  dragDebug.textContent = `[drag-debug] ${msg}`;
+}
+
 let paneWorkspace: PaneWorkspace;
 let currentFolder: string | null = null;
 let workspaceTree: FileNode[] = [];
@@ -1791,10 +1803,12 @@ function bindInternalTabDrop(): void {
       const dy = event.clientY - internalTabDrag.startY;
       if (Math.hypot(dx, dy) < INTERNAL_DRAG_THRESHOLD_PX) return;
       internalTabDragActive = true;
+      setDragDebug(`drag active (threshold crossed) path=${internalTabDrag.path ?? "null"}`);
     }
     const target = resolveDropTarget({ x: event.clientX, y: event.clientY });
     nativeDragPreviousTarget = target;
     showDropOverlay(target);
+    setDragDebug(`move: (${event.clientX},${event.clientY}) kind=${target.kind} paneId=${target.paneId ?? "null"}`);
   });
   window.addEventListener("mouseup", (event) => {
     if (!internalTabDrag) return;
@@ -1804,15 +1818,22 @@ function bindInternalTabDrop(): void {
     internalTabDragActive = false;
     nativeDragPreviousTarget = null;
     hideDropOverlay();
-    if (!wasActive) return;
+    if (!wasActive) { setDragDebug("mouseup: drag never crossed threshold, ignored"); return; }
     const target = resolveDropTarget({ x: event.clientX, y: event.clientY });
+    setDragDebug(
+      `mouseup: (${event.clientX},${event.clientY}) kind=${target.kind} paneId=${target.paneId ?? "null"} ` +
+      `payload.path=${payload.path ?? "null"} payload.paneId=${payload.paneId} resolving...`,
+    );
     void handleInternalTabDrop({
       payload: { ...payload, duplicate: event.ctrlKey || event.metaKey },
       target,
       openInPane: openDroppedPathInPane,
       splitInPane: splitDroppedPathInPane,
       closeTab: (paneId, tabId) => paneWorkspace.closeTabInPane(paneId, tabId),
-    });
+    }).then(
+      (ok) => setDragDebug(`drop result: ${ok} (kind=${target.kind} paneId=${target.paneId ?? "null"})`),
+      (err) => setDragDebug(`drop THREW: ${String(err)}`),
+    );
   });
 }
 
@@ -1833,7 +1854,11 @@ paneWorkspace = createPaneWorkspace({
   onSaveError: (msg) => errorBanner.show(tr("error.save", { msg })),
   onSplitRatioChange: (ratio) => applySplitRatio(ratio),
   onTabContextMenu: tabMenu,
-  onTabDragStart: (payload) => { internalTabDrag = payload; internalTabDragActive = false; },
+  onTabDragStart: (payload) => {
+    internalTabDrag = payload;
+    internalTabDragActive = false;
+    setDragDebug(`mousedown: paneId=${payload.paneId} path=${payload.path ?? "null"} at (${payload.startX},${payload.startY})`);
+  },
   canCloseDirtyTab: () => confirm(tr("confirm.closeDirty")),
 });
 bindNativeFileDrop();
